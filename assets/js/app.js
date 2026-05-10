@@ -273,10 +273,10 @@ function paginaRotas(params, container) {
       '<div class="card" style="margin-bottom:var(--space-5)">' +
         '<div class="card-body">' +
           '<div class="stats-grid">' +
-            UI.renderStatCard('Percurso', cb.percursoTotal, 'Trecho estimado', 'stat-icon-blue', '🛣️') +
-            UI.renderStatCard('Consumo', cb.consumoMedio, 'Médio estimado', 'stat-icon-green', '⛽') +
+            UI.renderStatCard('Percurso', cb.percursoTotal, cb.percesoSub || 'Trecho estimado', 'stat-icon-blue', '🛣️') +
+            UI.renderStatCard('Consumo', cb.consumoMedio, 'Média do veículo', 'stat-icon-green', '⛽') +
             UI.renderStatCard('Litros', cb.litrosNecessarios + ' L', 'Necessários', 'stat-icon-yellow', '🪣') +
-            UI.renderStatCard('Custo total', cb.custoEstimado, cb.precoCombustivel + '/L', 'stat-icon-blue', '💰') +
+            UI.renderStatCard('Custo', cb.custoEstimado, cb.precoCombustivel + '/L', 'stat-icon-blue', '💰') +
           '</div>' +
           '<p class="text-xs text-muted" style="margin-top:var(--space-4)">' + cb.observacao + '</p>' +
         '</div>' +

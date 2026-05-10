@@ -48,28 +48,33 @@ rotaboa/
 ## Como testar localmente
 
 ### Opção 1 — Abrir direto no navegador
-```bash
-open index.html    # macOS
-# ou arraste o arquivo para o Chrome/Firefox
+```
+Arraste o arquivo index.html para o Chrome ou Firefox.
 ```
 
-> ⚠️ O Service Worker só ativa via HTTPS ou `localhost`. Para testar o PWA completo use a opção 2.
+> ⚠️ O Service Worker só funciona via HTTPS ou `localhost`. Para testar offline e PWA, use a opção 2.
 
 ### Opção 2 — Servidor estático simples (recomendado)
 
-**Com Python:**
+**Com Python 3 (sem instalar nada extra):**
 ```bash
-python3 -m http.server 8080
-# Acesse: http://localhost:8080
+cd rotaboa
+python3 -m http.server 8000
+# Abra: http://localhost:8000
 ```
 
-**Com Node.js (`npx serve`):**
-```bash
-npx serve .
-```
+**Com VS Code Live Server:**
+1. Instale a extensão *Live Server* (Ritwick Dey).
+2. Abra `index.html` no editor.
+3. Clique em **Go Live** na barra de status inferior.
+4. O navegador abrirá em `http://127.0.0.1:5500`.
 
-**Com VS Code Live Server:**  
-Instale a extensão *Live Server* e clique em "Go Live".
+### Testando em mobile (iPhone/Android)
+Com Python ou Live Server rodando, descubra o IP local da máquina:
+```bash
+ipconfig getifaddr en0   # macOS — ex: 192.168.1.100
+```
+Acesse `http://192.168.1.100:8000` pelo celular (mesmo Wi-Fi).
 
 ---
 

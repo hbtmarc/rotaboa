@@ -131,7 +131,8 @@ var MockData = {
       },
     ],
     combustivel: {
-      percursoTotal: '420 km (trecho van)',
+      percursoTotal: '420 km',
+      percesoSub: 'Trecho de van',
       consumoMedio: '10 km/L',
       precoCombustivel: 'R$ 6,20/L',
       litrosNecessarios: 42,

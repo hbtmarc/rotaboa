@@ -6,7 +6,7 @@
 /* ---- Tablet e acima (≥ 640px) ---- */
 @media (min-width: 640px) {
   .page-container {
-    padding: var(--space-6);
+    padding: var(--space-6) var(--space-6) var(--space-10);
   }
 
   .cards-grid {
@@ -17,16 +17,25 @@
     grid-template-columns: repeat(2, 1fr);
   }
 
+  /* Stat card: valores maiores em tablet */
+  .stat-card-value {
+    font-size: var(--text-2xl);
+  }
+
+  .stat-card {
+    padding: var(--space-4);
+  }
+
   .hero-title {
-    font-size: var(--text-3xl);
+    font-size: var(--text-2xl);
   }
 
   .hero-banner {
-    padding: var(--space-10) var(--space-8);
+    padding: var(--space-8) var(--space-8);
   }
 
   .trip-card-cover {
-    height: 140px;
+    height: 130px;
   }
 }
 
@@ -41,9 +50,9 @@
     display: none;
   }
 
-  /* Sem padding inferior, usa sidebar do header */
+  /* No desktop não há bottom nav, zera o padding extra */
   .app-main {
-    padding-bottom: 0;
+    padding-bottom: var(--space-8);
   }
 
   .page-container {
@@ -67,7 +76,7 @@
   }
 
   .trip-card-cover {
-    height: 160px;
+    height: 150px;
   }
 }
 
@@ -75,6 +84,35 @@
 @media (min-width: 1280px) {
   .page-container {
     padding: var(--space-10) var(--space-8);
+  }
+}
+
+/* ---- Mobile médio (< 480px) ---- */
+@media (max-width: 479px) {
+  /* Valor do stat card: fonte um pouco menor para caber em 2 colunas */
+  .stat-card-value {
+    font-size: var(--text-lg);
+  }
+
+  .stat-card {
+    padding: var(--space-2) var(--space-3);
+  }
+
+  /* Hero: título compacto */
+  .hero-title {
+    font-size: var(--text-lg);
+  }
+
+  /* Cards de viagem: capa menor */
+  .trip-card-cover {
+    height: 88px;
+  }
+
+  /* Botões do card footer: fonte menor para caber em linha */
+  .card-footer .btn {
+    font-size: 0.75rem;
+    padding: var(--space-2) var(--space-2);
+    min-height: 36px;
   }
 }
 
@@ -93,9 +131,10 @@
   }
 
   .hero-banner {
-    padding: var(--space-6) var(--space-4);
+    padding: var(--space-5) var(--space-3);
   }
 
+  /* Em telas muito pequenas, 1 coluna é mais legível para stats */
   .stats-grid {
     grid-template-columns: 1fr;
   }
