@@ -205,12 +205,169 @@ var UI = (function () {
     );
   }
 
-  // ---- Header de seção ----
+  // ---- Renderiza header de seção ----
   function renderSectionHeader(titulo, acao, href) {
     return (
       '<div class="section-header">' +
         '<h2 class="section-title">' + titulo + '</h2>' +
         (acao && href ? '<a href="' + href + '" class="section-action">' + acao + '</a>' : '') +
+      '</div>'
+    );
+  }
+
+  // ================================================================
+  // Itinerário
+  // ================================================================
+
+  // ---- Formata data ISO → "10/07/2026 · Qui" ----
+  function _formatarDataRoteiro(iso) {
+    if (!iso) return '';
+    var p = iso.split('-');
+    var semana = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+    var d = new Date(iso + 'T12:00:00');
+    return p[2] + '/' + p[1] + '/' + p[0] + ' · ' + semana[d.getDay()];
+  }
+
+  // ---- Formata data ISO → "10/07" ----
+  function _formatarDataCurta(iso) {
+    if (!iso) return '';
+    var p = iso.split('-');
+    return p[2] + '/' + p[1];
+  }
+
+  // ---- Mapa de categoria → emoji + classe CSS ----
+  var _catMeta = {
+    deslocamento: { emoji: '🚗', cls: 'cat-deslocamento', label: 'Deslocamento' },
+    hospedagem:   { emoji: '🏨', cls: 'cat-hospedagem',   label: 'Hospedagem'   },
+    alimentacao:  { emoji: '🍽️', cls: 'cat-alimentacao',  label: 'Alimentação'  },
+    passeio:      { emoji: '🎡', cls: 'cat-passeio',      label: 'Passeio'      },
+    compra:       { emoji: '🛍️', cls: 'cat-compra',       label: 'Compra'       },
+    livre:        { emoji: '🌴', cls: 'cat-livre',        label: 'Livre'        },
+    outro:        { emoji: '📌', cls: 'cat-outro',        label: 'Outro'        },
+  };
+
+  // ---- Badge de status de atividade ----
+  function badgeAtividade(status) {
+    var mapa = {
+      planejado:  'badge-neutral',
+      reservado:  'badge-reservado',
+      confirmado: 'badge-confirmado',
+      feito:      'badge-feito',
+      cancelado:  'badge-cancelado',
+    };
+    return mapa[status] || 'badge-neutral';
+  }
+
+  // ---- Texto legível do status de atividade ----
+  function textoStatusAtividade(status) {
+    var mapa = {
+      planejado:  'Planejado',
+      reservado:  'Reservado',
+      confirmado: 'Confirmado',
+      feito:      'Feito',
+      cancelado:  'Cancelado',
+    };
+    return mapa[status] || status;
+  }
+
+  // ---- Renderiza uma atividade ----
+  function renderAtividade(ativ, tripId) {
+    var catKey = ativ.categoria || 'outro';
+    var cat    = _catMeta[catKey] || _catMeta.outro;
+    var feito  = ativ.status === 'feito';
+    var borderCls = 'cat-border-' + catKey;
+    var chipCls   = 'cat-' + catKey;
+
+    var local = ativ.local
+      ? '<span class="itin-activity-local">📍 ' + ativ.local + '</span>'
+      : '';
+    var custo = (ativ.custoEstimado > 0)
+      ? '<span class="itin-activity-cost">💰 ' + formatarMoeda(ativ.custoEstimado) + '</span>'
+      : '';
+    var badgeCls = badgeAtividade(ativ.status);
+    var badge = '<span class="badge ' + badgeCls + '" style="font-size:10px;padding:2px 7px">' + textoStatusAtividade(ativ.status) + '</span>';
+    var obs = ativ.observacoes
+      ? '<div class="itin-activity-obs">' + ativ.observacoes + '</div>'
+      : '';
+    var details = (local || custo || badge)
+      ? '<div class="itin-activity-details">' + local + custo + badge + '</div>'
+      : '';
+
+    var doneLabel   = feito ? 'Desfazer' : 'Concluir';
+    var doneEmoji   = feito ? '↩' : '✓';
+    var doneCls     = 'itin-act-btn btn-done';
+
+    return (
+      '<div class="itin-activity ' + borderCls + (feito ? ' feito' : '') + '" data-ativ-id="' + ativ.id + '">' +
+        '<div class="itin-activity-top">' +
+          '<span class="itin-activity-time">' + (ativ.hora || '--:--') + '</span>' +
+          '<span class="itin-cat-chip ' + chipCls + '">' + cat.emoji + ' ' + cat.label + '</span>' +
+          '<div class="itin-activity-actions">' +
+            '<button class="' + doneCls + '" title="' + doneLabel + '" onclick="AtividadeActions.toggle(\'' + tripId + '\',\'' + ativ.id + '\')">' +
+              doneEmoji + '<span class="act-label">' + doneLabel + '</span>' +
+            '</button>' +
+            '<button class="itin-act-btn" title="Editar" onclick="AtividadeActions.editar(\'' + tripId + '\',\'' + ativ.id + '\')">' +
+              '✏️<span class="act-label">Editar</span>' +
+            '</button>' +
+            '<button class="itin-act-btn btn-delete" title="Excluir" onclick="AtividadeActions.excluir(\'' + tripId + '\',\'' + ativ.id + '\')">' +
+              '🗑️<span class="act-label">Excluir</span>' +
+            '</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="itin-activity-name">' + ativ.nome + '</div>' +
+        details +
+        obs +
+      '</div>'
+    );
+  }
+
+  // ---- Renderiza um dia do itinerário ----
+  function renderDiaItinerario(dia, numDia, tripId) {
+    var lista = dia.atividades || [];
+    var n = lista.length;
+    var atividades = lista.map(function (a) {
+      return renderAtividade(a, tripId);
+    }).join('');
+
+    var countText = n === 0 ? 'Nenhuma' : n + ' atividade' + (n !== 1 ? 's' : '');
+    var vazio = n === 0
+      ? '<div class="itin-empty-day">📭 Nenhuma atividade planejada para este dia.</div>'
+      : '';
+
+    return (
+      '<div class="itin-day">' +
+        '<div class="itin-day-header">' +
+          '<span class="itin-day-num">' + numDia + '</span>' +
+          '<div class="itin-day-info">' +
+            '<div class="itin-day-date">' + _formatarDataRoteiro(dia.data) + '</div>' +
+            (dia.titulo ? '<div class="itin-day-titulo">' + dia.titulo + '</div>' : '') +
+          '</div>' +
+          '<span class="itin-day-count">' + countText + '</span>' +
+        '</div>' +
+        vazio + atividades +
+        '<button class="itin-add-btn" onclick="AtividadeModal.abrir(\'' + tripId + '\',\'' + dia.data + '\')">' +
+          '＋ Adicionar atividade' +
+        '</button>' +
+      '</div>'
+    );
+  }
+
+  // ---- Preview de atividades (detalhe da viagem) ----
+  function renderPreviewAtividade(ativ) {
+    var cat      = _catMeta[ativ.categoria] || _catMeta.outro;
+    var badgeCls = badgeAtividade ? badgeAtividade(ativ.status) : '';
+    var statusBadge = ativ.status && ativ.status !== 'planejado'
+      ? '<span class="badge ' + badgeCls + '" style="font-size:10px;padding:2px 7px;flex-shrink:0">' + textoStatusAtividade(ativ.status) + '</span>'
+      : '';
+    return (
+      '<div class="preview-activity">' +
+        '<div class="preview-activity-time">' + (ativ.hora || '--:--') + '</div>' +
+        '<div class="preview-activity-dot ' + cat.cls + '"></div>' +
+        '<div class="preview-activity-info">' +
+          '<div class="preview-activity-name">' + cat.emoji + ' ' + ativ.nome + '</div>' +
+          '<div class="preview-activity-sub">' + _formatarDataCurta(ativ._data || '') + '</div>' +
+        '</div>' +
+        '<div class="preview-activity-status">' + statusBadge + '</div>' +
       '</div>'
     );
   }
@@ -231,6 +388,12 @@ var UI = (function () {
     renderStatCard: renderStatCard,
     renderEmptyState: renderEmptyState,
     renderSectionHeader: renderSectionHeader,
+    // Itinerário
+    renderAtividade: renderAtividade,
+    renderDiaItinerario: renderDiaItinerario,
+    renderPreviewAtividade: renderPreviewAtividade,
+    badgeAtividade: badgeAtividade,
+    textoStatusAtividade: textoStatusAtividade,
   };
 
 })();

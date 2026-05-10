@@ -889,3 +889,367 @@
     transform: translateY(0) scale(1);
   }
 }
+
+/* ================================================================
+   Itinerário — Dias e atividades (refinado)
+   ================================================================ */
+
+/* ---- Dia ---- */
+.itin-day {
+  margin-bottom: var(--space-8);
+}
+
+.itin-day-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-alt);
+  border-radius: var(--radius-xl);
+  border-left: 4px solid var(--color-primary);
+}
+
+.itin-day-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  height: 42px;
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: var(--radius-lg);
+  font-size: var(--text-base);
+  font-weight: 800;
+  flex-shrink: 0;
+  letter-spacing: -0.02em;
+}
+
+.itin-day-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.itin-day-date {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.itin-day-titulo {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  margin-top: 2px;
+}
+
+.itin-day-count {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  padding: 3px 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ---- Cartão de atividade ---- */
+.itin-activity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  margin-bottom: var(--space-3);
+  box-shadow: var(--shadow-sm);
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.itin-activity:last-of-type {
+  margin-bottom: var(--space-2);
+}
+
+.itin-activity.feito {
+  opacity: 1;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  border-left-color: #22c55e;
+}
+
+/* Borda esquerda colorida por categoria */
+.itin-activity.cat-border-deslocamento { border-left-color: #6366f1; }
+.itin-activity.cat-border-hospedagem   { border-left-color: #0ea5e9; }
+.itin-activity.cat-border-alimentacao  { border-left-color: #f59e0b; }
+.itin-activity.cat-border-passeio      { border-left-color: #10b981; }
+.itin-activity.cat-border-compra       { border-left-color: #ec4899; }
+.itin-activity.cat-border-livre        { border-left-color: #14b8a6; }
+.itin-activity.cat-border-outro        { border-left-color: #94a3b8; }
+
+/* ---- Linha do topo: hora + chip de categoria + ações ---- */
+.itin-activity-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.itin-activity-time {
+  font-size: var(--text-sm);
+  font-weight: 800;
+  color: var(--color-text);
+  min-width: 42px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Chip de categoria ---- */
+.itin-cat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  color: #fff;
+  line-height: 1.3;
+  flex-shrink: 0;
+}
+.itin-cat-chip.cat-deslocamento { background: #6366f1; }
+.itin-cat-chip.cat-hospedagem   { background: #0ea5e9; }
+.itin-cat-chip.cat-alimentacao  { background: #f59e0b; }
+.itin-cat-chip.cat-passeio      { background: #10b981; }
+.itin-cat-chip.cat-compra       { background: #ec4899; }
+.itin-cat-chip.cat-livre        { background: #14b8a6; }
+.itin-cat-chip.cat-outro        { background: #94a3b8; }
+
+/* ---- Botões de ação ---- */
+.itin-act-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 32px;
+  min-width: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.itin-act-btn:hover {
+  background: var(--color-bg-alt);
+  border-color: #cbd5e1;
+  color: var(--color-text);
+}
+
+.itin-act-btn.btn-done {
+  color: #15803d;
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+.itin-act-btn.btn-done:hover {
+  background: #dcfce7;
+  border-color: #86efac;
+}
+
+.itin-act-btn.btn-delete:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: var(--color-danger);
+}
+
+/* Rótulo do botão: oculto em mobile, visível no desktop */
+.itin-act-btn .act-label {
+  display: none;
+}
+
+.itin-activity-actions {
+  display: flex;
+  gap: var(--space-1);
+  margin-left: auto;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+/* ---- Corpo do card: nome ---- */
+.itin-activity-name {
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.3;
+  padding-top: 2px;
+}
+
+.itin-activity.feito .itin-activity-name {
+  text-decoration: line-through;
+  text-decoration-color: #86efac;
+  text-decoration-thickness: 2px;
+  color: var(--color-text);
+}
+
+/* ---- Linha de detalhes (local, custo, status) ---- */
+.itin-activity-details {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.itin-activity-local {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.itin-activity-cost {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+/* ---- Observações ---- */
+.itin-activity-obs {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-style: italic;
+  padding-top: 2px;
+  border-top: 1px solid var(--color-border-light);
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
+}
+
+/* ---- Cores por categoria (dot legado — não mais usado em cards) ---- */
+.cat-deslocamento  { background: #6366f1; }
+.cat-hospedagem    { background: #0ea5e9; }
+.cat-alimentacao   { background: #f59e0b; }
+.cat-passeio       { background: #10b981; }
+.cat-compra        { background: #ec4899; }
+.cat-livre         { background: #14b8a6; }
+.cat-outro         { background: #94a3b8; }
+
+/* ---- Estado vazio por dia ---- */
+.itin-empty-day {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-xl);
+  margin-bottom: var(--space-2);
+  background: var(--color-bg-alt);
+}
+
+/* ---- Botão de adicionar atividade ---- */
+.itin-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: transparent;
+  border: 1.5px dashed #cbd5e1;
+  border-radius: var(--radius-xl);
+  color: var(--color-primary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  margin-top: var(--space-1);
+}
+
+.itin-add-btn:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+/* ---- Badges de status de atividade ---- */
+.badge-reservado  { background: #dbeafe; color: #1d4ed8; }
+.badge-confirmado { background: #dcfce7; color: #15803d; }
+.badge-feito      { background: #f0fdf4; color: #16a34a; }
+.badge-cancelado  { background: #fee2e2; color: #b91c1c; }
+
+/* ---- Preview de atividade (detalhe da viagem) ---- */
+.preview-activity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.preview-activity:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.preview-activity-time {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--color-text);
+  min-width: 42px;
+  font-variant-numeric: tabular-nums;
+}
+
+.preview-activity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.preview-activity-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.preview-activity-name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-activity-sub {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin-top: 1px;
+}
+
+.preview-activity-status {
+  flex-shrink: 0;
+}
+
+/* ---- Desktop: mostrar rótulos nos botões de ação ---- */
+@media (min-width: 640px) {
+  .itin-act-btn .act-label {
+    display: inline;
+  }
+
+  .itin-activity-top {
+    flex-wrap: nowrap;
+  }
+
+  .itin-day-header {
+    padding: var(--space-3) var(--space-5);
+  }
+
+  .itin-activity {
+    padding: var(--space-5);
+  }
+}

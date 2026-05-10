@@ -169,17 +169,46 @@ function paginaViagemDetalhe(params, container) {
   }
 
   var pct = UI.calcularPorcentagem(viagem.gastoAtual, viagem.orcamento);
+  var proximas = Store.getProximasAtividades(id, 3);
+
+  // Bloco de prévia do roteiro
+  var previewRoteiro;
+  if (proximas.length === 0) {
+    previewRoteiro = (
+      '<div class="card" style="margin-bottom:var(--space-5)">' +
+        '<div class="card-header" style="justify-content:space-between">' +
+          '<span class="font-semibold">🗓️ Roteiro</span>' +
+          '<a href="#/roteiro" class="btn btn-ghost btn-sm">Abrir roteiro</a>' +
+        '</div>' +
+        '<div class="card-body">' +
+          '<div class="itin-empty-day" style="text-align:left">Nenhuma atividade planejada ainda.<br><button class="btn btn-primary btn-sm" style="margin-top:var(--space-3)" onclick="Router.navegar(\'#/roteiro\')">+ Criar roteiro</button></div>' +
+        '</div>' +
+      '</div>'
+    );
+  } else {
+    previewRoteiro = (
+      '<div class="card" style="margin-bottom:var(--space-5)">' +
+        '<div class="card-header" style="justify-content:space-between">' +
+          '<span class="font-semibold">🗓️ Próximas atividades</span>' +
+          '<a href="#/roteiro" class="btn btn-ghost btn-sm">Abrir roteiro</a>' +
+        '</div>' +
+        '<div class="card-body" style="padding-top:0">' +
+          proximas.map(UI.renderPreviewAtividade).join('') +
+        '</div>' +
+      '</div>'
+    );
+  }
 
   var html = (
     // Topo da página com cor temática
-    '<div class="card trip-card" style="margin-bottom:var(--space-6)">' +
+    '<div class="card trip-card" style="margin-bottom:var(--space-5)">' +
       '<div class="trip-card-cover trip-card-cover-' + viagem.capa + '" style="height:180px;flex-direction:column;justify-content:flex-end;gap:var(--space-1)">' +
         '<span class="badge ' + UI.badgeStatus(viagem.status) + '" style="align-self:flex-start">' + UI.textoStatus(viagem.status) + '</span>' +
         '<div class="trip-card-title" style="font-size:var(--text-2xl)">' + viagem.nome + '</div>' +
         '<div style="color:rgba(255,255,255,0.85);font-size:var(--text-sm)">📍 ' + (viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '') + ' · 📅 ' + viagem.dataInicio + ' → ' + viagem.dataFim + '</div>' +
       '</div>' +
       '<div class="card-body">' +
-        '<p class="text-secondary" style="margin-bottom:var(--space-4)">' + viagem.descricao + '</p>' +
+        '<p class="text-secondary" style="margin-bottom:var(--space-4)">' + (viagem.descricao || '') + '</p>' +
         '<div style="display:flex;flex-wrap:wrap;gap:var(--space-2);margin-bottom:var(--space-4)">' +
           (viagem.tags || []).map(function (t) { return '<span class="chip">' + t + '</span>'; }).join('') +
           '<span class="chip">👥 ' + viagem.participantes + ' pessoas</span>' +
@@ -199,16 +228,7 @@ function paginaViagemDetalhe(params, container) {
       '</div>' +
     '</div>' +
 
-    // Mais detalhes (em desenvolvimento)
-    '<div class="card">' +
-      '<div class="card-body">' +
-        '<div style="text-align:center;padding:var(--space-8)">' +
-          '<div style="font-size:2rem;margin-bottom:var(--space-3)">🏗️</div>' +
-          '<div class="text-lg font-bold" style="margin-bottom:var(--space-2)">Mais detalhes em breve</div>' +
-          '<p class="text-secondary text-sm">Roteiro, financeiro, rotas e colaboração serão refinados nos próximos passos.</p>' +
-        '</div>' +
-      '</div>' +
-    '</div>'
+    previewRoteiro
   );
 
   container.innerHTML = html;
@@ -218,31 +238,66 @@ function paginaViagemDetalhe(params, container) {
 function paginaRoteiro(params, container) {
   var viagem = Store.getViagemSelecionada();
   if (!viagem) {
-    container.innerHTML = UI.renderEmptyState('Nenhuma viagem selecionada', 'Crie ou selecione uma viagem primeiro.');
+    container.innerHTML = (
+      '<div class="empty-trips">' +
+        '<div class="empty-trips-emoji">🗓️</div>' +
+        '<h2 style="font-weight:700;font-size:var(--text-lg)">Nenhuma viagem selecionada</h2>' +
+        '<p class="text-secondary text-sm">Selecione uma viagem para ver o roteiro.</p>' +
+        '<a href="#/viagens" class="btn btn-primary">Ver viagens</a>' +
+      '</div>'
+    );
     return;
   }
-  var roteiro = Store.getRoteiro();
+
+  var itin  = Store.getItinerario(viagem.id);
+  var dias  = itin ? itin.dias : [];
+  var total = dias.reduce(function (acc, d) { return acc + d.atividades.length; }, 0);
+  var loc   = viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '';
+
+  var diasHtml = dias.map(function (dia, idx) {
+    return UI.renderDiaItinerario(dia, idx + 1, viagem.id);
+  }).join('');
 
   var html = (
     '<div class="page-section">' +
-      UI.renderSectionHeader('Roteiro por Dia', '', '') +
-      '<div class="card" style="margin-bottom:var(--space-4)">' +
-        '<div class="card-body" style="padding:var(--space-4)">' +
-          '<div style="display:flex;align-items:center;gap:var(--space-3)">' +
-            '<div style="font-size:1.5rem">🗓️</div>' +
-            '<div>' +
-              '<div class="font-bold">' + viagem.nome + '</div>' +
-              '<div class="text-sm text-secondary">📍 ' + (viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '') + ' · ' + roteiro.length + ' dias planejados</div>' +
+
+      // Cabeçalho
+      '<div class="section-header" style="margin-bottom:var(--space-4)">' +
+        '<h2 class="section-title">Roteiro</h2>' +
+        '<button class="btn btn-primary btn-sm" onclick="AtividadeModal.abrir(\'' + viagem.id + '\', null)">+ Nova atividade</button>' +
+      '</div>' +
+
+      // Resumo da viagem
+      '<div class="card" style="margin-bottom:var(--space-5)">' +
+        '<div class="card-body" style="padding:var(--space-4) var(--space-5)">' +
+          '<div style="display:flex;align-items:flex-start;gap:var(--space-4)">' +
+            // Ícone de capa
+            '<div class="trip-card-cover trip-card-cover-' + viagem.capa + '" style="width:56px;height:56px;border-radius:var(--radius-xl);flex-shrink:0;background-size:cover"></div>' +
+            // Informações
+            '<div style="flex:1;min-width:0">' +
+              '<div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;margin-bottom:var(--space-1)">' +
+                '<span style="font-size:var(--text-lg);font-weight:800;color:var(--color-text)">' + viagem.nome + '</span>' +
+                '<span class="badge ' + UI.badgeStatus(viagem.status) + '">' + UI.textoStatus(viagem.status) + '</span>' +
+              '</div>' +
+              '<div style="font-size:var(--text-sm);color:var(--color-text-secondary);margin-bottom:var(--space-2)">📍 ' + loc + '</div>' +
+              '<div style="display:flex;gap:var(--space-3);flex-wrap:wrap">' +
+                '<span style="display:inline-flex;align-items:center;gap:4px;font-size:var(--text-xs);background:var(--color-bg-alt);border:1px solid var(--color-border);border-radius:var(--radius-full);padding:3px 10px;font-weight:600;color:var(--color-text-secondary)">📅 ' + dias.length + ' ' + (dias.length !== 1 ? 'dias' : 'dia') + '</span>' +
+                '<span style="display:inline-flex;align-items:center;gap:4px;font-size:var(--text-xs);background:var(--color-bg-alt);border:1px solid var(--color-border);border-radius:var(--radius-full);padding:3px 10px;font-weight:600;color:var(--color-text-secondary)">🗓️ ' + total + ' ' + (total !== 1 ? 'atividades' : 'atividade') + '</span>' +
+              '</div>' +
             '</div>' +
           '</div>' +
         '</div>' +
       '</div>' +
-      roteiro.map(UI.renderDiaRoteiro).join('') +
+
+      // Dias
+      (diasHtml || '<div class="itin-empty-day">Nenhum dia gerado. Verifique as datas da viagem.</div>') +
+
     '</div>'
   );
 
   container.innerHTML = html;
 }
+
 
 // ==== PÁGINA: Financeiro ====
 function paginaFinanceiro(params, container) {
@@ -690,8 +745,9 @@ var TripModal = (function () {
 // ConfirmModal — Diálogo de confirmação de exclusão
 // ================================================================
 var ConfirmModal = (function () {
-  var _overlay    = null;
-  var _pendingId  = null;
+  var _overlay         = null;
+  var _pendingId       = null;
+  var _pendingCallback = null;   // callback genérico (para atividades etc.)
 
   function _inject() {
     var div = document.createElement('div');
@@ -702,8 +758,8 @@ var ConfirmModal = (function () {
     div.innerHTML = (
       '<div class="confirm-box">' +
         '<div class="confirm-icon">🗑️</div>' +
-        '<div class="confirm-title" id="confirm-title">Excluir viagem?</div>' +
-        '<p class="confirm-desc" id="confirm-desc">Esta ação não pode ser desfeita. A viagem será removida do seu dispositivo.</p>' +
+        '<div class="confirm-title" id="confirm-title">Excluir?</div>' +
+        '<p class="confirm-desc" id="confirm-desc">Esta ação não pode ser desfeita.</p>' +
         '<div class="confirm-actions">' +
           '<button class="btn btn-ghost" onclick="ConfirmModal.fechar()">Cancelar</button>' +
           '<button class="btn btn-danger" onclick="ConfirmModal.confirmar()">Excluir</button>' +
@@ -720,10 +776,26 @@ var ConfirmModal = (function () {
   return {
     init: _inject,
 
+    // Exclusão de viagem (uso original)
     abrir: function (id, nomeViagem) {
-      _pendingId = id;
-      var desc = document.getElementById('confirm-desc');
-      if (desc) desc.textContent = 'Excluir "' + nomeViagem + '"? Esta ação não pode ser desfeita.';
+      _pendingId       = id;
+      _pendingCallback = null;
+      var title = document.getElementById('confirm-title');
+      var desc  = document.getElementById('confirm-desc');
+      if (title) title.textContent = 'Excluir viagem?';
+      if (desc)  desc.textContent  = 'Excluir "' + nomeViagem + '"? Esta ação não pode ser desfeita.';
+      _overlay.classList.add('aberto');
+      document.body.style.overflow = 'hidden';
+    },
+
+    // Confirmação genérica com callback
+    abrirComCallback: function (titulo, descricao, callback) {
+      _pendingId       = null;
+      _pendingCallback = callback;
+      var title = document.getElementById('confirm-title');
+      var desc  = document.getElementById('confirm-desc');
+      if (title) title.textContent = titulo;
+      if (desc)  desc.textContent  = descricao;
       _overlay.classList.add('aberto');
       document.body.style.overflow = 'hidden';
     },
@@ -731,15 +803,19 @@ var ConfirmModal = (function () {
     fechar: function () {
       _overlay.classList.remove('aberto');
       document.body.style.overflow = '';
-      _pendingId = null;
+      _pendingId = _pendingCallback = null;
     },
 
     confirmar: function () {
-      if (!_pendingId) return;
-      Store.excluirViagem(_pendingId);
-      ConfirmModal.fechar();
-      // Volta para a lista (ou início se listagem já era a tela ativa)
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      if (_pendingCallback) {
+        var cb = _pendingCallback;
+        ConfirmModal.fechar();
+        cb();
+      } else if (_pendingId) {
+        Store.excluirViagem(_pendingId);
+        ConfirmModal.fechar();
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      }
     },
   };
 })();
@@ -765,12 +841,311 @@ var TripActions = {
   },
 };
 
+// ================================================================
+// AtividadeModal — Criação e edição de atividades do roteiro
+// ================================================================
+var AtividadeModal = (function () {
+  var _overlay     = null;
+  var _tripId      = null;
+  var _atividadeId = null;  // null = criar, string = editar
+  var _dataPresel  = null;  // data pré-selecionada (vinda do botão do dia)
+
+  // Mapa categoria → label
+  var _cats = [
+    ['deslocamento', 'Deslocamento 🚗'],
+    ['hospedagem',   'Hospedagem 🏨'],
+    ['alimentacao',  'Alimentação 🍽️'],
+    ['passeio',      'Passeio 🎡'],
+    ['compra',       'Compra 🛍️'],
+    ['livre',        'Livre 🌴'],
+    ['outro',        'Outro 📌'],
+  ];
+
+  var _statusOpts = [
+    ['planejado',  'Planejado'],
+    ['reservado',  'Reservado'],
+    ['confirmado', 'Confirmado'],
+    ['feito',      'Feito'],
+    ['cancelado',  'Cancelado'],
+  ];
+
+  function _inject() {
+    var div = document.createElement('div');
+    div.id = 'ativ-modal-overlay';
+    div.className = 'modal-overlay';
+    div.setAttribute('role', 'dialog');
+    div.setAttribute('aria-modal', 'true');
+    div.setAttribute('aria-label', 'Formulário de atividade');
+    div.innerHTML = (
+      '<div class="modal-box" id="ativ-modal-box">' +
+        '<div class="modal-handle"></div>' +
+        '<div class="modal-header">' +
+          '<span class="modal-title" id="ativ-modal-title">Nova atividade</span>' +
+          '<button class="modal-close" onclick="AtividadeModal.fechar()" aria-label="Fechar">✕</button>' +
+        '</div>' +
+        '<div class="modal-body" id="ativ-modal-body"></div>' +
+        '<div class="modal-footer">' +
+          '<button class="btn btn-ghost" onclick="AtividadeModal.fechar()">Cancelar</button>' +
+          '<button class="btn btn-primary" id="ativ-modal-save" onclick="AtividadeModal.salvar()">Salvar</button>' +
+        '</div>' +
+      '</div>'
+    );
+    div.addEventListener('click', function (e) {
+      if (e.target === div) AtividadeModal.fechar();
+    });
+    document.body.appendChild(div);
+    _overlay = div;
+  }
+
+  // Gera options de dias da viagem
+  function _optsData(itin, presel, ativData) {
+    if (!itin) return '<option value="">-- sem dias --</option>';
+    return itin.dias.map(function (d, i) {
+      var partes = d.data.split('-');
+      var label  = 'Dia ' + (i + 1) + ' · ' + partes[2] + '/' + partes[1] + '/' + partes[0];
+      var sel    = (d.data === (ativData || presel)) ? ' selected' : '';
+      return '<option value="' + d.data + '"' + sel + '>' + label + '</option>';
+    }).join('');
+  }
+
+  function _esc(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function _opt(val, label, atual) {
+    return '<option value="' + val + '"' + (val === atual ? ' selected' : '') + '>' + label + '</option>';
+  }
+
+  function _renderForm(itin, ativ) {
+    ativ = ativ || {};
+    return (
+      // Dia
+      '<div class="form-group">' +
+        '<label class="form-label form-label-required" for="af-dia">Dia da viagem</label>' +
+        '<select id="af-dia" class="form-select">' +
+          _optsData(itin, _dataPresel, ativ.data || ativ._data) +
+        '</select>' +
+        '<span class="form-error" id="ae-dia">Selecione um dia.</span>' +
+      '</div>' +
+
+      '<div class="form-row">' +
+        // Horário
+        '<div class="form-group">' +
+          '<label class="form-label form-label-required" for="af-hora">Horário</label>' +
+          '<input id="af-hora" class="form-input" type="time" value="' + _esc(ativ.hora) + '">' +
+          '<span class="form-error" id="ae-hora">Informe o horário.</span>' +
+        '</div>' +
+        // Status
+        '<div class="form-group">' +
+          '<label class="form-label" for="af-status">Status</label>' +
+          '<select id="af-status" class="form-select">' +
+            _statusOpts.map(function (s) { return _opt(s[0], s[1], ativ.status || 'planejado'); }).join('') +
+          '</select>' +
+        '</div>' +
+      '</div>' +
+
+      // Nome
+      '<div class="form-group">' +
+        '<label class="form-label form-label-required" for="af-nome">Nome da atividade</label>' +
+        '<input id="af-nome" class="form-input" type="text" maxlength="100" placeholder="Ex: Visita ao Cristo Redentor" value="' + _esc(ativ.nome) + '">' +
+        '<span class="form-error" id="ae-nome">Nome é obrigatório.</span>' +
+      '</div>' +
+
+      // Categoria
+      '<div class="form-group">' +
+        '<label class="form-label form-label-required" for="af-cat">Categoria</label>' +
+        '<select id="af-cat" class="form-select">' +
+          '<option value="">Selecione...</option>' +
+          _cats.map(function (c) { return _opt(c[0], c[1], ativ.categoria); }).join('') +
+        '</select>' +
+        '<span class="form-error" id="ae-cat">Selecione uma categoria.</span>' +
+      '</div>' +
+
+      '<div class="form-row">' +
+        // Local
+        '<div class="form-group">' +
+          '<label class="form-label" for="af-local">Local</label>' +
+          '<input id="af-local" class="form-input" type="text" maxlength="100" placeholder="Ex: Cosme Velho" value="' + _esc(ativ.local) + '">' +
+        '</div>' +
+        // Custo
+        '<div class="form-group">' +
+          '<label class="form-label" for="af-custo">Custo previsto (R$)</label>' +
+          '<input id="af-custo" class="form-input" type="number" min="0" step="0.01" placeholder="0,00" value="' + _esc(ativ.custoEstimado > 0 ? ativ.custoEstimado : '') + '">' +
+          '<span class="form-error" id="ae-custo">Custo deve ser zero ou maior.</span>' +
+        '</div>' +
+      '</div>' +
+
+      // Observações
+      '<div class="form-group">' +
+        '<label class="form-label" for="af-obs">Observações</label>' +
+        '<textarea id="af-obs" class="form-textarea" maxlength="300" placeholder="Detalhes, links, dicas...">' + _esc(ativ.observacoes) + '</textarea>' +
+      '</div>'
+    );
+  }
+
+  // ---- Erro inline (id curto: 'nome' → 'ae-nome' / 'af-nome') ----
+  function _erro(id, mostrar, msg) {
+    var el  = document.getElementById('ae-' + id);
+    var inp = document.getElementById('af-' + id);
+    if (!el) return;
+    if (mostrar) {
+      if (msg) el.textContent = msg;
+      el.classList.add('visivel');
+      if (inp) inp.classList.add('invalido');
+    } else {
+      el.classList.remove('visivel');
+      if (inp) inp.classList.remove('invalido');
+    }
+  }
+
+  function _limparErros() {
+    ['dia','hora','nome','cat','custo'].forEach(function (k) { _erro(k, false); });
+  }
+
+  function _validar() {
+    _limparErros();
+    var ok = true;
+
+    var dia = document.getElementById('af-dia');
+    if (!dia || !dia.value) { _erro('dia', true); ok = false; }
+
+    var hora = document.getElementById('af-hora');
+    if (!hora || !hora.value) { _erro('hora', true); ok = false; }
+
+    var nome = document.getElementById('af-nome');
+    if (!nome || !nome.value.trim()) { _erro('nome', true); ok = false; }
+
+    var cat = document.getElementById('af-cat');
+    if (!cat || !cat.value) { _erro('cat', true); ok = false; }
+
+    var custo = document.getElementById('af-custo');
+    if (custo && custo.value !== '' && Number(custo.value) < 0) {
+      _erro('custo', true, 'Custo deve ser zero ou maior.');
+      ok = false;
+    }
+
+    return ok;
+  }
+
+  return {
+    init: _inject,
+
+    // Criar: tripId obrigatório, dataISO pode ser null (usuário escolhe no select)
+    abrir: function (tripId, dataISO) {
+      _tripId      = tripId;
+      _atividadeId = null;
+      _dataPresel  = dataISO || null;
+
+      var itin = Store.getItinerario(tripId);
+      document.getElementById('ativ-modal-title').textContent = 'Nova atividade';
+      document.getElementById('ativ-modal-save').textContent  = 'Salvar atividade';
+      document.getElementById('ativ-modal-body').innerHTML    = _renderForm(itin, {});
+
+      _overlay.classList.add('aberto');
+      document.body.style.overflow = 'hidden';
+      var f = document.getElementById('af-nome');
+      if (f) setTimeout(function () { f.focus(); }, 300);
+    },
+
+    // Editar
+    editar: function (tripId, atividadeId) {
+      _tripId      = tripId;
+      _atividadeId = atividadeId;
+      _dataPresel  = null;
+
+      var itin = Store.getItinerario(tripId);
+      // Encontra atividade
+      var ativ = null;
+      if (itin) {
+        itin.dias.forEach(function (d) {
+          d.atividades.forEach(function (a) {
+            if (a.id === atividadeId) ativ = Object.assign({ data: d.data }, a);
+          });
+        });
+      }
+      if (!ativ) { console.warn('[AtividadeModal] Atividade não encontrada:', atividadeId); return; }
+
+      document.getElementById('ativ-modal-title').textContent = 'Editar atividade';
+      document.getElementById('ativ-modal-save').textContent  = 'Salvar alterações';
+      document.getElementById('ativ-modal-body').innerHTML    = _renderForm(itin, ativ);
+
+      _overlay.classList.add('aberto');
+      document.body.style.overflow = 'hidden';
+    },
+
+    fechar: function () {
+      _overlay.classList.remove('aberto');
+      document.body.style.overflow = '';
+      _tripId = _atividadeId = _dataPresel = null;
+    },
+
+    salvar: function () {
+      if (!_validar()) return;
+
+      var dados = {
+        data:           document.getElementById('af-dia').value,
+        hora:           document.getElementById('af-hora').value,
+        nome:           document.getElementById('af-nome').value.trim(),
+        categoria:      document.getElementById('af-cat').value,
+        local:          document.getElementById('af-local').value.trim(),
+        custoEstimado:  Number(document.getElementById('af-custo').value) || 0,
+        status:         document.getElementById('af-status').value,
+        observacoes:    document.getElementById('af-obs').value.trim(),
+      };
+
+      if (_atividadeId) {
+        Store.editarAtividade(_tripId, _atividadeId, dados);
+      } else {
+        Store.adicionarAtividade(_tripId, dados.data, dados);
+      }
+
+      AtividadeModal.fechar();
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    },
+  };
+})();
+
+// ================================================================
+// AtividadeActions — Ações nas atividades do roteiro
+// ================================================================
+var AtividadeActions = {
+  toggle: function (tripId, atividadeId) {
+    Store.toggleAtividade(tripId, atividadeId);
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  },
+
+  editar: function (tripId, atividadeId) {
+    AtividadeModal.editar(tripId, atividadeId);
+  },
+
+  excluir: function (tripId, atividadeId) {
+    // Pequeno confirm inline usando o ConfirmModal existente com override de callback
+    var itin = Store.getItinerario(tripId);
+    var nome = 'esta atividade';
+    if (itin) {
+      itin.dias.forEach(function (d) {
+        d.atividades.forEach(function (a) { if (a.id === atividadeId) nome = '"' + a.nome + '"'; });
+      });
+    }
+    // Usa ConfirmModal com callback customizado
+    ConfirmModal.abrirComCallback(
+      'Excluir atividade?',
+      'Excluir ' + nome + '? Esta ação não pode ser desfeita.',
+      function () {
+        Store.excluirAtividade(tripId, atividadeId);
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      }
+    );
+  },
+};
+
 // ==== INICIALIZAÇÃO ====
 (function inicializar() {
 
   // Injeta modais no DOM antes de qualquer coisa
   TripModal.init();
   ConfirmModal.init();
+  AtividadeModal.init();
 
   // Registra todas as rotas
   Router.registrar('/inicio',        paginaInicio);

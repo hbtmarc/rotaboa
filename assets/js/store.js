@@ -10,6 +10,7 @@ var Store = (function () {
   // ---- Chaves do localStorage ----
   var _LS_TRIPS    = 'rotaboa.trips.v1';
   var _LS_SELECTED = 'rotaboa.selectedTripId.v1';
+  var _LS_ITIN     = 'rotaboa.itineraries.v1';
 
   // ---- Migra viagem antiga (campo destino → destinoPrincipal + localizacaoCurta) ----
   function _migrarViagem(v) {
@@ -71,6 +72,42 @@ var Store = (function () {
   function _gerarId() {
     return 'viagem-' + Date.now() + '-' + Math.floor(Math.random() * 9999);
   }
+
+  // ---- Gera ID de atividade ----
+  function _gerarAtividadeId() {
+    return 'atv-' + Date.now() + '-' + Math.floor(Math.random() * 9999);
+  }
+
+  // ---- Gera array de dias entre duas datas ISO ----
+  function _gerarDias(viagem) {
+    var dias = [];
+    if (!viagem || !viagem.dataInicio || !viagem.dataFim) return dias;
+    var atual = new Date(viagem.dataInicio + 'T12:00:00');
+    var fim   = new Date(viagem.dataFim   + 'T12:00:00');
+    while (atual <= fim) {
+      dias.push({ data: atual.toISOString().slice(0, 10), titulo: '', atividades: [] });
+      atual.setDate(atual.getDate() + 1);
+    }
+    return dias;
+  }
+
+  // ---- Carrega itinerários do localStorage ----
+  function _carregarItinerarios() {
+    try {
+      var raw = localStorage.getItem(_LS_ITIN);
+      if (raw) return JSON.parse(raw);
+    } catch (e) { console.warn('[Store] Falha ao ler itinerários:', e); }
+    return {};
+  }
+
+  // ---- Persiste itinerários ----
+  function _salvarItinerarios() {
+    try {
+      localStorage.setItem(_LS_ITIN, JSON.stringify(_itinerarios));
+    } catch (e) { console.warn('[Store] Falha ao salvar itinerários:', e); }
+  }
+
+  var _itinerarios = _carregarItinerarios();
 
   // ---- Inicializa estado a partir do localStorage ----
   var _viagens    = _carregarViagens();
@@ -167,6 +204,117 @@ var Store = (function () {
       }
       _salvarViagens();
       _notificar();
+    },
+
+    // ================================================================
+    // Itinerário
+    // ================================================================
+
+    // Retorna itinerário de uma viagem (gerando dias se necessário)
+    getItinerario: function (tripId) {
+      var viagem = _state.viagens.find(function (v) { return v.id === tripId; });
+      if (!viagem) return null;
+
+      if (!_itinerarios[tripId]) {
+        // Primeira vez: gera dias vazios
+        _itinerarios[tripId] = { dias: _gerarDias(viagem) };
+        _salvarItinerarios();
+      } else {
+        // Garante que novos dias (caso datas da viagem mudem) sejam incluídos
+        var datasExistentes = _itinerarios[tripId].dias.map(function (d) { return d.data; });
+        _gerarDias(viagem).forEach(function (dNovo) {
+          if (datasExistentes.indexOf(dNovo.data) === -1) {
+            _itinerarios[tripId].dias.push(dNovo);
+          }
+        });
+        _itinerarios[tripId].dias.sort(function (a, b) { return a.data.localeCompare(b.data); });
+      }
+      return _itinerarios[tripId];
+    },
+
+    // Adiciona atividade a um dia específico (por data ISO)
+    adicionarAtividade: function (tripId, dataISO, dados) {
+      var itin = this.getItinerario(tripId);
+      if (!itin) return false;
+      var dia = itin.dias.find(function (d) { return d.data === dataISO; });
+      if (!dia) return false;
+      var ativ = Object.assign({}, dados, { id: _gerarAtividadeId(), status: dados.status || 'planejado' });
+      dia.atividades.push(ativ);
+      dia.atividades.sort(function (a, b) { return (a.hora || '').localeCompare(b.hora || ''); });
+      _salvarItinerarios();
+      return ativ;
+    },
+
+    // Edita atividade — suporta mover de dia se dados.data mudar
+    editarAtividade: function (tripId, atividadeId, dados) {
+      var itin = this.getItinerario(tripId);
+      if (!itin) return false;
+      var diaOrigem = null, idxOrigem = -1;
+      itin.dias.forEach(function (d) {
+        var i = d.atividades.findIndex(function (a) { return a.id === atividadeId; });
+        if (i !== -1) { diaOrigem = d; idxOrigem = i; }
+      });
+      if (!diaOrigem) return false;
+      var ativOriginal = diaOrigem.atividades[idxOrigem];
+      var novaData = dados.data;
+      if (novaData && novaData !== diaOrigem.data) {
+        // Move para outro dia
+        diaOrigem.atividades.splice(idxOrigem, 1);
+        var diaDestino = itin.dias.find(function (d) { return d.data === novaData; });
+        if (diaDestino) {
+          diaDestino.atividades.push(Object.assign({}, ativOriginal, dados));
+          diaDestino.atividades.sort(function (a, b) { return (a.hora || '').localeCompare(b.hora || ''); });
+        }
+      } else {
+        diaOrigem.atividades[idxOrigem] = Object.assign({}, ativOriginal, dados);
+        diaOrigem.atividades.sort(function (a, b) { return (a.hora || '').localeCompare(b.hora || ''); });
+      }
+      _salvarItinerarios();
+      return true;
+    },
+
+    // Exclui atividade (busca em todos os dias)
+    excluirAtividade: function (tripId, atividadeId) {
+      var itin = this.getItinerario(tripId);
+      if (!itin) return false;
+      itin.dias.forEach(function (d) {
+        d.atividades = d.atividades.filter(function (a) { return a.id !== atividadeId; });
+      });
+      _salvarItinerarios();
+      return true;
+    },
+
+    // Alterna status feito ↔ planejado
+    toggleAtividade: function (tripId, atividadeId) {
+      var itin = this.getItinerario(tripId);
+      if (!itin) return false;
+      itin.dias.forEach(function (d) {
+        d.atividades.forEach(function (a) {
+          if (a.id === atividadeId) {
+            a.status = (a.status === 'feito') ? 'planejado' : 'feito';
+          }
+        });
+      });
+      _salvarItinerarios();
+      return true;
+    },
+
+    // Retorna as próximas N atividades não-feitas/não-canceladas de uma viagem
+    getProximasAtividades: function (tripId, max) {
+      var itin = this.getItinerario(tripId);
+      if (!itin) return [];
+      var todas = [];
+      itin.dias.forEach(function (d) {
+        d.atividades.forEach(function (a) {
+          if (a.status !== 'cancelado') {
+            todas.push(Object.assign({ _data: d.data }, a));
+          }
+        });
+      });
+      todas.sort(function (a, b) {
+        return (a._data + (a.hora || '')).localeCompare(b._data + (b.hora || ''));
+      });
+      return todas.slice(0, max || 3);
     },
   };
 
