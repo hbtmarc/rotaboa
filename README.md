@@ -36,7 +36,7 @@ rotaboa/
 | Rota                | Descrição                          |
 |---------------------|------------------------------------|
 | `#/inicio`          | Dashboard com viagem selecionada   |
-| `#/viagens`         | Lista de viagens (mock)            |
+| `#/viagens`         | Lista de viagens                   |
 | `#/viagem/:id`      | Detalhe de uma viagem              |
 | `#/roteiro`         | Roteiro por dia                    |
 | `#/financeiro`      | Resumo financeiro e despesas       |
@@ -258,6 +258,40 @@ Acesse `http://192.168.1.100:8000` pelo celular (mesmo Wi-Fi).
 1. Desktop ≥ 1024px sem quebras no painel e no header.
 2. Mobile 430px, 390px e 375px sem scroll horizontal.
 3. Auto sync não dispara chamadas duplicadas em paralelo.
+
+## Step 12 — Participantes reais, parcelas e limpeza de mock
+
+### O que foi implementado
+
+- Remoção do fallback de seed automático de viagens mock.
+- Limpeza segura de viagens mock conhecidas (`viagem-1`, `viagem-2`, `viagem-3`) e dados associados (itinerário, despesas e rotas) sem apagar viagens do usuário.
+- Modelo de participantes por viagem em formato real:
+	- `participantes: [{ id, nome, ativo }]`
+	- migração automática de registros antigos com número de participantes.
+- `TripModal` com gestão de participantes:
+	- adicionar/remover participante
+	- marcar ativo/inativo
+	- validação de nome obrigatório, nome único e ao menos 1 ativo.
+- `DespesaModal` atualizado:
+	- campo **Quem pagou** com select dos participantes ativos
+	- rateio por checkboxes com nomes reais
+	- bloqueio de nova despesa quando não há participantes ativos
+	- modo de pagamento **À vista / Parcelado**
+	- cálculo de parcelas com ajuste de centavos na última parcela.
+- Cards e resumos financeiros:
+	- detalhe de parcelamento no card da despesa
+	- nova linha **Compromisso parcelado** em `#/financeiro` e no resumo de `#/inicio`
+	- KPIs continuam baseados no valor total da despesa.
+
+### Checklist de validação
+
+1. Com localStorage limpo, o app abre sem viagens pré-semeadas.
+2. Ao editar viagem antiga (formato numérico), participantes aparecem em lista com nomes e estado ativo.
+3. Não é possível salvar viagem com nomes vazios, duplicados ou sem participantes ativos.
+4. Sem participantes ativos, o botão de nova despesa exibe aviso e não abre criação.
+5. Em despesa parcelada, o resumo mostra parcelas e última parcela ajustada por centavos.
+6. Após recarregar a página, participantes e parcelamento persistem corretamente.
+7. No financeiro, `Compromisso parcelado` é exibido e os totais/KPIs continuam coerentes com o valor total lançado.
 4. Pendência de sincronização é limpa após sync com sucesso.
 5. Rotas `Inicio`, `Viagens`, `Roteiro`, `Financeiro`, `Rotas` e `Config` seguem funcionais.
 6. Modo offline continua utilizável.

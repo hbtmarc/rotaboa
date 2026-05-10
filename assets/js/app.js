@@ -414,6 +414,17 @@ function _mensagemErroAuth(err) {
   return msg;
 }
 
+function _contarParticipantesAtivos(viagem) {
+  if (!viagem) return 1;
+  if (Array.isArray(viagem.participantes)) {
+    var ativos = viagem.participantes.filter(function (p) {
+      return p && p.ativo !== false && String(p.nome || '').trim();
+    }).length;
+    return Math.max(1, ativos);
+  }
+  return Math.max(1, Number(viagem.participantes) || 1);
+}
+
 // ==== PÁGINA: Início ====
 function paginaInicio(params, container) {
   var viagem = Store.getViagemSelecionada();
@@ -458,7 +469,7 @@ function paginaInicio(params, container) {
     var r = Store.getResumoFinanceiro(v.id);
     totalOrcamento += Number(v.orcamento) || 0;
     totalGasto += Number(r.totalGasto) || 0;
-    totalParticipantes += Number(v.participantes) || 0;
+    totalParticipantes += _contarParticipantesAtivos(v);
   });
   var saldoTotal = totalOrcamento - totalGasto;
 
@@ -567,6 +578,7 @@ function paginaInicio(params, container) {
         '<div class="card-body">' +
           '<div class="expense-row"><span class="text-sm text-secondary">Orçamento</span><strong>' + _moedaInicio(resumoFinanceiro.orcamento) + '</strong></div>' +
           '<div class="expense-row"><span class="text-sm text-secondary">Gasto</span><strong>' + _moedaInicio(resumoFinanceiro.totalGasto) + '</strong></div>' +
+          '<div class="expense-row"><span class="text-sm text-secondary">Compromisso parcelado</span><strong>' + _moedaInicio(resumoFinanceiro.compromissoParcelado || 0) + '</strong></div>' +
           '<div class="expense-row"><span class="text-sm text-secondary">Disponível</span><strong>' + _moedaInicio(resumoFinanceiro.saldo) + '</strong></div>' +
           '<div style="margin-top:var(--space-2)">' +
             UI.progressBar(resumoFinanceiro.pct, UI.corBarra(resumoFinanceiro.pct)) +
@@ -728,7 +740,7 @@ function paginaViagemDetalhe(params, container) {
         '<p class="text-secondary" style="margin-bottom:var(--space-4)">' + (viagem.descricao || '') + '</p>' +
         '<div style="display:flex;flex-wrap:wrap;gap:var(--space-2);margin-bottom:var(--space-4)">' +
           (viagem.tags || []).map(function (t) { return '<span class="chip">' + t + '</span>'; }).join('') +
-          '<span class="chip">👥 ' + viagem.participantes + ' pessoas</span>' +
+          '<span class="chip">👥 ' + _contarParticipantesAtivos(viagem) + ' pessoas</span>' +
         '</div>' +
         '<div>' +
           '<div style="display:flex;justify-content:space-between;margin-bottom:var(--space-2)">' +
@@ -761,6 +773,7 @@ function paginaViagemDetalhe(params, container) {
         UI.progressBar(resFinanceiro.pct, UI.corBarra(resFinanceiro.pct)) +
         '<div style="display:flex;justify-content:space-between;margin-top:var(--space-3);flex-wrap:wrap;gap:var(--space-2)">' +
           '<span class="text-xs text-secondary">💸 Gasto: <strong>' + UI.formatarMoeda(resFinanceiro.totalGasto) + '</strong></span>' +
+          '<span class="text-xs text-secondary">🧩 Parcelado: <strong>' + UI.formatarMoeda(resFinanceiro.compromissoParcelado || 0) + '</strong></span>' +
           '<span class="text-xs text-secondary">🏦 Saldo: <strong>' + UI.formatarMoeda(resFinanceiro.saldo) + '</strong></span>' +
           '<span class="text-xs text-muted">🧾 ' + resFinanceiro.despesas.length + ' despesa' + (resFinanceiro.despesas.length !== 1 ? 's' : '') + '</span>' +
         '</div>' +
@@ -918,6 +931,7 @@ function paginaFinanceiro(params, container) {
           '<span class="text-xs text-muted">' + UI.formatarMoeda(res.totalGasto) + ' gastos</span>' +
           '<span class="text-xs text-secondary">de ' + UI.formatarMoeda(res.orcamento) + '</span>' +
         '</div>' +
+        '<div class="expense-row" style="margin-top:var(--space-2)"><span class="text-sm text-secondary">Compromisso parcelado</span><strong>' + UI.formatarMoeda(res.compromissoParcelado || 0) + '</strong></div>' +
       '</div>' +
     '</div>'
   );
@@ -1491,6 +1505,7 @@ function _bindTripCards(container) {
 var TripModal = (function () {
   var _editandoId = null;   // null = novo, string = edição
   var _overlay    = null;   // elemento DOM do overlay
+  var _participantesDraft = [];
 
   // ---- Injeta o HTML do modal no body (chamado 1x na inicialização) ----
   function _inject() {
@@ -1580,10 +1595,15 @@ var TripModal = (function () {
           '<input id="f-orc" class="form-input" type="number" min="1" step="1" placeholder="5000" value="' + _esc(val('orcamento')) + '">' +
           '<span class="form-error" id="e-orc">Informe um valor maior que zero.</span>' +
         '</div>' +
-        '<div class="form-group">' +
-          '<label class="form-label" for="f-partic">Participantes</label>' +
-          '<input id="f-partic" class="form-input" type="number" min="1" step="1" placeholder="2" value="' + _esc(val('participantes', 1)) + '">' +
+      '</div>' +
+
+      '<div class="form-group">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-2)">' +
+          '<label class="form-label">Participantes</label>' +
+          '<button type="button" class="btn btn-ghost btn-sm" onclick="TripModal.adicionarParticipante()">+ Adicionar</button>' +
         '</div>' +
+        '<div id="trip-partic-list" style="display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-2)"></div>' +
+        '<span class="form-error" id="e-partic">Inclua participantes válidos.</span>' +
       '</div>' +
 
       '<div class="form-group">' +
@@ -1596,6 +1616,48 @@ var TripModal = (function () {
         '<textarea id="f-desc" class="form-textarea" maxlength="300" placeholder="Descreva em poucas palavras o que a viagem inclui...">' + _esc(val('descricao')) + '</textarea>' +
       '</div>'
     );
+  }
+
+  function _normalizarParticipantesDraft(viagem) {
+    if (viagem && Array.isArray(viagem.participantes) && viagem.participantes.length > 0) {
+      return viagem.participantes.map(function (p, idx) {
+        return {
+          id: p && p.id ? String(p.id) : ('part-local-' + idx + '-' + Date.now()),
+          nome: String((p && p.nome) || '').trim(),
+          ativo: !p || p.ativo !== false,
+        };
+      });
+    }
+    var qtd = Math.max(1, Number(viagem && viagem.participantes) || 1);
+    var lista = [];
+    for (var i = 1; i <= qtd; i++) {
+      lista.push({ id: 'part-local-' + i + '-' + Date.now(), nome: 'Pessoa ' + i, ativo: true });
+    }
+    return lista;
+  }
+
+  function _erroParticipantes(mostrar, mensagem) {
+    var el = document.getElementById('e-partic');
+    if (!el) return;
+    if (mensagem) el.textContent = mensagem;
+    if (mostrar) el.classList.add('visivel');
+    else el.classList.remove('visivel');
+  }
+
+  function _renderParticipantesEditor() {
+    var alvo = document.getElementById('trip-partic-list');
+    if (!alvo) return;
+    alvo.innerHTML = _participantesDraft.map(function (p, idx) {
+      return (
+        '<div style="display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:var(--space-2);align-items:center">' +
+          '<input class="form-input" type="text" maxlength="60" placeholder="Nome do participante" value="' + _esc(p.nome) + '" oninput="TripModal.atualizarNomeParticipante(' + idx + ', this.value)">' +
+          '<label class="desp-check-label" style="justify-content:center;min-width:88px">' +
+            '<input type="checkbox" ' + (p.ativo ? 'checked' : '') + ' onchange="TripModal.alternarAtivoParticipante(' + idx + ', this.checked)"> Ativo' +
+          '</label>' +
+          '<button type="button" class="btn btn-ghost btn-sm" onclick="TripModal.removerParticipante(' + idx + ')" ' + (_participantesDraft.length <= 1 ? 'disabled' : '') + '>Remover</button>' +
+        '</div>'
+      );
+    }).join('');
   }
 
   // ---- Utilitário: option selecionado ----
@@ -1625,6 +1687,7 @@ var TripModal = (function () {
   // ---- Limpa todos os erros ----
   function _limparErros() {
     ['nome','dest-principal','loc-curta','inicio','fim','orc'].forEach(function (k) { _erro(k, false); });
+    _erroParticipantes(false);
   }
 
   // ---- Valida o formulário ----
@@ -1657,6 +1720,27 @@ var TripModal = (function () {
     var orc = document.getElementById('f-orc');
     if (!orc || !orc.value || Number(orc.value) <= 0) { _erro('orc', true); ok = false; }
 
+    var nomes = _participantesDraft.map(function (p) {
+      return String((p && p.nome) || '').trim();
+    });
+    if (!nomes.length || nomes.some(function (n) { return !n; })) {
+      _erroParticipantes(true, 'Preencha o nome de todos os participantes.');
+      ok = false;
+    }
+
+    var nomesNorm = nomes.map(function (n) { return n.toLowerCase(); });
+    var unico = nomesNorm.every(function (n, idx) { return nomesNorm.indexOf(n) === idx; });
+    if (!unico) {
+      _erroParticipantes(true, 'Não repita nomes de participantes.');
+      ok = false;
+    }
+
+    var ativos = _participantesDraft.filter(function (p) { return p && p.ativo !== false; }).length;
+    if (ativos === 0) {
+      _erroParticipantes(true, 'Mantenha ao menos um participante ativo.');
+      ok = false;
+    }
+
     return ok;
   }
 
@@ -1669,10 +1753,12 @@ var TripModal = (function () {
     abrir: function (id) {
       _editandoId = id || null;
       var viagem = id ? Store.getViagens().find(function (v) { return v.id === id; }) : null;
+      _participantesDraft = _normalizarParticipantesDraft(viagem);
 
       document.getElementById('trip-modal-title').textContent = id ? 'Editar viagem' : 'Nova viagem';
       document.getElementById('trip-modal-save').textContent  = id ? 'Salvar alterações' : 'Salvar viagem';
       document.getElementById('trip-modal-body').innerHTML    = _renderForm(viagem);
+      _renderParticipantesEditor();
 
       _overlay.classList.add('aberto');
       document.body.style.overflow = 'hidden';
@@ -1686,6 +1772,31 @@ var TripModal = (function () {
       _overlay.classList.remove('aberto');
       document.body.style.overflow = '';
       _editandoId = null;
+      _participantesDraft = [];
+    },
+
+    adicionarParticipante: function () {
+      _participantesDraft.push({ id: 'part-local-' + Date.now(), nome: '', ativo: true });
+      _renderParticipantesEditor();
+      _erroParticipantes(false);
+    },
+
+    removerParticipante: function (idx) {
+      if (_participantesDraft.length <= 1) return;
+      _participantesDraft.splice(idx, 1);
+      _renderParticipantesEditor();
+    },
+
+    atualizarNomeParticipante: function (idx, valor) {
+      if (!_participantesDraft[idx]) return;
+      _participantesDraft[idx].nome = String(valor || '').trimStart();
+      _erroParticipantes(false);
+    },
+
+    alternarAtivoParticipante: function (idx, ativo) {
+      if (!_participantesDraft[idx]) return;
+      _participantesDraft[idx].ativo = !!ativo;
+      _erroParticipantes(false);
     },
 
     // Coleta dados, valida e persiste
@@ -1707,7 +1818,13 @@ var TripModal = (function () {
         dataInicio:    document.getElementById('f-inicio').value,
         dataFim:       document.getElementById('f-fim').value,
         orcamento:     Number(document.getElementById('f-orc').value),
-        participantes: Number(document.getElementById('f-partic').value) || 1,
+        participantes: _participantesDraft.map(function (p) {
+          return {
+            id: p.id || ('part-local-' + Date.now()),
+            nome: String(p.nome || '').trim(),
+            ativo: p.ativo !== false,
+          };
+        }),
         tags:          tagsLista,
         descricao:     document.getElementById('f-desc').value.trim(),
       };
@@ -2290,24 +2407,57 @@ var DespesaModal = (function () {
     return '<option value="' + val + '"' + (val === atual ? ' selected' : '') + '>' + label + '</option>';
   }
 
-  // Gera checkboxes de participantes baseados na contagem da viagem
-  function _checkboxesPartic(viagem, selecionados) {
-    var n = Math.max(1, Number(viagem.participantes) || 1);
+  function _participantesAtivos(viagem) {
+    if (!viagem) return [];
+    if (Array.isArray(viagem.participantes)) {
+      return viagem.participantes
+        .filter(function (p) { return p && p.ativo !== false; })
+        .map(function (p) { return String(p.nome || '').trim(); })
+        .filter(Boolean);
+    }
+    var qtd = Math.max(1, Number(viagem.participantes) || 1);
+    var lista = [];
+    for (var i = 1; i <= qtd; i++) lista.push('Pessoa ' + i);
+    return lista;
+  }
+
+  function _checkboxesPartic(participantesAtivos, selecionados) {
     var checks = '';
-    for (var i = 1; i <= n; i++) {
-      var label = 'Pessoa ' + i;
-      var checked = (!selecionados || selecionados.length === 0 || selecionados.indexOf(label) !== -1) ? ' checked' : '';
+    participantesAtivos.forEach(function (nome) {
+      var checked = (!selecionados || selecionados.length === 0 || selecionados.indexOf(nome) !== -1) ? ' checked' : '';
       checks += (
         '<label class="desp-check-label">' +
-          '<input type="checkbox" name="df-partic" value="' + label + '"' + checked + '> ' + label +
+          '<input type="checkbox" name="df-partic" value="' + _esc(nome) + '"' + checked + '> ' + _esc(nome) +
         '</label>'
       );
-    }
+    });
     return checks;
+  }
+
+  function _selectPagante(participantesAtivos, atual) {
+    var opcoes = participantesAtivos.map(function (nome) {
+      return '<option value="' + _esc(nome) + '"' + (nome === atual ? ' selected' : '') + '>' + _esc(nome) + '</option>';
+    }).join('');
+    if (atual && participantesAtivos.indexOf(atual) === -1) {
+      opcoes += '<option value="' + _esc(atual) + '" selected>' + _esc(atual) + ' (participante removido)</option>';
+    }
+    return opcoes;
+  }
+
+  function _resumoParcelas(valor, totalParcelas) {
+    var total = Math.max(1, Math.floor(Number(totalParcelas) || 1));
+    var v = Math.round((Number(valor) || 0) * 100);
+    if (total <= 1 || v <= 0) return 'Pagamento à vista.';
+    var base = Math.floor(v / total);
+    var ultima = v - (base * (total - 1));
+    return total + 'x de ' + UI.formatarMoeda(base / 100) + ' (última de ' + UI.formatarMoeda(ultima / 100) + ')';
   }
 
   function _renderForm(viagem, desp) {
     desp = desp || {};
+    var participantesAtivos = _participantesAtivos(viagem);
+    var totalParcelas = Math.max(1, Number(desp.totalParcelas) || 1);
+    var modoPagamento = totalParcelas > 1 ? 'parcelado' : 'avista';
     return (
       '<div class="form-row">' +
         '<div class="form-group">' +
@@ -2339,14 +2489,32 @@ var DespesaModal = (function () {
         '</div>' +
         '<div class="form-group">' +
           '<label class="form-label form-label-required" for="df-pagante">Quem pagou</label>' +
-          '<input id="df-pagante" class="form-input" type="text" maxlength="60" placeholder="Ex: Pessoa 1" value="' + _esc(desp.quemPagou) + '">' +
+          '<select id="df-pagante" class="form-select">' +
+            '<option value="">Selecione...</option>' +
+            _selectPagante(participantesAtivos, desp.quemPagou) +
+          '</select>' +
           '<span class="form-error" id="de-pagante">Informe quem pagou.</span>' +
         '</div>' +
       '</div>' +
 
+      '<div class="form-row">' +
+        '<div class="form-group">' +
+          '<label class="form-label" for="df-pagamento">Pagamento</label>' +
+          '<select id="df-pagamento" class="form-select" onchange="DespesaModal.alterarPagamento()">' +
+            _opt('avista', 'À vista', modoPagamento) +
+            _opt('parcelado', 'Parcelado', modoPagamento) +
+          '</select>' +
+        '</div>' +
+        '<div class="form-group" id="df-parcelas-wrap" style="display:' + (modoPagamento === 'parcelado' ? 'block' : 'none') + '">' +
+          '<label class="form-label" for="df-parcelas">Quantidade de parcelas</label>' +
+          '<input id="df-parcelas" class="form-input" type="number" min="2" max="48" step="1" value="' + (totalParcelas > 1 ? totalParcelas : 2) + '" oninput="DespesaModal.alterarPagamento()">' +
+        '</div>' +
+      '</div>' +
+      '<div class="text-xs text-muted" id="df-parcelas-resumo" style="margin-top:calc(var(--space-2) * -1);margin-bottom:var(--space-2)">' + _resumoParcelas(desp.valor, totalParcelas) + '</div>' +
+
       '<div class="form-group">' +
         '<label class="form-label">Participantes no rateio</label>' +
-        '<div class="desp-check-grid">' + _checkboxesPartic(viagem, desp.participantes) + '</div>' +
+        '<div class="desp-check-grid">' + _checkboxesPartic(participantesAtivos, desp.participantes) + '</div>' +
         '<span class="text-xs text-muted" style="margin-top:4px;display:block">Padrão: todos selecionados.</span>' +
       '</div>' +
 
@@ -2386,6 +2554,21 @@ var DespesaModal = (function () {
     if (!val || val <= 0) { _erro('valor', true, 'Valor deve ser maior que zero.'); ok = false; }
     var pag = document.getElementById('df-pagante');
     if (!pag || !pag.value.trim()) { _erro('pagante', true); ok = false; }
+
+    var modo = document.getElementById('df-pagamento');
+    if (modo && modo.value === 'parcelado') {
+      var parcelas = Number(document.getElementById('df-parcelas').value);
+      if (!parcelas || parcelas < 2) {
+        _erro('valor', true, 'Para parcelado, informe ao menos 2 parcelas.');
+        ok = false;
+      }
+    }
+
+    var checks = _coletarPartic();
+    if (!checks.length) {
+      _erro('pagante', true, 'Selecione ao menos 1 participante no rateio.');
+      ok = false;
+    }
     return ok;
   }
 
@@ -2397,10 +2580,31 @@ var DespesaModal = (function () {
   return {
     init: _inject,
 
+    alterarPagamento: function () {
+      var modo = document.getElementById('df-pagamento');
+      var wrapParcelas = document.getElementById('df-parcelas-wrap');
+      var resumo = document.getElementById('df-parcelas-resumo');
+      var val = Number(document.getElementById('df-valor') && document.getElementById('df-valor').value);
+      var totalParcelas = Number(document.getElementById('df-parcelas') && document.getElementById('df-parcelas').value) || 1;
+
+      if (modo && wrapParcelas) {
+        var parcelado = modo.value === 'parcelado';
+        wrapParcelas.style.display = parcelado ? 'block' : 'none';
+        if (!parcelado) totalParcelas = 1;
+      }
+
+      if (resumo) resumo.textContent = _resumoParcelas(val, totalParcelas);
+    },
+
     abrir: function (tripId, despesaId) {
       _tripId    = tripId;
       _despesaId = despesaId || null;
       var viagem = Store.getViagens().find(function (v) { return v.id === tripId; }) || {};
+      var participantesAtivos = _participantesAtivos(viagem);
+      if (!participantesAtivos.length && !_despesaId) {
+        _mostrarToast('Adicione ao menos 1 participante ativo na viagem antes de lançar despesas.', true);
+        return;
+      }
       var desp   = null;
       if (_despesaId) {
         Store.getDespesas(tripId).forEach(function (d) {
@@ -2410,6 +2614,7 @@ var DespesaModal = (function () {
       document.getElementById('desp-modal-title').textContent = despesaId ? 'Editar despesa' : 'Nova despesa';
       document.getElementById('desp-modal-save').textContent  = despesaId ? 'Salvar alterações' : 'Salvar despesa';
       document.getElementById('desp-modal-body').innerHTML    = _renderForm(viagem, desp || {});
+      this.alterarPagamento();
       _overlay.classList.add('aberto');
       document.body.style.overflow = 'hidden';
       var f = document.getElementById('df-desc');
@@ -2424,6 +2629,10 @@ var DespesaModal = (function () {
 
     salvar: function () {
       if (!_validar()) return;
+      var modo = document.getElementById('df-pagamento').value;
+      var totalParcelas = modo === 'parcelado'
+        ? Math.max(2, Math.floor(Number(document.getElementById('df-parcelas').value) || 2))
+        : 1;
       var dados = {
         data:         document.getElementById('df-data').value,
         categoria:    document.getElementById('df-cat').value,
@@ -2432,6 +2641,8 @@ var DespesaModal = (function () {
         quemPagou:    document.getElementById('df-pagante').value.trim(),
         participantes: _coletarPartic(),
         observacoes:  document.getElementById('df-obs').value.trim(),
+        tipoPagamento: modo,
+        totalParcelas: totalParcelas,
       };
       if (_despesaId) {
         Store.editarDespesa(_tripId, _despesaId, dados);

@@ -53,6 +53,17 @@ var UI = (function () {
     return 'progress-bar-fill-green';
   }
 
+  function contarParticipantesAtivos(viagem) {
+    if (!viagem) return 1;
+    if (Array.isArray(viagem.participantes)) {
+      var ativos = viagem.participantes.filter(function (p) {
+        return p && p.ativo !== false && String(p.nome || '').trim();
+      }).length;
+      return Math.max(1, ativos);
+    }
+    return Math.max(1, Number(viagem.participantes) || 1);
+  }
+
   // ---- Renderiza um card de viagem ----
   function renderTripCard(viagem, idSelecionado) {
     var pct = calcularPorcentagem(viagem.gastoAtual, viagem.orcamento);
@@ -60,6 +71,7 @@ var UI = (function () {
     var tags = (viagem.tags || []).map(function (t) {
       return '<span class="chip">' + t + '</span>';
     }).join('');
+    var totalParticipantes = contarParticipantesAtivos(viagem);
     var eSelecionada = viagem.id === idSelecionado;
 
     return (
@@ -88,7 +100,7 @@ var UI = (function () {
           '</div>' +
           '<div class="trip-card-meta" style="margin-top:var(--space-3)">' +
             tags +
-            '<span class="chip">👥 ' + viagem.participantes + ' pessoas</span>' +
+            '<span class="chip">👥 ' + totalParticipantes + ' pessoas</span>' +
           '</div>' +
         '</div>' +
         '<div class="card-footer" style="flex-wrap:wrap;gap:var(--space-2)">' +
@@ -170,6 +182,14 @@ var UI = (function () {
     var splitLabel = partic > 1
       ? '<span class="desp-split">' + cat.emoji + ' ' + formatarMoeda(porPessoa) + '/pessoa (' + partic + ' pessoas)</span>'
       : '';
+    var parcelas = Math.max(1, Number(desp.totalParcelas) || 1);
+    var detalheParcelas = '';
+    if (parcelas > 1) {
+      var lista = Array.isArray(desp.parcelas) ? desp.parcelas : [];
+      var primeira = lista.length > 0 ? Number(lista[0]) : (Number(desp.valor) / parcelas);
+      var ultima = lista.length > 0 ? Number(lista[lista.length - 1]) : primeira;
+      detalheParcelas = '<div class="text-xs text-muted" style="margin-top:var(--space-1)">🧩 ' + parcelas + 'x de ' + formatarMoeda(primeira) + (Math.abs(ultima - primeira) >= 0.01 ? ' (última de ' + formatarMoeda(ultima) + ')' : '') + '</div>';
+    }
     var badgeRota = eRota
       ? '<span class="badge badge-info">Gerado por rota</span>'
       : '';
@@ -193,6 +213,7 @@ var UI = (function () {
           '<span class="desp-pagante">💳 ' + (desp.quemPagou || '—') + '</span>' +
           splitLabel +
         '</div>' +
+        detalheParcelas +
         (desp.observacoes ? '<div class="desp-obs">' + desp.observacoes + '</div>' : '') +
         '<div class="desp-actions">' +
           '<button class="desp-btn" onclick="DespesaActions.editar(\'' + tripId + '\',\'' + desp.id + '\')">✏️ <span>' + acaoEditar + '</span></button>' +

@@ -15,8 +15,141 @@ var Store = (function () {
   var _LS_ROUTES   = 'rotaboa.routes.v1';
   var _rotasLegacySemTripIdLogado = false;
 
+  var _MOCK_TRIP_IDS = {
+    'viagem-1': true,
+    'viagem-2': true,
+    'viagem-3': true,
+  };
+
+  function _gerarParticipanteId() {
+    return 'part-' + Date.now() + '-' + Math.floor(Math.random() * 9999);
+  }
+
+  function _normalizarNomeParticipante(nome) {
+    return String(nome || '').trim().replace(/\s+/g, ' ');
+  }
+
+  function _normalizarListaParticipantes(lista, fallbackQtd) {
+    var base = [];
+
+    if (Array.isArray(lista) && lista.length > 0) {
+      base = lista.map(function (p) {
+        if (typeof p === 'string') {
+          return { id: _gerarParticipanteId(), nome: _normalizarNomeParticipante(p), ativo: true };
+        }
+        var nome = _normalizarNomeParticipante(p && p.nome);
+        return {
+          id: p && p.id ? String(p.id) : _gerarParticipanteId(),
+          nome: nome,
+          ativo: p && p.ativo !== false,
+        };
+      });
+    } else {
+      var qtd = Math.max(1, Number(fallbackQtd) || 1);
+      for (var i = 1; i <= qtd; i++) {
+        base.push({ id: _gerarParticipanteId(), nome: 'Pessoa ' + i, ativo: true });
+      }
+    }
+
+    var usados = {};
+    var limpos = base.map(function (p, idx) {
+      var nomeBase = _normalizarNomeParticipante(p.nome) || ('Pessoa ' + (idx + 1));
+      var chave = nomeBase.toLowerCase();
+      var nomeFinal = nomeBase;
+      var sufixo = 2;
+      while (usados[chave]) {
+        nomeFinal = nomeBase + ' ' + sufixo;
+        chave = nomeFinal.toLowerCase();
+        sufixo++;
+      }
+      usados[chave] = true;
+      return {
+        id: p.id || _gerarParticipanteId(),
+        nome: nomeFinal,
+        ativo: p.ativo !== false,
+      };
+    });
+
+    if (!limpos.some(function (p) { return p.ativo; }) && limpos.length > 0) {
+      limpos[0].ativo = true;
+    }
+
+    return limpos;
+  }
+
+  function _contarParticipantesAtivos(viagem) {
+    if (!viagem) return 1;
+    if (Array.isArray(viagem.participantes)) {
+      var ativos = viagem.participantes.filter(function (p) {
+        return p && p.ativo !== false && _normalizarNomeParticipante(p.nome);
+      }).length;
+      return Math.max(1, ativos);
+    }
+    return Math.max(1, Number(viagem.participantes) || 1);
+  }
+
+  function _nomesParticipantesAtivos(viagem) {
+    if (!viagem) return ['Pessoa 1'];
+    if (Array.isArray(viagem.participantes)) {
+      var nomes = viagem.participantes
+        .filter(function (p) { return p && p.ativo !== false; })
+        .map(function (p) { return _normalizarNomeParticipante(p.nome); })
+        .filter(Boolean);
+      if (nomes.length > 0) return nomes;
+    }
+    var n = Math.max(1, Number(viagem.participantes) || 1);
+    var arr = [];
+    for (var i = 1; i <= n; i++) arr.push('Pessoa ' + i);
+    return arr;
+  }
+
+  function _limparViagensMockConhecidas(viagens) {
+    if (!Array.isArray(viagens) || viagens.length === 0) return { viagens: [], mudou: false };
+    var filtradas = viagens.filter(function (v) {
+      return !_MOCK_TRIP_IDS[v && v.id];
+    });
+    return { viagens: filtradas, mudou: filtradas.length !== viagens.length };
+  }
+
+  function _limparColecoesPorViagens(viagens, itinerarios, despesas, rotas) {
+    var idsValidos = {};
+    (viagens || []).forEach(function (v) { idsValidos[v.id] = true; });
+
+    function _filtrarMapa(mapa, fnItem) {
+      var mudou = false;
+      var saida = {};
+      Object.keys(mapa || {}).forEach(function (tid) {
+        if (!idsValidos[tid]) {
+          mudou = true;
+          return;
+        }
+        var lista = mapa[tid];
+        if (Array.isArray(lista)) {
+          var novaLista = lista.filter(function (item) { return fnItem(item, tid); });
+          if (novaLista.length !== lista.length) mudou = true;
+          saida[tid] = novaLista;
+        } else {
+          saida[tid] = lista;
+        }
+      });
+      return { mapa: saida, mudou: mudou };
+    }
+
+    var it = _filtrarMapa(itinerarios || {}, function () { return true; });
+    var de = _filtrarMapa(despesas || {}, function (d, tid) { return d && (!d.tripId || d.tripId === tid); });
+    var ro = _filtrarMapa(rotas || {}, function (t, tid) { return t && t.tripId === tid; });
+
+    return {
+      itinerarios: it.mapa,
+      despesas: de.mapa,
+      rotas: ro.mapa,
+      mudou: it.mudou || de.mudou || ro.mudou,
+    };
+  }
+
   // ---- Migra viagem antiga (campo destino → destinoPrincipal + localizacaoCurta) ----
   function _migrarViagem(v) {
+    v = Object.assign({}, v);
     if (!v.destinoPrincipal && !v.localizacaoCurta) {
       // Viagem salva no formato antigo: usa destino para ambos os campos
       v.destinoPrincipal = v.destino || '';
@@ -25,10 +158,11 @@ var Store = (function () {
     // Garante que localizacaoCurta tenha fallback
     if (!v.localizacaoCurta) v.localizacaoCurta = v.destinoPrincipal || v.destino || '';
     if (!v.destinoPrincipal) v.destinoPrincipal = v.localizacaoCurta || v.destino || '';
+    v.participantes = _normalizarListaParticipantes(v.participantes, v.participantes);
     return v;
   }
 
-  // ---- Carrega viagens do localStorage (fallback: mock) ----
+  // ---- Carrega viagens do localStorage ----
   function _carregarViagens() {
     try {
       var raw = localStorage.getItem(_LS_TRIPS);
@@ -39,11 +173,7 @@ var Store = (function () {
     } catch (e) {
       console.warn('[Store] Falha ao ler localStorage:', e);
     }
-    // Primeira vez: persiste os dados mock para ter base consistente
-    try {
-      localStorage.setItem(_LS_TRIPS, JSON.stringify(MockData.viagens));
-    } catch (e) {}
-    return MockData.viagens.map(_migrarViagem);
+    return [];
   }
 
   // ---- Carrega a ID selecionada (fallback: primeira viagem) ----
@@ -270,10 +400,7 @@ var Store = (function () {
 
   function _labelsParticipantes(tripId) {
     var viagem = _state.viagens.find(function (v) { return v.id === tripId; });
-    var n = Math.max(1, Number(viagem && viagem.participantes) || 1);
-    var arr = [];
-    for (var i = 1; i <= n; i++) arr.push('Pessoa ' + i);
-    return arr;
+    return _nomesParticipantesAtivos(viagem);
   }
 
   function _normalizarTrecho(tripId, dados, idFixo) {
@@ -285,7 +412,7 @@ var Store = (function () {
     var custoComb = litros * preco;
     var custoTotal = fixo + custoComb;
     var viagem = _state.viagens.find(function (v) { return v.id === tripId; });
-    var participantes = Math.max(1, Number(viagem && viagem.participantes) || 1);
+    var participantes = _contarParticipantesAtivos(viagem);
 
     return Object.assign({}, dados, {
       id: idFixo || dados.id || _gerarTrechoId(),
@@ -314,16 +441,52 @@ var Store = (function () {
     delete base.source;
     if (String(base.origem || '').trim().toLowerCase() === 'rota') delete base.origem;
 
+    var viagem = _state.viagens.find(function (v) { return v.id === tripId; });
+    var participantesDisponiveis = _nomesParticipantesAtivos(viagem);
+    var participantesSet = {};
+    participantesDisponiveis.forEach(function (n) { participantesSet[n] = true; });
+
+    var participantesRateio = Array.isArray(base.participantes)
+      ? base.participantes.map(function (n) { return _normalizarNomeParticipante(n); }).filter(Boolean)
+      : [];
+    participantesRateio = participantesRateio.filter(function (n, idx) {
+      return participantesSet[n] && participantesRateio.indexOf(n) === idx;
+    });
+    if (participantesRateio.length === 0) participantesRateio = participantesDisponiveis.slice();
+
+    var quemPagou = _normalizarNomeParticipante(base.quemPagou);
+    if (!quemPagou || !participantesSet[quemPagou]) {
+      quemPagou = participantesDisponiveis[0] || '';
+    }
+
+    var totalParcelas = Math.max(1, Math.floor(Number(base.totalParcelas) || 1));
+    var valorTotal = _round2(Number(base.valor) || 0);
+    var parcelas = [];
+    if (totalParcelas > 1 && valorTotal > 0) {
+      var totalCentavos = Math.round(valorTotal * 100);
+      var parcelaBase = Math.floor(totalCentavos / totalParcelas);
+      for (var i = 1; i <= totalParcelas; i++) {
+        var centavos = i === totalParcelas
+          ? (totalCentavos - (parcelaBase * (totalParcelas - 1)))
+          : parcelaBase;
+        parcelas.push(_round2(centavos / 100));
+      }
+    }
+
     return Object.assign({}, base, {
       id: idFixo || base.id || _gerarDespesaId(),
       tripId: tripId,
       categoria: base.categoria || 'outros',
       descricao: String(base.descricao || '').trim(),
-      valor: _round2(Number(base.valor) || 0),
+      valor: valorTotal,
       data: base.data || _hojeISO(),
-      quemPagou: String(base.quemPagou || '').trim(),
-      participantes: Array.isArray(base.participantes) ? base.participantes.slice() : [],
+      quemPagou: quemPagou,
+      participantes: participantesRateio,
       observacoes: String(base.observacoes || '').trim(),
+      tipoPagamento: totalParcelas > 1 ? 'parcelado' : 'avista',
+      totalParcelas: totalParcelas,
+      parcelas: parcelas,
+      valorParcela: parcelas.length > 0 ? parcelas[0] : valorTotal,
     });
   }
 
@@ -389,6 +552,11 @@ var Store = (function () {
 
   // ---- Inicializa estado a partir do localStorage ----
   var _viagens    = _carregarViagens();
+  var _cleanupMocks = _limparViagensMockConhecidas(_viagens);
+  _viagens = _cleanupMocks.viagens;
+  if (_cleanupMocks.mudou) {
+    try { localStorage.setItem(_LS_TRIPS, JSON.stringify(_viagens)); } catch (e) {}
+  }
   var _selectedId = _carregarSelectedId(_viagens);
 
   // Despesas carregadas DEPOIS de viagens/selectedId para permitir migração com fallback
@@ -397,6 +565,15 @@ var Store = (function () {
   var _cleanup = _limparDespesasGeradasPorRota(_despesas, _viagens);
   _despesas = _cleanup.despesas;
   if (_cleanup.mudou) _salvarDespesas();
+  var _cleanupColecoes = _limparColecoesPorViagens(_viagens, _itinerarios, _despesas, _rotasTrechos);
+  _itinerarios = _cleanupColecoes.itinerarios;
+  _despesas = _cleanupColecoes.despesas;
+  _rotasTrechos = _cleanupColecoes.rotas;
+  if (_cleanupColecoes.mudou) {
+    try { localStorage.setItem(_LS_ITIN, JSON.stringify(_itinerarios)); } catch (e) {}
+    try { localStorage.setItem(_LS_EXPENSES, JSON.stringify(_despesas)); } catch (e) {}
+    try { localStorage.setItem(_LS_ROUTES, JSON.stringify(_rotasTrechos)); } catch (e) {}
+  }
 
   var _state = {
     viagemSelecionadaId: _selectedId,
@@ -452,6 +629,12 @@ var Store = (function () {
       }) || _state.viagens[0];
     },
 
+    getParticipantesViagem: function (tripId) {
+      var viagem = _state.viagens.find(function (v) { return v.id === tripId; });
+      if (!viagem) return [];
+      return _normalizarListaParticipantes(viagem.participantes, viagem.participantes).slice();
+    },
+
     // ---- Seleção ----
     selecionarViagem: function (id) {
       _state.viagemSelecionadaId = id;
@@ -468,7 +651,9 @@ var Store = (function () {
         id:         _gerarId(),
         gastoAtual: 0,
         capa:       capas[_state.viagens.length % 3],
-      }, dados);
+      }, dados, {
+        participantes: _normalizarListaParticipantes(dados && dados.participantes, dados && dados.participantes),
+      });
 
       _state.viagens.push(novaViagem);
 
@@ -487,8 +672,13 @@ var Store = (function () {
     editarViagem: function (id, dados) {
       var idx = _state.viagens.findIndex(function (v) { return v.id === id; });
       if (idx === -1) return false;
+      var participantesEntrada = dados && dados.participantes !== undefined
+        ? dados.participantes
+        : _state.viagens[idx].participantes;
       // Preserva campos que o formulário não edita (gastoAtual, capa, id)
-      _state.viagens[idx] = Object.assign({}, _state.viagens[idx], dados);
+      _state.viagens[idx] = Object.assign({}, _state.viagens[idx], dados, {
+        participantes: _normalizarListaParticipantes(participantesEntrada, participantesEntrada),
+      });
       _salvarViagens();
       _marcarSyncPendente();
       _notificar();
@@ -498,12 +688,18 @@ var Store = (function () {
     // ---- Excluir viagem ----
     excluirViagem: function (id) {
       _state.viagens = _state.viagens.filter(function (v) { return v.id !== id; });
+      delete _itinerarios[id];
+      delete _despesas[id];
+      delete _rotasTrechos[id];
       // Corrige seleção se a viagem excluída era a atual
       if (_state.viagemSelecionadaId === id) {
         _state.viagemSelecionadaId = _state.viagens.length > 0 ? _state.viagens[0].id : null;
         _salvarSelectedId();
       }
       _salvarViagens();
+      _salvarItinerarios();
+      _salvarDespesas();
+      _salvarRotas();
       _marcarSyncPendente();
       _notificar();
     },
@@ -726,6 +922,13 @@ var Store = (function () {
         };
       }).filter(function (c) { return c.valor > 0; });
 
+      var despesasParceladas = lista.filter(function (d) {
+        return Number(d.totalParcelas) > 1;
+      });
+      var compromissoParcelado = despesasParceladas.reduce(function (acc, d) {
+        return acc + (Number(d.valor) || 0);
+      }, 0);
+
       return {
         orcamento:   orcamento,
         totalGasto:  totalGasto,
@@ -733,6 +936,8 @@ var Store = (function () {
         pct:         orcamento > 0 ? Math.min(100, Math.round((totalGasto / orcamento) * 100)) : 0,
         categorias:  categorias,
         despesas:    lista,
+        compromissoParcelado: compromissoParcelado,
+        qtdParceladas: despesasParceladas.length,
       };
     },
 
@@ -808,7 +1013,7 @@ var Store = (function () {
         };
       }
       var viagem = _state.viagens.find(function (v) { return v.id === tripId; });
-      var participantes = Math.max(1, Number(viagem && viagem.participantes) || 1);
+      var participantes = _contarParticipantesAtivos(viagem);
       var lista = this.getRotas(tripId).filter(function (t) {
         return t && t.tripId === tripId;
       }).map(function (t) {
