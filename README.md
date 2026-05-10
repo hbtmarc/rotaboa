@@ -41,6 +41,8 @@ rotaboa/
 | `#/roteiro`         | Roteiro por dia                    |
 | `#/financeiro`      | Resumo financeiro e despesas       |
 | `#/rotas`           | Trechos e estimativa de combustível|
+| `#/login`           | Login Firebase (email/senha/Google)|
+| `#/config`          | Configuração do app e Firebase     |
 | `#/configuracoes`   | Perfil e preferências              |
 
 ---
@@ -98,6 +100,168 @@ Acesse `http://192.168.1.100:8000` pelo celular (mesmo Wi-Fi).
 
 - Custos de rotas no Financeiro são derivados de `rotaboa.routes.v1`.
 - Eles não são duplicados em `rotaboa.expenses.v1`, que armazena apenas despesas manuais.
+
+## Step 6 — Página Config e preparação Firebase
+
+### O que foi implementado
+
+- Nova página funcional de configuração em `#/config` (mantendo alias `#/configuracoes`).
+- Seção **Modo de dados** com status de Local e Firebase preparado.
+- Seção **Configuração Firebase** com campos, salvar, testar conexão e limpar configuração.
+- Seção **Backup local** com exportar/importar JSON e limpar dados locais com confirmação.
+- Badge de status no cabeçalho: `Local`, `Firebase configurado` e `Firebase online`.
+- Preparação de cliente Firebase sem migrar persistência principal do app (continua localStorage).
+
+### Arquivos alterados
+
+- `index.html`
+- `assets/js/app.js`
+- `assets/js/firebaseClient.js` (novo)
+- `README.md`
+
+### Como validar
+
+1. Abrir `#/config` e conferir que a página carrega sem erros no console.
+2. Preencher configuração Firebase, clicar em **Salvar configuração** e recarregar a página.
+3. Conferir badge do header: `Firebase configurado` após salvar.
+4. Clicar em **Testar conexão** e validar retorno de sucesso ou mensagem amigável de erro.
+5. Clicar em **Limpar configuração** e confirmar badge `Local`.
+6. Clicar em **Exportar backup JSON** e validar download do arquivo.
+7. Clicar em **Importar backup JSON** e validar restauração dos dados locais.
+8. Clicar em **Limpar dados locais** e validar confirmação via modal.
+9. Navegar nas páginas existentes e confirmar funcionamento normal.
+
+### Observação importante
+
+- Persistência Firebase está **preparada**, mas **ainda não está ativa como banco principal**.
+- O `Store` continua usando localStorage normalmente.
+
+## Step 7 — Autenticação Firebase (sem migrar dados)
+
+### O que foi implementado
+
+- Nova rota `#/login` com autenticação por email/senha, criação de conta e login com Google.
+- Logout e escuta de sessão (`onAuthStateChanged`) para manter usuário autenticado após recarregar.
+- Cabeçalho com estado de autenticação:
+	- deslogado: botão **Entrar**
+	- logado: badge com usuário + botão **Sair**
+- Aviso sutil em `#/config`, `#/financeiro`, `#/rotas` e `#/roteiro` quando Firebase está configurado, mas sem usuário autenticado.
+
+### Arquivos alterados
+
+- `assets/js/firebaseClient.js`
+- `assets/js/app.js`
+- `README.md`
+
+### Observação importante
+
+- A autenticação foi adicionada, mas os dados do app **continuam locais**.
+- O `Store` segue usando localStorage como fonte principal.
+
+## Step 8 — Gate de Auth, modo offline e sync preparado
+
+### O que foi implementado
+
+- Gate de acesso por hash route: a única rota pública é `#/login`.
+- Inicialização do app aguarda resolução do estado de autenticação antes de liberar rotas privadas.
+- Modo offline local com botão **Usar offline neste dispositivo** na tela de login.
+- Badge de cabeçalho em modo offline: `Modo offline`.
+- Ação **Sair do modo offline** na página `#/config`.
+- Preparação de sincronização com Firestore em `users/{uid}/appState/main`.
+- Novo `SyncService` com:
+	- `syncLocalToCloud()`
+	- `getSyncStatus()`
+	- `markPendingSync()`
+- CRUD local continua igual (localStorage), mas ações de escrita marcam sync pendente.
+
+### Checklist de validação
+
+1. Sem erros de console na abertura da aplicação.
+2. Usuário deslogado não acessa rotas privadas direto por hash (redireciona para `#/login`).
+3. Login com Google abre o app normalmente.
+4. Botão **Usar offline neste dispositivo** abre o app sem exigir login.
+5. Em modo offline, criação/edição/exclusão continuam locais em localStorage.
+6. Ao logar online, estado local é enviado para Firestore (`users/{uid}/appState/main`).
+7. Ao recuperar conexão (`online`), sincronização é tentada novamente.
+8. Página `#/config` não exibe mais campos de credenciais Firebase.
+9. Textos de interface permanecem em PT-BR.
+
+## Step 9 — Refino de UX em Auth e Config
+
+### O que foi refinado
+
+- Cabeçalho sem status técnico: exibe badge apenas em `Modo offline` ou `Sincronização pendente`.
+- Usuário autenticado/offline é redirecionado de `#/login` para `#/inicio`.
+- Página `#/config` reorganizada em seções de produto:
+	- **Conta**
+	- **Sincronização**
+	- **Dados locais**
+	- **Preferências**
+- Preferências locais adicionadas:
+	- Página inicial padrão
+	- Mostrar valores financeiros na tela inicial
+	- Confirmações antes de excluir
+
+### Checklist de validação
+
+1. Login com Google redireciona para `#/inicio`.
+2. Usuário logado não permanece em `#/login`.
+3. Cabeçalho não exibe `Firebase online` ou termos técnicos.
+4. `#/config` não expõe credenciais nem rótulos técnicos de Firebase.
+5. Modo offline continua funcionando com dados locais.
+6. Status de sincronização é compreensível para usuário final.
+7. Preferências são salvas e aplicadas sem quebrar o CRUD atual.
+8. Sem erros de console.
+
+## Step 10 — Refino visual global (header, mobile e consistência)
+
+### O que foi refinado
+
+- Header mais limpo, sem badge técnico fixo.
+- Topo mobile compacto, sem quebra de layout entre 360px e 430px.
+- Navegação inferior mantida como principal no mobile, com melhor alinhamento e respiro.
+- Conteúdo com padding inferior seguro para não ficar atrás da bottom nav.
+- Cartões, botões, espaçamentos e grids com padrão visual mais consistente.
+- Indicadores de sincronização priorizados em `#/config`, com feedback discreto por toast.
+
+### Checklist de validação
+
+1. Desktop em largura ≥ 1024px sem quebra no header.
+2. Mobile em 430px, 390px e 375px sem scroll horizontal.
+3. Header não quebra e permanece compacto no mobile.
+4. Bottom nav não cobre conteúdo das páginas.
+5. Indicador de sync aparece no contexto de Configuração e feedback breve após ação.
+6. Rotas continuam operando normalmente.
+7. CRUD, auth, offline e sync permanecem com o mesmo comportamento funcional.
+8. Sem erros no console.
+
+## Step 11 — Auto sync seguro + Dashboard Inicio robusto
+
+### O que foi implementado
+
+- `SyncService.startAutoSync()` e `SyncService.stopAutoSync()` com ciclo de 60 segundos.
+- Auto sync acionado após sessão pronta, ao voltar online, ao voltar para aba visível e após mudanças locais pendentes.
+- Lock interno para evitar chamadas duplicadas enquanto uma sincronização está em andamento.
+- Feedback curto por toast: `Sincronizado`, `Sincronização pendente`, `Sem conexão`.
+- Página `#/inicio` redesenhada como dashboard:
+	- hero com ações principais
+	- KPIs de painel
+	- card compacto da viagem selecionada
+	- próximas atividades
+	- resumo financeiro
+	- resumo de rotas
+	- viagens em destaque
+- Ajustes de responsividade focados em 430px, 390px e 375px.
+
+### Checklist de validação
+
+1. Desktop ≥ 1024px sem quebras no painel e no header.
+2. Mobile 430px, 390px e 375px sem scroll horizontal.
+3. Auto sync não dispara chamadas duplicadas em paralelo.
+4. Pendência de sincronização é limpa após sync com sucesso.
+5. Rotas `Inicio`, `Viagens`, `Roteiro`, `Financeiro`, `Rotas` e `Config` seguem funcionais.
+6. Modo offline continua utilizável.
+7. Sem erros no console.
 
 ---
 

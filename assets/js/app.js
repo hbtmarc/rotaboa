@@ -4,11 +4,423 @@
 // e é passada para o Router.
 // ===================================================
 
+// Chaves de dados locais do app (mantidas em localStorage)
+var RB_LOCAL_KEYS = {
+  trips: 'rotaboa.trips.v1',
+  selectedTrip: 'rotaboa.selectedTripId.v1',
+  itineraries: 'rotaboa.itineraries.v1',
+  expenses: 'rotaboa.expenses.v1',
+  routes: 'rotaboa.routes.v1',
+};
+var RB_OFFLINE_KEY = 'rotaboa.offlineMode.v1';
+var RB_SYNC_STATUS_KEY = 'rotaboa.sync.status.v1';
+var RB_PREFS_KEY = 'rotaboa.preferences.v1';
+var RB_APP_VERSION = 'mvp-0.2.0';
+
+var RB_PREFS_DEFAULT = {
+  paginaInicialPadrao: '/inicio',
+  mostrarValoresInicio: true,
+  confirmarAntesExcluir: true,
+};
+
+var RB_AUTH_STATE = {
+  user: null,
+  initialized: false,
+  unsubscribe: null,
+  offlineMode: localStorage.getItem(RB_OFFLINE_KEY) === 'true',
+};
+
+function _lerSyncStatus() {
+  try {
+    var raw = localStorage.getItem(RB_SYNC_STATUS_KEY);
+    if (!raw) return { pending: false, syncing: false, lastSyncAt: null, lastError: '' };
+    return JSON.parse(raw);
+  } catch (e) {
+    return { pending: false, syncing: false, lastSyncAt: null, lastError: '' };
+  }
+}
+
+function _salvarSyncStatus(status) {
+  try {
+    localStorage.setItem(RB_SYNC_STATUS_KEY, JSON.stringify(status));
+  } catch (e) {}
+}
+
+var SyncService = (function () {
+  var _status = _lerSyncStatus();
+  var _timer = null;
+  var _isSyncing = false;
+  var _lastToastAt = { ok: 0, pending: 0, offline: 0 };
+
+  function _agora() {
+    return Date.now();
+  }
+
+  function _toastCooldown(tipo, ms) {
+    var now = _agora();
+    if ((now - (_lastToastAt[tipo] || 0)) < ms) return false;
+    _lastToastAt[tipo] = now;
+    return true;
+  }
+
+  function _temSessaoAtiva() {
+    return !!RB_AUTH_STATE.user || !!RB_AUTH_STATE.offlineMode;
+  }
+
+  function _payloadLocal() {
+    function ler(chave) {
+      try {
+        var raw = localStorage.getItem(chave);
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    return {
+      trips: ler(RB_LOCAL_KEYS.trips) || [],
+      selectedTripId: localStorage.getItem(RB_LOCAL_KEYS.selectedTrip) || null,
+      itineraries: ler(RB_LOCAL_KEYS.itineraries) || {},
+      expenses: ler(RB_LOCAL_KEYS.expenses) || {},
+      routes: ler(RB_LOCAL_KEYS.routes) || {},
+      updatedAt: new Date().toISOString(),
+      appVersion: RB_APP_VERSION,
+    };
+  }
+
+  function _persistir() {
+    _salvarSyncStatus(_status);
+  }
+
+  async function syncLocalToCloud(opcoes) {
+    var opts = opcoes || {};
+    var silent = opts.silent !== false;
+
+    if (_isSyncing) {
+      return { ok: false, reason: 'syncing' };
+    }
+
+    if (RB_AUTH_STATE.offlineMode) {
+      _status.pending = true;
+      _persistir();
+      if (!silent && _toastCooldown('offline', 5000)) {
+        _mostrarToast('Sem conexão');
+      }
+      return { ok: false, reason: 'offline-mode' };
+    }
+    if (!RB_AUTH_STATE.user || !RB_AUTH_STATE.user.uid) {
+      _status.pending = true;
+      _persistir();
+      return { ok: false, reason: 'sem-usuario' };
+    }
+    if (!navigator.onLine) {
+      _status.pending = true;
+      _persistir();
+      if (!silent && _toastCooldown('offline', 5000)) {
+        _mostrarToast('Sem conexão');
+      }
+      return { ok: false, reason: 'sem-internet' };
+    }
+    if (!window.FirebaseClient || !FirebaseClient.uploadAppState) {
+      _status.pending = true;
+      _status.lastError = 'Cliente Firebase indisponível para sincronização.';
+      _persistir();
+      if (!silent && _toastCooldown('pending', 5000)) {
+        _mostrarToast('Sincronização pendente');
+      }
+      return { ok: false, reason: 'firebase-indisponivel' };
+    }
+
+    _isSyncing = true;
+    _status.syncing = true;
+    _status.lastError = '';
+    _persistir();
+
+    try {
+      await FirebaseClient.uploadAppState(RB_AUTH_STATE.user.uid, _payloadLocal());
+      _status.pending = false;
+      _status.syncing = false;
+      _status.lastSyncAt = new Date().toISOString();
+      _status.lastError = '';
+      _persistir();
+      if (!silent && _toastCooldown('ok', 2500)) {
+        _mostrarToast('Sincronizado');
+      }
+      return { ok: true };
+    } catch (e) {
+      _status.pending = true;
+      _status.syncing = false;
+      _status.lastError = String((e && (e.friendly || e.message)) || 'Falha ao sincronizar.');
+      _persistir();
+      if (!silent && _toastCooldown('pending', 5000)) {
+        _mostrarToast('Sincronização pendente');
+      }
+      return { ok: false, reason: 'erro-sync' };
+    } finally {
+      _isSyncing = false;
+    }
+  }
+
+  function markPendingSync(opcoes) {
+    var estavaPendente = !!_status.pending;
+    _status.pending = true;
+    _persistir();
+    if (!estavaPendente && (!opcoes || opcoes.toast !== false) && _toastCooldown('pending', 5000)) {
+      _mostrarToast('Sincronização pendente');
+    }
+    if (_temSessaoAtiva()) {
+      setTimeout(function () {
+        syncLocalToCloud({ silent: true, source: 'pending-change' });
+      }, 0);
+    }
+  }
+
+  function getSyncStatus() {
+    return Object.assign({}, _status);
+  }
+
+  function stopAutoSync() {
+    if (_timer) {
+      clearInterval(_timer);
+      _timer = null;
+    }
+  }
+
+  function startAutoSync() {
+    stopAutoSync();
+    if (!_temSessaoAtiva()) return;
+
+    _timer = setInterval(function () {
+      syncLocalToCloud({ silent: true, source: 'interval' });
+    }, 60000);
+
+    syncLocalToCloud({ silent: true, source: 'start' });
+  }
+
+  return {
+    syncLocalToCloud: syncLocalToCloud,
+    markPendingSync: markPendingSync,
+    getSyncStatus: getSyncStatus,
+    startAutoSync: startAutoSync,
+    stopAutoSync: stopAutoSync,
+  };
+})();
+
+function _temAcessoPrivado() {
+  return !!RB_AUTH_STATE.offlineMode || !!RB_AUTH_STATE.user;
+}
+
+function _ehRotaPublica(caminho) {
+  return caminho === '/login';
+}
+
+function _guardAcessoRotas(caminho) {
+  if (_ehRotaPublica(caminho)) {
+    if (_temAcessoPrivado()) return '#/inicio';
+    return null;
+  }
+  if (_temAcessoPrivado()) return null;
+  return '#/login';
+}
+
+function _lerPreferencias() {
+  try {
+    var raw = localStorage.getItem(RB_PREFS_KEY);
+    var data = raw ? JSON.parse(raw) : {};
+    return Object.assign({}, RB_PREFS_DEFAULT, data || {});
+  } catch (e) {
+    return Object.assign({}, RB_PREFS_DEFAULT);
+  }
+}
+
+function _salvarPreferencias(prefs) {
+  var merged = Object.assign({}, RB_PREFS_DEFAULT, prefs || {});
+  try {
+    localStorage.setItem(RB_PREFS_KEY, JSON.stringify(merged));
+  } catch (e) {}
+  return merged;
+}
+
+function _rotaInicialPadrao() {
+  var prefs = _lerPreferencias();
+  var validas = ['/inicio', '/viagens', '/roteiro', '/financeiro', '/rotas'];
+  return validas.indexOf(prefs.paginaInicialPadrao) !== -1 ? prefs.paginaInicialPadrao : '/inicio';
+}
+
+function _confirmarExclusoesAtivo() {
+  return _lerPreferencias().confirmarAntesExcluir !== false;
+}
+
+function atualizarBadgeModoDadosHeader() {
+  var badge = document.getElementById('header-data-badge');
+  if (!badge) return;
+  badge.style.display = 'none';
+}
+
+function _firebaseConfigurado() {
+  if (RB_AUTH_STATE.offlineMode) return false;
+  return !!window.FirebaseClient;
+}
+
+function _nomeUsuarioAuth(user) {
+  if (!user) return '';
+  return user.displayName || user.email || 'Usuário';
+}
+
+function _renderAvisoSincronizacao() {
+  if (RB_AUTH_STATE.offlineMode) return '';
+  if (!_firebaseConfigurado() || RB_AUTH_STATE.user) return '';
+  return (
+    '<div class="card" style="margin-bottom:var(--space-4)">' +
+      '<div class="card-body" style="padding:var(--space-3) var(--space-4)">' +
+        '<span class="text-sm text-secondary">Entre para sincronizar seus dados futuramente.</span>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function _mostrarToast(msg, tipo) {
+  if (!msg) return;
+  var id = 'rb-toast';
+  var existente = document.getElementById(id);
+  if (existente && existente.parentNode) existente.parentNode.removeChild(existente);
+
+  var el = document.createElement('div');
+  el.id = id;
+  el.className = 'rb-toast' + (tipo === 'erro' ? ' rb-toast-erro' : '');
+  el.textContent = msg;
+  document.body.appendChild(el);
+
+  requestAnimationFrame(function () {
+    el.classList.add('visivel');
+  });
+
+  setTimeout(function () {
+    el.classList.remove('visivel');
+    setTimeout(function () {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }, 220);
+  }, 2200);
+}
+
+function atualizarHeaderAuthUI() {
+  var nav = document.getElementById('header-nav');
+  if (!nav) return;
+  var linksPrivados = nav.querySelectorAll('[data-route]');
+  var mostrarPrivado = _temAcessoPrivado();
+  linksPrivados.forEach(function (link) {
+    link.style.display = mostrarPrivado ? '' : 'none';
+  });
+
+  var bottomNav = document.getElementById('bottom-nav');
+  if (bottomNav) bottomNav.style.display = mostrarPrivado ? '' : 'none';
+
+  var slot = document.getElementById('header-auth-slot');
+  if (!slot) {
+    slot = document.createElement('span');
+    slot.id = 'header-auth-slot';
+    slot.style.display = 'inline-flex';
+    slot.style.alignItems = 'center';
+    slot.style.gap = '8px';
+    slot.style.marginLeft = '8px';
+    nav.appendChild(slot);
+  }
+
+  if (RB_AUTH_STATE.offlineMode) {
+    slot.innerHTML = '<a href="#/config" class="nav-link">Offline</a>';
+  } else if (RB_AUTH_STATE.user) {
+    var nome = _nomeUsuarioAuth(RB_AUTH_STATE.user);
+    slot.innerHTML = (
+      '<span class="badge badge-neutral" title="Usuário autenticado">' + nome + '</span>' +
+      '<button type="button" class="btn btn-ghost btn-sm" onclick="AuthActions.sair()">Sair</button>'
+    );
+  } else {
+    slot.innerHTML = '';
+  }
+}
+
+function iniciarAuthStateListener() {
+  if (RB_AUTH_STATE.initialized) return Promise.resolve();
+
+  if (RB_AUTH_STATE.offlineMode) {
+    RB_AUTH_STATE.user = null;
+    RB_AUTH_STATE.initialized = true;
+    atualizarHeaderAuthUI();
+    atualizarBadgeModoDadosHeader();
+    SyncService.startAutoSync();
+    return Promise.resolve();
+  }
+
+  if (!window.FirebaseClient || !FirebaseClient.onAuthChange) {
+    RB_AUTH_STATE.user = null;
+    RB_AUTH_STATE.initialized = true;
+    atualizarHeaderAuthUI();
+    atualizarBadgeModoDadosHeader();
+    SyncService.stopAutoSync();
+    return Promise.resolve();
+  }
+
+  return new Promise(function (resolve) {
+    var resolvido = false;
+    function resolverPrimeiraVez() {
+      if (resolvido) return;
+      resolvido = true;
+      resolve();
+    }
+
+    FirebaseClient.onAuthChange(function (user) {
+      RB_AUTH_STATE.user = user || null;
+      RB_AUTH_STATE.initialized = true;
+      atualizarHeaderAuthUI();
+      atualizarBadgeModoDadosHeader();
+      resolverPrimeiraVez();
+      if (RB_AUTH_STATE.user || RB_AUTH_STATE.offlineMode) {
+        SyncService.startAutoSync();
+        if (RB_AUTH_STATE.user) SyncService.syncLocalToCloud({ silent: false, source: 'auth-ready' });
+      } else {
+        SyncService.stopAutoSync();
+      }
+    }).then(function (unsubscribe) {
+      RB_AUTH_STATE.unsubscribe = unsubscribe;
+    }).catch(function () {
+      RB_AUTH_STATE.user = null;
+      RB_AUTH_STATE.initialized = true;
+      atualizarHeaderAuthUI();
+      atualizarBadgeModoDadosHeader();
+      SyncService.stopAutoSync();
+      resolverPrimeiraVez();
+    });
+  });
+}
+
+function _mensagemErroAuth(err) {
+  var msg = String((err && (err.friendly || err.message)) || 'Erro ao autenticar.');
+  var map = [
+    ['auth/invalid-email', 'E-mail inválido.'],
+    ['auth/user-not-found', 'Usuário não encontrado.'],
+    ['auth/wrong-password', 'Senha incorreta.'],
+    ['auth/invalid-credential', 'Credenciais inválidas.'],
+    ['auth/email-already-in-use', 'Este e-mail já está em uso.'],
+    ['auth/weak-password', 'Senha fraca. Use pelo menos 6 caracteres.'],
+    ['auth/popup-closed-by-user', 'Login com Google cancelado.'],
+    ['auth/popup-blocked', 'Popup bloqueado pelo navegador.'],
+    ['auth/operation-not-allowed', 'Método de login não habilitado para esta conta.'],
+    ['auth/network-request-failed', 'Falha de rede. Verifique sua conexão.'],
+  ];
+
+  for (var i = 0; i < map.length; i++) {
+    if (msg.indexOf(map[i][0]) !== -1) return map[i][1];
+  }
+  return msg;
+}
+
 // ==== PÁGINA: Início ====
 function paginaInicio(params, container) {
   var viagem = Store.getViagemSelecionada();
+  var prefsInicio = _lerPreferencias();
+  var config = Store.getConfiguracoes();
+  var viagens = Store.getViagens();
 
-  // Estado vazio — nenhuma viagem criada ainda
   if (!viagem) {
     container.innerHTML = (
       '<div class="empty-trips">' +
@@ -21,56 +433,122 @@ function paginaInicio(params, container) {
     return;
   }
 
+  function _fmtData(iso) {
+    if (!iso) return '-';
+    try {
+      return new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR');
+    } catch (e) {
+      return iso;
+    }
+  }
+
+  function _moedaInicio(v) {
+    return prefsInicio.mostrarValoresInicio !== false ? UI.formatarMoeda(v) : '••••';
+  }
+
   var resumoFinanceiro = Store.getResumoFinanceiro(viagem.id);
-  var pct    = resumoFinanceiro.pct;
-  var config = Store.getConfiguracoes();
-  var ultimasDespesas = Store.getDespesas(viagem.id).slice(0, 4);
+  var resumoRotas = Store.getResumoRotas(viagem.id);
+  var proximas = Store.getProximasAtividades(viagem.id, 3);
+  var loc = viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '';
 
-  var html = (
-    '<div class="hero-banner">' +
-      '<div class="hero-eyebrow">Olá, ' + config.nomeUsuario + ' 👋</div>' +
-      '<h1 class="hero-title">Pronto para a próxima aventura?</h1>' +
-      '<p class="hero-subtitle">Viagem selecionada: <strong>' + viagem.nome + '</strong></p>' +
-      '<div class="hero-actions">' +
-        '<a href="#/viagens" class="btn btn-white">Ver viagens</a>' +
-        '<a href="#/roteiro" class="btn btn-outline-white">Roteiro</a>' +
-      '</div>' +
-    '</div>' +
+  var totalOrcamento = 0;
+  var totalGasto = 0;
+  var totalParticipantes = 0;
+  viagens.forEach(function (v) {
+    var r = Store.getResumoFinanceiro(v.id);
+    totalOrcamento += Number(v.orcamento) || 0;
+    totalGasto += Number(r.totalGasto) || 0;
+    totalParticipantes += Number(v.participantes) || 0;
+  });
+  var saldoTotal = totalOrcamento - totalGasto;
 
-    '<div class="page-section">' +
-      UI.renderSectionHeader('Visão Geral', '', '') +
-      '<div class="stats-grid">' +
-        UI.renderStatCard('Orçamento', UI.formatarMoeda(viagem.orcamento), 'Total planejado', 'stat-icon-blue', '💰') +
-          UI.renderStatCard('Gastos', UI.formatarMoeda(resumoFinanceiro.totalGasto), pct + '% do orçamento', 'stat-icon-yellow', '💸') +
-          UI.renderStatCard('Saldo', UI.formatarMoeda(resumoFinanceiro.saldo), 'Disponível', 'stat-icon-green', '✅') +
-        UI.renderStatCard('Pessoas', String(viagem.participantes), viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '', 'stat-icon-blue', '👥') +
-      '</div>' +
-    '</div>' +
-
-    '<div class="page-section">' +
-      '<div class="section-header">' +
-        '<h2 class="section-title">Viagem selecionada</h2>' +
-        '<a href="#" class="section-action" onclick="TripSwitcher.abrir();return false;">Trocar</a>' +
-      '</div>' +
-      '<div class="card">' +
+  var destaque = viagens.slice(0, 3).map(function (v) {
+    var r = Store.getResumoFinanceiro(v.id);
+    var rv = Store.getResumoRotas(v.id);
+    var local = v.localizacaoCurta || v.destinoPrincipal || v.destino || '';
+    return (
+      '<div class="card" style="margin-bottom:var(--space-3)">' +
         '<div class="card-body">' +
-          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">' +
+          '<div style="display:flex;justify-content:space-between;gap:var(--space-2);align-items:flex-start">' +
             '<div style="min-width:0">' +
-              '<div style="font-weight:700;font-size:var(--text-xl);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + viagem.nome + '</div>' +
-              '<div class="text-sm text-secondary" style="margin-top:2px">📍 ' + (viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '') + '</div>' +
+              '<div class="font-semibold truncate">' + v.nome + '</div>' +
+              '<div class="text-xs text-secondary">📍 ' + local + '</div>' +
             '</div>' +
-            '<span class="badge ' + UI.badgeStatus(viagem.status) + '" style="flex-shrink:0;margin-left:var(--space-2)">' + UI.textoStatus(viagem.status) + '</span>' +
+            '<span class="badge ' + UI.badgeStatus(v.status) + '">' + UI.textoStatus(v.status) + '</span>' +
           '</div>' +
-          '<p class="text-sm text-secondary" style="margin-bottom:var(--space-4)">' + (viagem.descricao || '') + '</p>' +
-          '<div>' +
-            '<div style="display:flex;justify-content:space-between;margin-bottom:var(--space-2)">' +
-              '<span class="text-sm text-secondary">Progresso do orçamento</span>' +
-              '<span class="text-sm font-semibold">' + pct + '%</span>' +
-            '</div>' +
-            UI.progressBar(pct, UI.corBarra(pct)) +
+          '<div style="display:flex;gap:var(--space-3);flex-wrap:wrap;margin-top:var(--space-2)">' +
+            '<span class="text-xs text-secondary">💰 ' + _moedaInicio(v.orcamento) + '</span>' +
+            '<span class="text-xs text-secondary">💸 ' + _moedaInicio(r.totalGasto) + '</span>' +
+            '<span class="text-xs text-secondary">🛣️ ' + rv.trechos.length + ' trecho(s)</span>' +
           '</div>' +
         '</div>' +
         '<div class="card-footer">' +
+          '<button class="btn btn-ghost btn-sm" onclick="TripActions.abrirDetalhes(\'' + v.id + '\')">Abrir viagem</button>' +
+        '</div>' +
+      '</div>'
+    );
+  }).join('');
+
+  var proximasHtml = proximas.length
+    ? proximas.map(function (a) {
+        return (
+          '<div class="expense-row" style="padding:var(--space-2) 0">' +
+            '<div style="min-width:0">' +
+              '<div class="font-medium truncate">' + (a.nome || 'Atividade') + '</div>' +
+              '<div class="text-xs text-secondary">📅 ' + _fmtData(a._data) + ' · ⏰ ' + (a.hora || '--:--') + '</div>' +
+            '</div>' +
+            '<span class="badge badge-neutral">' + (a.categoria || 'atividade') + '</span>' +
+          '</div>'
+        );
+      }).join('')
+    : '<div class="itin-empty-day" style="margin:0">Sem atividades futuras para esta viagem.</div>';
+
+  var html = (
+    '<div class="hero-banner dashboard-hero">' +
+      '<div class="hero-eyebrow">Painel</div>' +
+      '<h1 class="hero-title">Olá, ' + (config.nomeUsuario || 'viajante') + ' 👋</h1>' +
+      '<p class="hero-subtitle">Viagem selecionada: <strong>' + viagem.nome + '</strong></p>' +
+      '<div class="hero-actions">' +
+        '<button class="btn btn-white" onclick="TripSwitcher.abrir()">Trocar viagem</button>' +
+        '<a href="#/viagens" class="btn btn-outline-white">Ver viagens</a>' +
+        '<button class="btn btn-outline-white" onclick="TripModal.abrir()">Nova viagem</button>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="page-section">' +
+      UI.renderSectionHeader('Totais do painel', '', '') +
+      '<div class="stats-grid dashboard-kpis">' +
+        UI.renderStatCard('Orçamento total', _moedaInicio(totalOrcamento), 'Todas as viagens', 'stat-icon-blue', '💼') +
+        UI.renderStatCard('Gasto total', _moedaInicio(totalGasto), 'Todas as viagens', 'stat-icon-yellow', '💸') +
+        UI.renderStatCard('Saldo total', _moedaInicio(saldoTotal), saldoTotal >= 0 ? 'Em dia' : 'Acima do planejado', saldoTotal >= 0 ? 'stat-icon-green' : 'stat-icon-red', saldoTotal >= 0 ? '✅' : '⚠️') +
+        UI.renderStatCard('Participantes', String(totalParticipantes), 'Somatório das viagens', 'stat-icon-blue', '👥') +
+        UI.renderStatCard('Próximas atividades', String(proximas.length), 'Da viagem selecionada', 'stat-icon-green', '🗓️') +
+        UI.renderStatCard('Trechos', String(resumoRotas.trechos.length), 'Da viagem selecionada', 'stat-icon-blue', '🛣️') +
+      '</div>' +
+    '</div>' +
+
+    '<div class="page-section">' +
+      UI.renderSectionHeader('Viagem selecionada', '', '') +
+      '<div class="card">' +
+        '<div class="card-body">' +
+          '<div style="display:flex;justify-content:space-between;gap:var(--space-2);align-items:flex-start;flex-wrap:wrap">' +
+            '<div style="min-width:0">' +
+              '<div class="font-semibold" style="font-size:var(--text-lg)">' + viagem.nome + '</div>' +
+              '<div class="text-sm text-secondary">📍 ' + loc + '</div>' +
+              '<div class="text-xs text-secondary" style="margin-top:var(--space-1)">📅 ' + _fmtData(viagem.dataInicio) + ' → ' + _fmtData(viagem.dataFim) + '</div>' +
+            '</div>' +
+            '<span class="badge ' + UI.badgeStatus(viagem.status) + '">' + UI.textoStatus(viagem.status) + '</span>' +
+          '</div>' +
+          '<div style="margin-top:var(--space-3)">' +
+            '<div style="display:flex;justify-content:space-between;margin-bottom:var(--space-2)">' +
+              '<span class="text-sm text-secondary">Progresso do orçamento</span>' +
+              '<span class="text-sm font-semibold">' + resumoFinanceiro.pct + '%</span>' +
+            '</div>' +
+            UI.progressBar(resumoFinanceiro.pct, UI.corBarra(resumoFinanceiro.pct)) +
+          '</div>' +
+        '</div>' +
+        '<div class="card-footer">' +
+          '<a href="#/viagem/' + viagem.id + '" class="btn btn-ghost btn-sm">Detalhes</a>' +
           '<a href="#/roteiro" class="btn btn-primary btn-sm">Roteiro</a>' +
           '<a href="#/financeiro" class="btn btn-secondary btn-sm">Financeiro</a>' +
           '<a href="#/rotas" class="btn btn-ghost btn-sm">Rotas</a>' +
@@ -78,18 +556,40 @@ function paginaInicio(params, container) {
       '</div>' +
     '</div>' +
 
-    '<div class="page-section">' +
-      UI.renderSectionHeader('Últimas despesas', 'Ver tudo', '#/financeiro') +
+    '<div class="page-section dashboard-grid-two">' +
       '<div class="card">' +
-        '<div class="card-body" style="padding:0">' +
-          (ultimasDespesas.length > 0
-            ? ultimasDespesas.map(function (d) { return UI.renderDespesa({ emoji: '💳', descricao: d.descricao, categoria: d.categoria, valor: d.valor }); }).join('')
-            : '<div class="itin-empty-day" style="margin:var(--space-4)">Nenhuma despesa registrada ainda.</div>'
-          ) +
+        '<div class="card-header"><span class="font-semibold">🗓️ Próximas atividades</span><a href="#/roteiro" class="btn btn-ghost btn-sm">Abrir roteiro</a></div>' +
+        '<div class="card-body">' + proximasHtml + '</div>' +
+      '</div>' +
+
+      '<div class="card">' +
+        '<div class="card-header"><span class="font-semibold">💰 Resumo financeiro</span><a href="#/financeiro" class="btn btn-ghost btn-sm">Ver tudo</a></div>' +
+        '<div class="card-body">' +
+          '<div class="expense-row"><span class="text-sm text-secondary">Orçamento</span><strong>' + _moedaInicio(resumoFinanceiro.orcamento) + '</strong></div>' +
+          '<div class="expense-row"><span class="text-sm text-secondary">Gasto</span><strong>' + _moedaInicio(resumoFinanceiro.totalGasto) + '</strong></div>' +
+          '<div class="expense-row"><span class="text-sm text-secondary">Disponível</span><strong>' + _moedaInicio(resumoFinanceiro.saldo) + '</strong></div>' +
+          '<div style="margin-top:var(--space-2)">' +
+            UI.progressBar(resumoFinanceiro.pct, UI.corBarra(resumoFinanceiro.pct)) +
+          '</div>' +
         '</div>' +
-        '<div class="card-footer">' +
-          '<button class="btn btn-primary btn-sm" onclick="DespesaModal.abrir(\'' + viagem.id + '\', null)">+ Nova despesa</button>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="page-section dashboard-grid-two">' +
+      '<div class="card">' +
+        '<div class="card-header"><span class="font-semibold">🛣️ Resumo de rotas</span><a href="#/rotas" class="btn btn-ghost btn-sm">Abrir rotas</a></div>' +
+        '<div class="card-body">' +
+          '<div class="expense-row"><span class="text-sm text-secondary">Trechos</span><strong>' + resumoRotas.trechos.length + '</strong></div>' +
+          '<div class="expense-row"><span class="text-sm text-secondary">Distância</span><strong>' + (resumoRotas.totalKm || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' km</strong></div>' +
+          '<div class="expense-row"><span class="text-sm text-secondary">Tempo estimado</span><strong>' + (resumoRotas.totalDuracaoTexto || '0min') + '</strong></div>' +
+          '<div class="expense-row"><span class="text-sm text-secondary">Litros</span><strong>' + (resumoRotas.totalLitros || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' L</strong></div>' +
+          '<div class="expense-row"><span class="text-sm text-secondary">Custo</span><strong>' + _moedaInicio(resumoRotas.custoTotal || 0) + '</strong></div>' +
         '</div>' +
+      '</div>' +
+
+      '<div class="card">' +
+        '<div class="card-header"><span class="font-semibold">⭐ Viagens em destaque</span><a href="#/viagens" class="btn btn-ghost btn-sm">Ver todas</a></div>' +
+        '<div class="card-body">' + (destaque || '<div class="itin-empty-day" style="margin:0">Sem viagens para destacar.</div>') + '</div>' +
       '</div>' +
     '</div>'
   );
@@ -309,6 +809,7 @@ function paginaRoteiro(params, container) {
   var diasHtml = dias.map(function (dia, idx) {
     return UI.renderDiaItinerario(dia, idx + 1, viagem.id);
   }).join('');
+  var avisoSync = _renderAvisoSincronizacao();
 
   var html = (
     '<div class="page-section">' +
@@ -318,6 +819,8 @@ function paginaRoteiro(params, container) {
         '<h2 class="section-title">Roteiro</h2>' +
         '<button class="btn btn-primary btn-sm" onclick="AtividadeModal.abrir(\'' + viagem.id + '\', null)">+ Nova atividade</button>' +
       '</div>' +
+
+      avisoSync +
 
       // Resumo da viagem
       '<div class="card" style="margin-bottom:var(--space-5)">' +
@@ -371,6 +874,7 @@ function paginaFinanceiro(params, container) {
   var res  = Store.getResumoFinanceiro(viagem.id);
   var desp = res.despesas;
   var loc  = viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '';
+  var avisoSync = _renderAvisoSincronizacao();
 
   // ---- Cartão de contexto: viagem selecionada ----
   var cartaoViagem = (
@@ -454,6 +958,7 @@ function paginaFinanceiro(params, container) {
         '<h2 class="section-title">Financeiro</h2>' +
         '<button class="btn btn-primary btn-sm" onclick="DespesaModal.abrir(\'' + viagem.id + '\', null)">+ Nova despesa</button>' +
       '</div>' +
+      avisoSync +
       cartaoViagem +
       kpis +
       barraGlobal +
@@ -486,6 +991,7 @@ function paginaRotas(params, container) {
   var resumo = Store.getResumoRotas(viagem.id);
   var trechosAtivos = Store.getRotas(viagem.id);
   var loc = viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '';
+  var avisoSync = _renderAvisoSincronizacao();
 
   var cartaoViagem = (
     '<div class="card fin-trip-card" style="margin-bottom:var(--space-5)">' +
@@ -542,6 +1048,7 @@ function paginaRotas(params, container) {
         '<h2 class="section-title">Rotas</h2>' +
         '<button class="btn btn-primary btn-sm" onclick="TrechoModal.abrir(\'' + viagem.id + '\', null)">+ Novo trecho</button>' +
       '</div>' +
+      avisoSync +
       cartaoViagem +
       kpis +
       UI.renderSectionHeader('Trechos', '', '') +
@@ -554,24 +1061,81 @@ function paginaRotas(params, container) {
 
 // ==== PÁGINA: Configurações ====
 function paginaConfiguracoes(params, container) {
-  var cfg = Store.getConfiguracoes();
+  var sync = SyncService.getSyncStatus();
+  var prefs = _lerPreferencias();
+  var avisoSync = _renderAvisoSincronizacao();
+
+  function _esc(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function _txtStatusSync() {
+    if (RB_AUTH_STATE.offlineMode) return 'Somente neste dispositivo';
+    if (sync.syncing) return 'Sincronizando';
+    if (sync.pending) return 'Pendente';
+    return 'Sincronizado';
+  }
+
+  function _txtUltimaSync() {
+    if (!sync.lastSyncAt) return 'Ainda não sincronizado';
+    try {
+      return new Date(sync.lastSyncAt).toLocaleString('pt-BR');
+    } catch (e) {
+      return sync.lastSyncAt;
+    }
+  }
 
   var html = (
     '<div class="page-section">' +
-      UI.renderSectionHeader('Configurações', '', '') +
+      UI.renderSectionHeader('Configuração', '', '') +
 
-      // Perfil
+      avisoSync +
+
+      // Conta
       '<div class="card" style="margin-bottom:var(--space-5)">' +
-        '<div class="card-header"><span class="font-semibold">👤 Perfil</span></div>' +
+        '<div class="card-header"><span class="font-semibold">👤 Conta</span></div>' +
+        '<div class="card-body">' +
+          (RB_AUTH_STATE.offlineMode
+            ? '<p class="text-sm">Modo offline ativo neste dispositivo.</p>'
+            : '<p class="text-sm">' + _esc(_nomeUsuarioAuth(RB_AUTH_STATE.user)) + '</p>') +
+          '<div style="display:flex;gap:var(--space-2);flex-wrap:wrap;margin-top:var(--space-3)">' +
+            (RB_AUTH_STATE.user ? '<button class="btn btn-ghost btn-sm" onclick="AuthActions.sair()">Sair</button>' : '') +
+            (RB_AUTH_STATE.offlineMode ? '<button class="btn btn-ghost btn-sm" onclick="ConfigActions.sairModoOffline()">Sair do modo offline</button>' : '') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      // Sincronização
+      '<div class="card" style="margin-bottom:var(--space-5)">' +
+        '<div class="card-header"><span class="font-semibold">🔄 Sincronização</span></div>' +
         '<div class="card-body">' +
           '<div class="expense-row">' +
-            '<span class="text-sm text-secondary">Nome</span>' +
-            '<span class="text-sm font-semibold">' + cfg.nomeUsuario + '</span>' +
+            '<span class="text-sm text-secondary">Status</span>' +
+            '<span class="badge ' + ((sync.pending || sync.syncing) ? 'badge-info' : 'badge-ok') + '">' + _esc(_txtStatusSync()) + '</span>' +
           '</div>' +
           '<div class="expense-row">' +
-            '<span class="text-sm text-secondary">E-mail</span>' +
-            '<span class="text-sm">' + cfg.email + '</span>' +
+            '<span class="text-sm text-secondary">Última sincronização</span>' +
+            '<span class="text-sm">' + _esc(_txtUltimaSync()) + '</span>' +
           '</div>' +
+          (sync.lastError ? '<p class="text-xs" style="margin-top:var(--space-2);color:var(--color-danger)">Não foi possível sincronizar agora.</p>' : '') +
+          ((!RB_AUTH_STATE.offlineMode && RB_AUTH_STATE.user)
+            ? '<div style="margin-top:var(--space-3)"><button class="btn btn-secondary btn-sm" onclick="ConfigActions.sincronizarAgora()"' + (navigator.onLine ? '' : ' disabled') + '>Sincronizar agora</button></div>'
+            : '') +
+          '<div id="cfg-sync-status" class="text-xs text-muted" style="margin-top:var(--space-3)"></div>' +
+        '</div>' +
+      '</div>' +
+
+      // Dados locais
+      '<div class="card" style="margin-bottom:var(--space-5)">' +
+        '<div class="card-header"><span class="font-semibold">💾 Dados locais</span></div>' +
+        '<div class="card-body">' +
+          '<div style="display:flex;gap:var(--space-2);flex-wrap:wrap">' +
+            '<button class="btn btn-primary btn-sm" onclick="ConfigActions.exportarBackup()">Exportar backup JSON</button>' +
+            '<button class="btn btn-secondary btn-sm" onclick="ConfigActions.importarBackup()">Importar backup JSON</button>' +
+            '<button class="btn btn-ghost btn-sm" style="color:var(--color-danger)" onclick="ConfigActions.limparDadosLocais()">Limpar dados locais</button>' +
+          '</div>' +
+          '<input id="cfg-backup-input" type="file" accept="application/json" style="display:none" onchange="ConfigActions.processarArquivoBackup(event)">' +
+          '<div id="cfg-backup-status" class="text-xs text-muted" style="margin-top:var(--space-3)"></div>' +
         '</div>' +
       '</div>' +
 
@@ -579,44 +1143,32 @@ function paginaConfiguracoes(params, container) {
       '<div class="card" style="margin-bottom:var(--space-5)">' +
         '<div class="card-header"><span class="font-semibold">⚙️ Preferências</span></div>' +
         '<div class="card-body">' +
-          '<div class="expense-row">' +
-            '<span class="text-sm text-secondary">Moeda</span>' +
-            '<span class="badge badge-info">' + cfg.moeda + '</span>' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="pref-pagina-inicial">Página inicial padrão</label>' +
+            '<select id="pref-pagina-inicial" class="form-select">' +
+              '<option value="/inicio"' + (prefs.paginaInicialPadrao === '/inicio' ? ' selected' : '') + '>Início</option>' +
+              '<option value="/viagens"' + (prefs.paginaInicialPadrao === '/viagens' ? ' selected' : '') + '>Viagens</option>' +
+              '<option value="/roteiro"' + (prefs.paginaInicialPadrao === '/roteiro' ? ' selected' : '') + '>Roteiro</option>' +
+              '<option value="/financeiro"' + (prefs.paginaInicialPadrao === '/financeiro' ? ' selected' : '') + '>Financeiro</option>' +
+              '<option value="/rotas"' + (prefs.paginaInicialPadrao === '/rotas' ? ' selected' : '') + '>Rotas</option>' +
+            '</select>' +
           '</div>' +
-          '<div class="expense-row">' +
-            '<span class="text-sm text-secondary">Idioma</span>' +
-            '<span class="text-sm">' + cfg.idioma + '</span>' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="pref-mostrar-valores">Mostrar valores financeiros na tela inicial</label>' +
+            '<select id="pref-mostrar-valores" class="form-select">' +
+              '<option value="sim"' + (prefs.mostrarValoresInicio !== false ? ' selected' : '') + '>Sim</option>' +
+              '<option value="nao"' + (prefs.mostrarValoresInicio === false ? ' selected' : '') + '>Não</option>' +
+            '</select>' +
           '</div>' +
-          '<div class="expense-row">' +
-            '<span class="text-sm text-secondary">Notificações</span>' +
-            '<span class="badge ' + (cfg.notificacoes ? 'badge-ok' : 'badge-neutral') + '">' + (cfg.notificacoes ? 'Ativo' : 'Inativo') + '</span>' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="pref-confirmar-exclusao">Confirmações antes de excluir</label>' +
+            '<select id="pref-confirmar-exclusao" class="form-select">' +
+              '<option value="sim"' + (prefs.confirmarAntesExcluir !== false ? ' selected' : '') + '>Sim</option>' +
+              '<option value="nao"' + (prefs.confirmarAntesExcluir === false ? ' selected' : '') + '>Não</option>' +
+            '</select>' +
           '</div>' +
-          '<div class="expense-row">' +
-            '<span class="text-sm text-secondary">Tema</span>' +
-            '<span class="text-sm">' + cfg.tema + '</span>' +
-          '</div>' +
-        '</div>' +
-      '</div>' +
-
-      // Sobre
-      '<div class="card">' +
-        '<div class="card-header"><span class="font-semibold">ℹ️ Sobre o app</span></div>' +
-        '<div class="card-body">' +
-          '<div class="expense-row">' +
-            '<span class="text-sm text-secondary">Versão</span>' +
-            '<span class="text-sm">MVP v0.1.0</span>' +
-          '</div>' +
-          '<div class="expense-row">' +
-            '<span class="text-sm text-secondary">Dados</span>' +
-            '<span class="text-sm">Mock local (sem banco)</span>' +
-          '</div>' +
-          '<div class="expense-row">' +
-            '<span class="text-sm text-secondary">GitHub Pages</span>' +
-            '<span class="badge badge-ok">Compatível</span>' +
-          '</div>' +
-        '</div>' +
-        '<div class="card-footer">' +
-          '<span class="text-xs text-muted">RotaBoa · 2026 · Todos os direitos reservados</span>' +
+          '<button class="btn btn-primary btn-sm" onclick="ConfigActions.salvarPreferencias()">Salvar preferências</button>' +
+          '<div id="cfg-pref-status" class="text-xs text-muted" style="margin-top:var(--space-3)"></div>' +
         '</div>' +
       '</div>' +
 
@@ -624,7 +1176,300 @@ function paginaConfiguracoes(params, container) {
   );
 
   container.innerHTML = html;
+  atualizarBadgeModoDadosHeader();
 }
+
+// ==== PÁGINA: Login ====
+function paginaLogin(params, container) {
+  if (_temAcessoPrivado()) {
+    Router.navegar('#/inicio');
+    return;
+  }
+
+  var html = (
+    '<div class="page-section">' +
+      '<div class="card" style="max-width:520px;margin:0 auto">' +
+        '<div class="card-header"><span class="font-semibold">🔐 Entrar</span></div>' +
+        '<div class="card-body">' +
+          '<div class="form-group">' +
+            '<label class="form-label form-label-required" for="login-email">Email</label>' +
+            '<input id="login-email" class="form-input" type="email" autocomplete="email" placeholder="voce@exemplo.com">' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label class="form-label form-label-required" for="login-senha">Senha</label>' +
+            '<input id="login-senha" class="form-input" type="password" autocomplete="current-password" placeholder="••••••">' +
+          '</div>' +
+          '<div id="login-erro" class="text-xs" style="color:var(--color-danger);min-height:1rem"></div>' +
+          '<div style="display:flex;gap:var(--space-2);flex-wrap:wrap;margin-top:var(--space-2)">' +
+            '<button id="btn-login-entrar" type="button" class="btn btn-primary btn-sm" onclick="AuthActions.entrar()">Entrar</button>' +
+            '<button id="btn-login-criar" type="button" class="btn btn-secondary btn-sm" onclick="AuthActions.criarConta()">Criar conta</button>' +
+            '<button id="btn-login-google" type="button" class="btn btn-ghost btn-sm" onclick="AuthActions.entrarGoogle()">Entrar com Google</button>' +
+            '<button id="btn-login-offline" type="button" class="btn btn-ghost btn-sm" onclick="AuthActions.usarOfflineNesteDispositivo()">Usar offline neste dispositivo</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+
+  container.innerHTML = html;
+}
+
+var ConfigActions = {
+  _statusBackup: function (msg, erro) {
+    var el = document.getElementById('cfg-backup-status');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.color = erro ? 'var(--color-danger)' : 'var(--color-text-muted)';
+  },
+
+  _statusSync: function (msg, erro) {
+    var el = document.getElementById('cfg-sync-status');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.color = erro ? 'var(--color-danger)' : 'var(--color-text-muted)';
+  },
+
+  _statusPrefs: function (msg, erro) {
+    var el = document.getElementById('cfg-pref-status');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.color = erro ? 'var(--color-danger)' : 'var(--color-text-muted)';
+  },
+
+  exportarBackup: function () {
+    var payload = {
+      exportedAt: new Date().toISOString(),
+      version: 1,
+      data: {},
+    };
+
+    Object.keys(RB_LOCAL_KEYS).forEach(function (k) {
+      var lsKey = RB_LOCAL_KEYS[k];
+      var raw = localStorage.getItem(lsKey);
+      if (!raw) return;
+      try {
+        payload.data[lsKey] = JSON.parse(raw);
+      } catch (e) {
+        payload.data[lsKey] = raw;
+      }
+    });
+
+    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'rotaboa-backup-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    this._statusBackup('Backup exportado com sucesso.', false);
+  },
+
+  importarBackup: function () {
+    var input = document.getElementById('cfg-backup-input');
+    if (!input) return;
+    input.value = '';
+    input.click();
+  },
+
+  processarArquivoBackup: function (event) {
+    var self = this;
+    var file = event && event.target && event.target.files && event.target.files[0];
+    if (!file) return;
+
+    var reader = new FileReader();
+    reader.onload = function (ev) {
+      try {
+        var parsed = JSON.parse(String(ev.target.result || '{}'));
+        var data = parsed && parsed.data ? parsed.data : parsed;
+        var restaurou = 0;
+
+        Object.keys(RB_LOCAL_KEYS).forEach(function (k) {
+          var lsKey = RB_LOCAL_KEYS[k];
+          if (!(lsKey in data)) return;
+          var valor = data[lsKey];
+          localStorage.setItem(lsKey, typeof valor === 'string' ? valor : JSON.stringify(valor));
+          restaurou++;
+        });
+
+        SyncService.markPendingSync();
+
+        self._statusBackup('Backup importado (' + restaurou + ' chave(s)). Recarregando...', false);
+        setTimeout(function () { window.location.reload(); }, 400);
+      } catch (e) {
+        self._statusBackup('Arquivo de backup inválido.', true);
+      }
+    };
+    reader.readAsText(file);
+  },
+
+  limparDadosLocais: function () {
+    if (!_confirmarExclusoesAtivo()) {
+      Object.keys(RB_LOCAL_KEYS).forEach(function (k) {
+        localStorage.removeItem(RB_LOCAL_KEYS[k]);
+      });
+      SyncService.markPendingSync();
+      window.location.reload();
+      return;
+    }
+
+    ConfirmModal.abrirComCallback(
+      'Limpar dados locais?',
+      'Esta ação remove viagens, roteiro, despesas, rotas e seleção atual do armazenamento local.',
+      function () {
+        Object.keys(RB_LOCAL_KEYS).forEach(function (k) {
+          localStorage.removeItem(RB_LOCAL_KEYS[k]);
+        });
+        SyncService.markPendingSync();
+        window.location.reload();
+      }
+    );
+  },
+
+  sincronizarAgora: async function () {
+    this._statusSync('Sincronizando...', false);
+    var r = await SyncService.syncLocalToCloud({ silent: false, source: 'manual' });
+    atualizarBadgeModoDadosHeader();
+    if (r && r.ok) {
+      this._statusSync('Sincronização concluída.', false);
+      if ((window.location.hash || '') === '#/config') {
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      }
+      return;
+    }
+    this._statusSync('Não foi possível sincronizar agora.', true);
+  },
+
+  salvarPreferencias: function () {
+    var pagina = document.getElementById('pref-pagina-inicial');
+    var mostrarValores = document.getElementById('pref-mostrar-valores');
+    var confirmar = document.getElementById('pref-confirmar-exclusao');
+
+    _salvarPreferencias({
+      paginaInicialPadrao: pagina ? pagina.value : '/inicio',
+      mostrarValoresInicio: mostrarValores ? mostrarValores.value !== 'nao' : true,
+      confirmarAntesExcluir: confirmar ? confirmar.value !== 'nao' : true,
+    });
+
+    this._statusPrefs('Preferências salvas neste dispositivo.', false);
+    _mostrarToast('Preferências salvas.');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  },
+
+  sairModoOffline: function () {
+    localStorage.removeItem(RB_OFFLINE_KEY);
+    RB_AUTH_STATE.offlineMode = false;
+    RB_AUTH_STATE.user = null;
+    RB_AUTH_STATE.initialized = false;
+    SyncService.stopAutoSync();
+    atualizarHeaderAuthUI();
+    atualizarBadgeModoDadosHeader();
+    Router.navegar('#/login');
+    setTimeout(function () { window.location.reload(); }, 50);
+  },
+};
+
+var AuthActions = {
+  _setErro: function (msg) {
+    var el = document.getElementById('login-erro');
+    if (el) el.textContent = msg || '';
+  },
+
+  _setLoading: function (ativo, botaoId, txtNormal, txtLoading) {
+    var btn = document.getElementById(botaoId);
+    if (!btn) return;
+    btn.disabled = !!ativo;
+    btn.textContent = ativo ? txtLoading : txtNormal;
+  },
+
+  _emailSenha: function () {
+    var email = document.getElementById('login-email');
+    var senha = document.getElementById('login-senha');
+    return {
+      email: email ? String(email.value || '').trim() : '',
+      senha: senha ? String(senha.value || '') : '',
+    };
+  },
+
+  entrar: async function () {
+    this._setErro('');
+    var dados = this._emailSenha();
+    this._setLoading(true, 'btn-login-entrar', 'Entrar', 'Entrando...');
+    try {
+      await FirebaseClient.loginWithEmail(dados.email, dados.senha);
+      localStorage.removeItem(RB_OFFLINE_KEY);
+      RB_AUTH_STATE.offlineMode = false;
+      SyncService.startAutoSync();
+      await SyncService.syncLocalToCloud({ silent: false, source: 'login-email' });
+      Router.navegar('#/inicio');
+    } catch (e) {
+      this._setErro(_mensagemErroAuth(e));
+    } finally {
+      this._setLoading(false, 'btn-login-entrar', 'Entrar', 'Entrando...');
+    }
+  },
+
+  criarConta: async function () {
+    this._setErro('');
+    var dados = this._emailSenha();
+    this._setLoading(true, 'btn-login-criar', 'Criar conta', 'Criando...');
+    try {
+      await FirebaseClient.registerWithEmail(dados.email, dados.senha);
+      localStorage.removeItem(RB_OFFLINE_KEY);
+      RB_AUTH_STATE.offlineMode = false;
+      SyncService.startAutoSync();
+      await SyncService.syncLocalToCloud({ silent: false, source: 'registro-email' });
+      Router.navegar('#/inicio');
+    } catch (e) {
+      this._setErro(_mensagemErroAuth(e));
+    } finally {
+      this._setLoading(false, 'btn-login-criar', 'Criar conta', 'Criando...');
+    }
+  },
+
+  entrarGoogle: async function () {
+    this._setErro('');
+    this._setLoading(true, 'btn-login-google', 'Entrar com Google', 'Conectando...');
+    try {
+      await FirebaseClient.loginWithGoogle();
+      localStorage.removeItem(RB_OFFLINE_KEY);
+      RB_AUTH_STATE.offlineMode = false;
+      SyncService.startAutoSync();
+      await SyncService.syncLocalToCloud({ silent: false, source: 'login-google' });
+      Router.navegar('#/inicio');
+    } catch (e) {
+      this._setErro(_mensagemErroAuth(e));
+    } finally {
+      this._setLoading(false, 'btn-login-google', 'Entrar com Google', 'Conectando...');
+    }
+  },
+
+  usarOfflineNesteDispositivo: function () {
+    localStorage.setItem(RB_OFFLINE_KEY, 'true');
+    RB_AUTH_STATE.offlineMode = true;
+    RB_AUTH_STATE.user = null;
+    RB_AUTH_STATE.initialized = true;
+    atualizarHeaderAuthUI();
+    atualizarBadgeModoDadosHeader();
+    SyncService.startAutoSync();
+    Router.navegar('#/inicio');
+  },
+
+  sair: async function () {
+    try {
+      await FirebaseClient.logoutUser();
+      RB_AUTH_STATE.user = null;
+      RB_AUTH_STATE.offlineMode = false;
+      localStorage.removeItem(RB_OFFLINE_KEY);
+      SyncService.stopAutoSync();
+      atualizarHeaderAuthUI();
+      atualizarBadgeModoDadosHeader();
+      Router.navegar('#/login');
+    } catch (e) {}
+  },
+};
 
 // ==== Helper: clique no corpo do card navega para detalhe ====
 function _bindTripCards(container) {
@@ -987,6 +1832,11 @@ var TripActions = {
   excluir: function (id) {
     var viagem = Store.getViagens().find(function (v) { return v.id === id; });
     var nome = viagem ? viagem.nome : 'esta viagem';
+    if (!_confirmarExclusoesAtivo()) {
+      Store.excluirViagem(id);
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      return;
+    }
     ConfirmModal.abrir(id, nome);
   },
 };
@@ -1369,6 +2219,12 @@ var AtividadeActions = {
         d.atividades.forEach(function (a) { if (a.id === atividadeId) nome = '"' + a.nome + '"'; });
       });
     }
+    if (!_confirmarExclusoesAtivo()) {
+      Store.excluirAtividade(tripId, atividadeId);
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      return;
+    }
+
     // Usa ConfirmModal com callback customizado
     ConfirmModal.abrirComCallback(
       'Excluir atividade?',
@@ -1623,6 +2479,11 @@ var DespesaActions = {
     var eRota = despesa && (despesa.origem === 'rota' || !!despesa.routeSegmentId);
 
     if (eRota) {
+      if (!_confirmarExclusoesAtivo()) {
+        Store.excluirTrecho(tripId, despesa.routeSegmentId);
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+        return;
+      }
       ConfirmModal.abrirComCallback(
         'Excluir rota vinculada?',
         'Esta despesa foi gerada por uma rota. Ao confirmar, o trecho também será removido.',
@@ -1636,6 +2497,11 @@ var DespesaActions = {
 
     var desc = 'esta despesa';
     if (despesa) desc = '"' + despesa.descricao + '"';
+    if (!_confirmarExclusoesAtivo()) {
+      Store.excluirDespesa(tripId, despesaId);
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      return;
+    }
     ConfirmModal.abrirComCallback(
       'Excluir despesa?',
       'Excluir ' + desc + '? Esta ação não pode ser desfeita.',
@@ -1874,6 +2740,11 @@ var TrechoActions = {
     lista.forEach(function (t) {
       if (t.id === trechoId) nome = '"' + t.origem + ' → ' + t.destino + '"';
     });
+    if (!_confirmarExclusoesAtivo()) {
+      Store.excluirTrechoRota(tripId, trechoId);
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      return;
+    }
     ConfirmModal.abrirComCallback(
       'Excluir trecho?',
       'Excluir ' + nome + '? Esta ação não pode ser desfeita.',
@@ -1886,7 +2757,7 @@ var TrechoActions = {
 };
 
 // ==== INICIALIZAÇÃO ====
-(function inicializar() {
+(async function inicializar() {
 
   // Injeta modais no DOM antes de qualquer coisa
   TripModal.init();
@@ -1896,6 +2767,12 @@ var TrechoActions = {
   DespesaModal.init();
   TrechoModal.init();
 
+  await iniciarAuthStateListener();
+  atualizarHeaderAuthUI();
+  atualizarBadgeModoDadosHeader();
+
+  Router.setGuard(_guardAcessoRotas);
+
   // Registra todas as rotas
   Router.registrar('/inicio',        paginaInicio);
   Router.registrar('/viagens',       paginaViagens);
@@ -1903,14 +2780,29 @@ var TrechoActions = {
   Router.registrar('/roteiro',       paginaRoteiro);
   Router.registrar('/financeiro',    paginaFinanceiro);
   Router.registrar('/rotas',         paginaRotas);
+  Router.registrar('/login',         paginaLogin);
+  Router.registrar('/config',        paginaConfiguracoes);
   Router.registrar('/configuracoes', paginaConfiguracoes);
 
   // Inicia o roteador
   Router.init(document.getElementById('page-container'));
 
   if (!window.location.hash) {
-    window.location.hash = '#/inicio';
+    window.location.hash = '#' + _rotaInicialPadrao();
   }
+
+  window.addEventListener('online', function () {
+    SyncService.syncLocalToCloud({ silent: false, source: 'online' });
+    if ((window.location.hash || '') === '#/config') {
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    }
+  });
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') {
+      SyncService.syncLocalToCloud({ silent: true, source: 'visible' });
+    }
+  });
 
   // Registra o Service Worker
   if ('serviceWorker' in navigator) {

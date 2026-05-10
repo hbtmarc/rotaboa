@@ -11,13 +11,14 @@
   padding: var(--space-3) var(--space-4);
   font-size: var(--text-sm);
   font-weight: 600;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   transition: background var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
   cursor: pointer;
   border: 1.5px solid transparent;
   white-space: nowrap;
   /* Garante área de toque mínima de 44px (recomendação Apple HIG) */
   min-height: 44px;
+  line-height: 1.2;
 }
 
 .btn:active {
@@ -68,9 +69,10 @@
 }
 
 .btn-sm {
-  padding: var(--space-1) var(--space-3);
+  padding: var(--space-2) var(--space-3);
   font-size: var(--text-xs);
   border-radius: var(--radius-md);
+  min-height: 36px;
 }
 
 .btn-full {
@@ -81,7 +83,7 @@
 .card {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
   transition: box-shadow var(--transition-base), transform var(--transition-base);
@@ -101,24 +103,26 @@
 }
 
 .card-header {
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-4);
   border-bottom: 1px solid var(--color-border-light);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-2);
 }
 
 .card-body {
-  padding: var(--space-5);
+  padding: var(--space-4);
 }
 
 .card-footer {
-  padding: var(--space-3) var(--space-5);
+  padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--color-border-light);
   background: var(--color-bg-alt);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   gap: var(--space-2);
 }
 
@@ -226,7 +230,7 @@
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 2px var(--space-2);
+  padding: 3px var(--space-2);
   font-size: var(--text-xs);
   font-weight: 600;
   border-radius: var(--radius-full);
@@ -283,7 +287,7 @@
 /* ---- Hero Banner ---- */
 .hero-banner {
   background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-  border-radius: var(--radius-2xl);
+  border-radius: var(--radius-xl);
   /* Padding mobile: vertical menor para que o banner não ocupe a tela toda */
   padding: var(--space-6) var(--space-5);
   color: white;
@@ -346,6 +350,41 @@
   position: relative;
 }
 
+.dashboard-hero {
+  margin-bottom: var(--space-6);
+}
+
+.dashboard-kpis {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dashboard-grid-two {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+}
+
+.dashboard-grid-two .card {
+  min-width: 0;
+}
+
+.dashboard-grid-two .card-header {
+  flex-wrap: wrap;
+}
+
+.dashboard-grid-two .card-header .btn {
+  margin-left: auto;
+}
+
+.section-header {
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.section-action {
+  white-space: nowrap;
+}
+
 .btn-white {
   background: white;
   color: var(--color-primary);
@@ -356,6 +395,50 @@
   background: var(--color-primary-light);
   text-decoration: none;
   color: var(--color-primary);
+}
+
+.rb-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + var(--space-3));
+  transform: translateX(-50%) translateY(8px);
+  background: rgb(15 23 42 / 0.92);
+  color: #fff;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  z-index: 220;
+  pointer-events: none;
+  max-width: calc(100vw - var(--space-6));
+  text-align: center;
+}
+
+.rb-toast.visivel {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.rb-toast-erro {
+  background: rgb(153 27 27 / 0.93);
+}
+
+@media (min-width: 768px) {
+  .dashboard-kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dashboard-grid-two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .dashboard-kpis {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
 }
 
 .btn-outline-white {

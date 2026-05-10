@@ -418,6 +418,14 @@ var Store = (function () {
     _listeners.forEach(function (fn) { fn(_state); });
   }
 
+  function _marcarSyncPendente() {
+    try {
+      if (window.SyncService && typeof window.SyncService.markPendingSync === 'function') {
+        window.SyncService.markPendingSync();
+      }
+    } catch (e) {}
+  }
+
   // ---- API pública ----
   return {
 
@@ -448,6 +456,7 @@ var Store = (function () {
     selecionarViagem: function (id) {
       _state.viagemSelecionadaId = id;
       _salvarSelectedId();
+      _marcarSyncPendente();
       _notificar();
     },
 
@@ -469,6 +478,7 @@ var Store = (function () {
         _salvarSelectedId();
       }
       _salvarViagens();
+      _marcarSyncPendente();
       _notificar();
       return novaViagem;
     },
@@ -480,6 +490,7 @@ var Store = (function () {
       // Preserva campos que o formulário não edita (gastoAtual, capa, id)
       _state.viagens[idx] = Object.assign({}, _state.viagens[idx], dados);
       _salvarViagens();
+      _marcarSyncPendente();
       _notificar();
       return true;
     },
@@ -493,6 +504,7 @@ var Store = (function () {
         _salvarSelectedId();
       }
       _salvarViagens();
+      _marcarSyncPendente();
       _notificar();
     },
 
@@ -532,6 +544,7 @@ var Store = (function () {
       dia.atividades.push(ativ);
       dia.atividades.sort(function (a, b) { return (a.hora || '').localeCompare(b.hora || ''); });
       _salvarItinerarios();
+      _marcarSyncPendente();
       return ativ;
     },
 
@@ -560,6 +573,7 @@ var Store = (function () {
         diaOrigem.atividades.sort(function (a, b) { return (a.hora || '').localeCompare(b.hora || ''); });
       }
       _salvarItinerarios();
+      _marcarSyncPendente();
       return true;
     },
 
@@ -571,6 +585,7 @@ var Store = (function () {
         d.atividades = d.atividades.filter(function (a) { return a.id !== atividadeId; });
       });
       _salvarItinerarios();
+      _marcarSyncPendente();
       return true;
     },
 
@@ -586,6 +601,7 @@ var Store = (function () {
         });
       });
       _salvarItinerarios();
+      _marcarSyncPendente();
       return true;
     },
 
@@ -630,6 +646,7 @@ var Store = (function () {
       _despesas[tripId].push(desp);
       _despesas[tripId].sort(function (a, b) { return (b.data || '').localeCompare(a.data || ''); });
       _salvarDespesas();
+      _marcarSyncPendente();
       _notificar();
       return desp;
     },
@@ -642,6 +659,7 @@ var Store = (function () {
       _despesas[tripId][idx] = _normalizarDespesaManual(tripId, Object.assign({}, _despesas[tripId][idx], dados), despesaId);
       _despesas[tripId].sort(function (a, b) { return (b.data || '').localeCompare(a.data || ''); });
       _salvarDespesas();
+      _marcarSyncPendente();
       _notificar();
       return true;
     },
@@ -668,6 +686,7 @@ var Store = (function () {
       var mudou = _despesas[tripId].length !== antes;
       if (mudou) {
         _salvarDespesas();
+        _marcarSyncPendente();
         _notificar();
       }
       return mudou;
@@ -735,6 +754,7 @@ var Store = (function () {
       if (!trecho || trecho.tripId !== tripId) return null;
       _rotasTrechos[tripId].push(trecho);
       _salvarRotas();
+      _marcarSyncPendente();
       _notificar();
       return trecho;
     },
@@ -751,6 +771,7 @@ var Store = (function () {
       if (!trecho || trecho.tripId !== tripId) return false;
       _rotasTrechos[tripId][idx] = trecho;
       _salvarRotas();
+      _marcarSyncPendente();
       _notificar();
       return true;
     },
@@ -764,6 +785,7 @@ var Store = (function () {
       });
       if (_rotasTrechos[tripId].length === antes) return false;
       _salvarRotas();
+      _marcarSyncPendente();
       _notificar();
       return true;
     },

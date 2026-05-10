@@ -14,6 +14,7 @@ var Router = (function () {
 
   // Rota atual
   var _rotaAtual = null;
+  var _guard = null;
 
   // ---- Registra uma rota ----
   function registrar(padrao, handler) {
@@ -75,6 +76,17 @@ var Router = (function () {
   // ---- Processa a rota atual ----
   function _processar() {
     var hash = window.location.hash || '#/inicio';
+    var caminhoAtual = hash.replace(/^#/, '') || '/inicio';
+    if (caminhoAtual === '/') caminhoAtual = '/inicio';
+
+    if (typeof _guard === 'function') {
+      var redir = _guard(caminhoAtual, hash);
+      if (typeof redir === 'string' && redir && redir !== hash && redir !== '#' + caminhoAtual) {
+        window.location.hash = redir;
+        return;
+      }
+    }
+
     var resultado = _resolverRota(hash);
 
     _rotaAtual = resultado ? resultado.caminho : null;
@@ -119,10 +131,15 @@ var Router = (function () {
     window.location.hash = caminho;
   }
 
+  function setGuard(fn) {
+    _guard = (typeof fn === 'function') ? fn : null;
+  }
+
   return {
     registrar: registrar,
     init: init,
     navegar: navegar,
+    setGuard: setGuard,
   };
 
 })();
