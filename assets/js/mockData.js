@@ -10,6 +10,8 @@ var MockData = {
     {
       id: 'viagem-1',
       nome: 'Chapada Diamantina',
+      destinoPrincipal: 'Chapada Diamantina',
+      localizacaoCurta: 'Lençóis, BA',
       destino: 'Lençóis, BA',
       dataInicio: '2026-07-10',
       dataFim: '2026-07-17',
@@ -24,6 +26,8 @@ var MockData = {
     {
       id: 'viagem-2',
       nome: 'Rio de Janeiro Clássico',
+      destinoPrincipal: 'Rio de Janeiro',
+      localizacaoCurta: 'Rio de Janeiro, RJ',
       destino: 'Rio de Janeiro, RJ',
       dataInicio: '2026-08-20',
       dataFim: '2026-08-25',
@@ -38,6 +42,8 @@ var MockData = {
     {
       id: 'viagem-3',
       nome: 'Bonito & Pantanal',
+      destinoPrincipal: 'Bonito & Pantanal',
+      localizacaoCurta: 'Bonito, MS',
       destino: 'Bonito, MS',
       dataInicio: '2026-09-05',
       dataFim: '2026-09-12',

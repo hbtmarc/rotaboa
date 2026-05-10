@@ -54,21 +54,24 @@ var UI = (function () {
   }
 
   // ---- Renderiza um card de viagem ----
-  function renderTripCard(viagem) {
+  function renderTripCard(viagem, idSelecionado) {
     var pct = calcularPorcentagem(viagem.gastoAtual, viagem.orcamento);
     var cor = corBarra(pct);
     var tags = (viagem.tags || []).map(function (t) {
       return '<span class="chip">' + t + '</span>';
     }).join('');
+    var eSelecionada = viagem.id === idSelecionado;
 
     return (
       '<div class="card trip-card card-clickable" data-viagem-id="' + viagem.id + '">' +
+        /* Barra azul indica a viagem atualmente selecionada */
+        (eSelecionada ? '<div class="trip-card-selected-bar"></div>' : '') +
         '<div class="trip-card-cover trip-card-cover-' + viagem.capa + '">' +
           '<div class="trip-card-title">' + viagem.nome + '</div>' +
         '</div>' +
         '<div class="trip-card-body">' +
           '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-2)">' +
-            '<span class="text-sm text-secondary">📍 ' + viagem.destino + '</span>' +
+            '<span class="text-sm text-secondary">📍 ' + (viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '') + '</span>' +
             '<span class="badge ' + badgeStatus(viagem.status) + '">' + textoStatus(viagem.status) + '</span>' +
           '</div>' +
           '<p class="text-xs text-muted" style="margin-bottom:var(--space-3)">📅 ' + viagem.dataInicio + ' → ' + viagem.dataFim + '</p>' +
@@ -88,9 +91,14 @@ var UI = (function () {
             '<span class="chip">👥 ' + viagem.participantes + ' pessoas</span>' +
           '</div>' +
         '</div>' +
-        '<div class="card-footer">' +
-          '<a href="#/viagem/' + viagem.id + '" class="btn btn-primary btn-sm">Ver detalhes</a>' +
-          '<button class="btn btn-ghost btn-sm" onclick="Store.selecionarViagem(\'' + viagem.id + '\')">Selecionar</button>' +
+        '<div class="card-footer" style="flex-wrap:wrap;gap:var(--space-2)">' +
+          '<a href="#/viagem/' + viagem.id + '" class="btn btn-primary btn-sm">Detalhes</a>' +
+          (eSelecionada
+            ? '<span class="badge badge-ok" style="align-self:center">✓ Selecionada</span>'
+            : '<button class="btn btn-secondary btn-sm" onclick="TripActions.selecionar(\'' + viagem.id + '\')">Selecionar</button>'
+          ) +
+          '<button class="btn btn-ghost btn-sm" onclick="TripActions.editar(\'' + viagem.id + '\')">Editar</button>' +
+          '<button class="btn btn-ghost btn-sm" style="color:var(--color-danger)" onclick="TripActions.excluir(\'' + viagem.id + '\')">Excluir</button>' +
         '</div>' +
       '</div>'
     );
