@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="RotaBoa — Planeje suas viagens com facilidade." />
+  <meta name="theme-color" content="#2563eb" />
+  <title>RotaBoa</title>
+
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="assets/img/logo-placeholder.svg" type="image/svg+xml" />
+
+  <link rel="stylesheet" href="assets/css/base.css" />
+  <link rel="stylesheet" href="assets/css/layout.css" />
+  <link rel="stylesheet" href="assets/css/components.css" />
+  <link rel="stylesheet" href="assets/css/responsive.css" />
+</head>
+<body>
+
+  <!-- Cabeçalho principal -->
+  <header class="app-header" id="app-header">
+    <div class="header-inner">
+      <div class="header-brand">
+        <img src="assets/img/logo-placeholder.svg" alt="RotaBoa" class="header-logo" />
+        <span class="header-title">RotaBoa</span>
+      </div>
+      <nav class="header-nav" id="header-nav">
+        <a href="#/inicio" class="nav-link" data-route="/inicio">Início</a>
+        <a href="#/viagens" class="nav-link" data-route="/viagens">Viagens</a>
+        <a href="#/roteiro" class="nav-link" data-route="/roteiro">Roteiro</a>
+        <a href="#/financeiro" class="nav-link" data-route="/financeiro">Financeiro</a>
+        <a href="#/rotas" class="nav-link" data-route="/rotas">Rotas</a>
+        <a href="#/configuracoes" class="nav-link" data-route="/configuracoes">Config.</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Área principal de conteúdo -->
+  <main class="app-main" id="app-main">
+    <div class="page-container" id="page-container">
+      <!-- O conteúdo das páginas é injetado aqui pelo router -->
+      <div class="loading-state">
+        <div class="spinner"></div>
+        <p>Carregando...</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- Navegação inferior (mobile) -->
+  <nav class="bottom-nav" id="bottom-nav">
+    <a href="#/inicio" class="bottom-nav-item" data-route="/inicio">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>
+      <span>Início</span>
+    </a>
+    <a href="#/viagens" class="bottom-nav-item" data-route="/viagens">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="2" y1="12" x2="22" y2="12"/>
+        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+      </svg>
+      <span>Viagens</span>
+    </a>
+    <a href="#/roteiro" class="bottom-nav-item" data-route="/roteiro">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+        <polyline points="10 9 9 9 8 9"/>
+      </svg>
+      <span>Roteiro</span>
+    </a>
+    <a href="#/financeiro" class="bottom-nav-item" data-route="/financeiro">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="12" y1="1" x2="12" y2="23"/>
+        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+      </svg>
+      <span>Financeiro</span>
+    </a>
+    <a href="#/rotas" class="bottom-nav-item" data-route="/rotas">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polygon points="3 11 22 2 13 21 11 13 3 11"/>
+      </svg>
+      <span>Rotas</span>
+    </a>
+  </nav>
+
+  <script src="assets/js/mockData.js"></script>
+  <script src="assets/js/store.js"></script>
+  <script src="assets/js/ui.js"></script>
+  <script src="assets/js/router.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "RotaBoa",
+  "short_name": "RotaBoa",
+  "description": "Planeje suas viagens com facilidade.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "assets/img/logo-placeholder.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+/* ===================================================
+   responsive.css — Breakpoints e ajustes por tela
+   Mobile-first: base = mobile, depois media queries
+   =================================================== */
+
+/* ---- Tablet e acima (≥ 640px) ---- */
+@media (min-width: 640px) {
+  .page-container {
+    padding: var(--space-6);
+  }
+
+  .cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .hero-title {
+    font-size: var(--text-3xl);
+  }
+
+  .hero-banner {
+    padding: var(--space-10) var(--space-8);
+  }
+
+  .trip-card-cover {
+    height: 140px;
+  }
+}
+
+/* ---- Desktop (≥ 1024px) ---- */
+@media (min-width: 1024px) {
+  /* Mostra navegação no header, esconde bottom nav */
+  .header-nav {
+    display: flex;
+  }
+
+  .bottom-nav {
+    display: none;
+  }
+
+  /* Sem padding inferior, usa sidebar do header */
+  .app-main {
+    padding-bottom: 0;
+  }
+
+  .page-container {
+    padding: var(--space-8) var(--space-6);
+  }
+
+  .cards-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .hero-banner {
+    padding: var(--space-12) var(--space-10);
+  }
+
+  .hero-title {
+    font-size: 2.25rem;
+  }
+
+  .trip-card-cover {
+    height: 160px;
+  }
+}
+
+/* ---- Ultra-wide (≥ 1280px) ---- */
+@media (min-width: 1280px) {
+  .page-container {
+    padding: var(--space-10) var(--space-8);
+  }
+}
+
+/* ---- Mobile pequeno (< 360px) ---- */
+@media (max-width: 359px) {
+  .header-title {
+    font-size: var(--text-lg);
+  }
+
+  .bottom-nav-item span {
+    display: none;
+  }
+
+  .bottom-nav-item {
+    justify-content: center;
+  }
+
+  .hero-banner {
+    padding: var(--space-6) var(--space-4);
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- Preferências de movimento reduzido ---- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
