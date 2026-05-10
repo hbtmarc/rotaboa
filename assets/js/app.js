@@ -21,7 +21,8 @@ function paginaInicio(params, container) {
     return;
   }
 
-  var pct    = UI.calcularPorcentagem(viagem.gastoAtual, viagem.orcamento);
+  var resumoFinanceiro = Store.getResumoFinanceiro(viagem.id);
+  var pct    = resumoFinanceiro.pct;
   var config = Store.getConfiguracoes();
   var ultimasDespesas = Store.getDespesas(viagem.id).slice(0, 4);
 
@@ -40,14 +41,17 @@ function paginaInicio(params, container) {
       UI.renderSectionHeader('Visão Geral', '', '') +
       '<div class="stats-grid">' +
         UI.renderStatCard('Orçamento', UI.formatarMoeda(viagem.orcamento), 'Total planejado', 'stat-icon-blue', '💰') +
-        UI.renderStatCard('Gastos', UI.formatarMoeda(viagem.gastoAtual), pct + '% do orçamento', 'stat-icon-yellow', '💸') +
-        UI.renderStatCard('Saldo', UI.formatarMoeda(viagem.orcamento - viagem.gastoAtual), 'Disponível', 'stat-icon-green', '✅') +
+          UI.renderStatCard('Gastos', UI.formatarMoeda(resumoFinanceiro.totalGasto), pct + '% do orçamento', 'stat-icon-yellow', '💸') +
+          UI.renderStatCard('Saldo', UI.formatarMoeda(resumoFinanceiro.saldo), 'Disponível', 'stat-icon-green', '✅') +
         UI.renderStatCard('Pessoas', String(viagem.participantes), viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '', 'stat-icon-blue', '👥') +
       '</div>' +
     '</div>' +
 
     '<div class="page-section">' +
-      UI.renderSectionHeader('Viagem selecionada', 'Trocar', '#/viagens') +
+      '<div class="section-header">' +
+        '<h2 class="section-title">Viagem selecionada</h2>' +
+        '<a href="#" class="section-action" onclick="TripSwitcher.abrir();return false;">Trocar</a>' +
+      '</div>' +
       '<div class="card">' +
         '<div class="card-body">' +
           '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">' +
@@ -179,9 +183,10 @@ function paginaViagemDetalhe(params, container) {
     Store.selecionarViagem(id);
   }
 
-  var pct = UI.calcularPorcentagem(viagem.gastoAtual, viagem.orcamento);
-  var proximas = Store.getProximasAtividades(id, 3);
   var resFinanceiro = Store.getResumoFinanceiro(id);
+  var pct = resFinanceiro.pct;
+  var proximas = Store.getProximasAtividades(id, 3);
+  var resRotas = Store.getResumoRotas(id);
 
   // Bloco de prévia do roteiro
   var previewRoteiro;
@@ -228,7 +233,7 @@ function paginaViagemDetalhe(params, container) {
         '<div>' +
           '<div style="display:flex;justify-content:space-between;margin-bottom:var(--space-2)">' +
             '<span class="text-sm text-secondary">Orçamento usado</span>' +
-            '<span class="text-sm font-semibold">' + UI.formatarMoeda(viagem.gastoAtual) + ' / ' + UI.formatarMoeda(viagem.orcamento) + '</span>' +
+            '<span class="text-sm font-semibold">' + UI.formatarMoeda(resFinanceiro.totalGasto) + ' / ' + UI.formatarMoeda(viagem.orcamento) + '</span>' +
           '</div>' +
           UI.progressBar(pct, UI.corBarra(pct)) +
         '</div>' +
@@ -258,6 +263,21 @@ function paginaViagemDetalhe(params, container) {
           '<span class="text-xs text-secondary">💸 Gasto: <strong>' + UI.formatarMoeda(resFinanceiro.totalGasto) + '</strong></span>' +
           '<span class="text-xs text-secondary">🏦 Saldo: <strong>' + UI.formatarMoeda(resFinanceiro.saldo) + '</strong></span>' +
           '<span class="text-xs text-muted">🧾 ' + resFinanceiro.despesas.length + ' despesa' + (resFinanceiro.despesas.length !== 1 ? 's' : '') + '</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+
+    // Prévia de rotas
+    '<div class="card" style="margin-bottom:var(--space-5)">' +
+      '<div class="card-header" style="justify-content:space-between">' +
+        '<span class="font-semibold">🛣️ Rotas</span>' +
+        '<a href="#/rotas" class="btn btn-ghost btn-sm">Abrir rotas</a>' +
+      '</div>' +
+      '<div class="card-body">' +
+        '<div style="display:flex;flex-wrap:wrap;gap:var(--space-2) var(--space-4)">' +
+          '<span class="text-xs text-secondary">📍 Trechos: <strong>' + resRotas.trechos.length + '</strong></span>' +
+          '<span class="text-xs text-secondary">🛣️ Distância: <strong>' + (resRotas.totalKm || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' km</strong></span>' +
+          '<span class="text-xs text-secondary">💸 Custo estimado: <strong>' + UI.formatarMoeda(resRotas.custoTotal || 0) + '</strong></span>' +
         '</div>' +
       '</div>' +
     '</div>'
@@ -369,7 +389,7 @@ function paginaFinanceiro(params, container) {
           '<span>🧾 ' + desp.length + ' despesa' + (desp.length !== 1 ? 's' : '') + '</span>' +
         '</div>' +
       '</div>' +
-      '<a href="#/viagens" class="btn btn-ghost btn-sm fin-trip-troca" title="Trocar viagem">⇄ Trocar viagem</a>' +
+      '<button type="button" class="btn btn-ghost btn-sm fin-trip-troca" title="Trocar viagem" onclick="TripSwitcher.abrir()">⇄ Trocar viagem</button>' +
     '</div>'
   );
 
@@ -448,45 +468,84 @@ function paginaFinanceiro(params, container) {
 
 // ==== PÁGINA: Rotas ====
 function paginaRotas(params, container) {
-  var rotas = Store.getRotas();
-  var cb = rotas.combustivel;
+  var viagem = Store.getViagemSelecionada();
+  if (!viagem) {
+    container.innerHTML = (
+      '<div class="page-section">' +
+        '<div class="fin-empty">' +
+          '<div style="font-size:2.5rem;margin-bottom:var(--space-3)">🛣️</div>' +
+          '<p class="font-semibold" style="margin-bottom:var(--space-1)">Nenhuma viagem selecionada</p>' +
+          '<p class="text-sm text-secondary" style="margin-bottom:var(--space-4)">Selecione uma viagem para visualizar as rotas.</p>' +
+          '<a href="#/viagens" class="btn btn-primary btn-sm">Ir para viagens</a>' +
+        '</div>' +
+      '</div>'
+    );
+    return;
+  }
+
+  var resumo = Store.getResumoRotas(viagem.id);
+  var trechosAtivos = Store.getRotas(viagem.id);
+  var loc = viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '';
+
+  var cartaoViagem = (
+    '<div class="card fin-trip-card" style="margin-bottom:var(--space-5)">' +
+      '<div class="fin-trip-cover trip-card-cover trip-card-cover-' + viagem.capa + '"></div>' +
+      '<div class="fin-trip-info">' +
+        '<div class="fin-trip-top">' +
+          '<div class="fin-trip-names">' +
+            '<div class="fin-trip-nome">' + viagem.nome + '</div>' +
+            (loc ? '<div class="fin-trip-loc">📍 ' + loc + '</div>' : '') +
+          '</div>' +
+          '<span class="badge ' + UI.badgeStatus(viagem.status) + '">' + UI.textoStatus(viagem.status) + '</span>' +
+        '</div>' +
+        '<div class="fin-trip-meta">' +
+          '<span>🛣️ Trechos: <strong>' + resumo.trechos.length + '</strong></span>' +
+          '<span>👥 ' + resumo.participantes + ' participante' + (resumo.participantes !== 1 ? 's' : '') + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<button type="button" class="btn btn-ghost btn-sm fin-trip-troca" onclick="TripSwitcher.abrir()">⇄ Trocar viagem</button>' +
+    '</div>'
+  );
+
+  var kpis = (
+    '<div class="stats-grid" style="margin-bottom:var(--space-5)">' +
+      UI.renderStatCard('Total km', (resumo.totalKm || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' km', 'Soma dos trechos', 'stat-icon-blue', '🛣️') +
+      UI.renderStatCard('Tempo estimado', resumo.totalDuracaoTexto, 'Total da rota', 'stat-icon-green', '🕒') +
+      UI.renderStatCard('Litros estimados', (resumo.totalLitros || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' L', 'Com base no consumo', 'stat-icon-yellow', '⛽') +
+      UI.renderStatCard('Custo total', UI.formatarMoeda(resumo.custoTotal || 0), UI.formatarMoeda(resumo.custoPorPessoa || 0) + '/pessoa', 'stat-icon-blue', '💰') +
+    '</div>'
+  );
+
+  var lista = '';
+  if (!trechosAtivos.length) {
+    lista = (
+      '<div class="fin-empty" style="padding:var(--space-8) var(--space-5)">' +
+        '<p class="font-semibold" style="margin-bottom:var(--space-1)">Nenhum trecho cadastrado para esta viagem.</p>' +
+        '<p class="text-sm text-secondary" style="margin-bottom:var(--space-4)">Adicione o primeiro trecho da rota desta viagem.</p>' +
+        '<button class="btn btn-primary btn-sm" onclick="TrechoModal.abrir(\'' + viagem.id + '\', null)">+ Novo trecho</button>' +
+      '</div>'
+    );
+  } else {
+    lista = (
+      '<div class="rota-list">' +
+        trechosAtivos.map(function (t) {
+          var calc = resumo.trechos.find(function (x) { return x.id === t.id; }) || t;
+          return UI.renderTrechoItem(calc, viagem.id);
+        }).join('') +
+      '</div>'
+    );
+  }
 
   var html = (
     '<div class="page-section">' +
-
-      // Trechos
-      UI.renderSectionHeader('Trechos da viagem', '', '') +
-      '<div class="card" style="margin-bottom:var(--space-5)">' +
-        '<div class="card-body" style="padding:0 var(--space-5)">' +
-          rotas.trechos.map(UI.renderTrecho).join('') +
-        '</div>' +
+      '<div class="section-header" style="margin-bottom:var(--space-4)">' +
+        '<h2 class="section-title">Rotas</h2>' +
+        '<button class="btn btn-primary btn-sm" onclick="TrechoModal.abrir(\'' + viagem.id + '\', null)">+ Novo trecho</button>' +
       '</div>' +
-
-      // Combustível
-      UI.renderSectionHeader('Estimativa de combustível', '', '') +
-      '<div class="card" style="margin-bottom:var(--space-5)">' +
-        '<div class="card-body">' +
-          '<div class="stats-grid">' +
-            UI.renderStatCard('Trecho', cb.percursoTotal, cb.percursoSub || 'Trecho de van', 'stat-icon-blue', '🛣️') +
-            UI.renderStatCard('Consumo', cb.consumoMedio, 'Média do veículo', 'stat-icon-green', '⛽') +
-            UI.renderStatCard('Litros', cb.litrosNecessarios + ' L', 'Necessários', 'stat-icon-yellow', '🪣') +
-            UI.renderStatCard('Custo', cb.custoEstimado, cb.precoCombustivel + '/L', 'stat-icon-blue', '💰') +
-          '</div>' +
-          '<p class="text-xs text-muted" style="margin-top:var(--space-4)">' + cb.observacao + '</p>' +
-        '</div>' +
-      '</div>' +
-
-      // Dicas
-      UI.renderSectionHeader('Dicas de rota', '', '') +
-      '<div class="card">' +
-        '<div class="card-body">' +
-          '<ul style="display:flex;flex-direction:column;gap:var(--space-3)">' +
-            rotas.dicas.map(function (d) {
-              return '<li style="display:flex;gap:var(--space-3);align-items:flex-start"><span>💡</span><span class="text-sm text-secondary">' + d + '</span></li>';
-            }).join('') +
-          '</ul>' +
-        '</div>' +
-      '</div>' +
+      cartaoViagem +
+      kpis +
+      UI.renderSectionHeader('Trechos', '', '') +
+      lista +
     '</div>'
   );
 
@@ -931,6 +990,98 @@ var TripActions = {
     ConfirmModal.abrir(id, nome);
   },
 };
+
+// ================================================================
+// TripSwitcher — Troca de viagem sem sair da página atual
+// ================================================================
+var TripSwitcher = (function () {
+  var _overlay = null;
+
+  function _inject() {
+    var div = document.createElement('div');
+    div.id = 'trip-switcher-overlay';
+    div.className = 'modal-overlay';
+    div.setAttribute('role', 'dialog');
+    div.setAttribute('aria-modal', 'true');
+    div.setAttribute('aria-label', 'Trocar viagem');
+    div.innerHTML = (
+      '<div class="modal-box" id="trip-switcher-box">' +
+        '<div class="modal-handle"></div>' +
+        '<div class="modal-header">' +
+          '<span class="modal-title">Trocar viagem</span>' +
+          '<button class="modal-close" onclick="TripSwitcher.fechar()" aria-label="Fechar">✕</button>' +
+        '</div>' +
+        '<div class="modal-body" id="trip-switcher-body"></div>' +
+        '<div class="modal-footer">' +
+          '<button class="btn btn-ghost" onclick="TripSwitcher.fechar()">Fechar</button>' +
+        '</div>' +
+      '</div>'
+    );
+    div.addEventListener('click', function (e) {
+      if (e.target === div) TripSwitcher.fechar();
+    });
+    document.body.appendChild(div);
+    _overlay = div;
+  }
+
+  function _renderLista() {
+    var viagens = Store.getViagens() || [];
+    var atual = Store.getViagemSelecionada();
+
+    if (!viagens.length) {
+      return '<div class="itin-empty-day">Nenhuma viagem cadastrada.</div>';
+    }
+
+    return (
+      '<div style="display:flex;flex-direction:column;gap:var(--space-2)">' +
+        viagens.map(function (v) {
+          var ativa = atual && atual.id === v.id;
+          var loc = v.localizacaoCurta || v.destinoPrincipal || v.destino || '';
+          return (
+            '<button type="button" class="btn ' + (ativa ? 'btn-primary' : 'btn-ghost') + '" ' +
+              'style="justify-content:space-between;width:100%" ' +
+              'onclick="TripSwitcher.selecionar(\'' + v.id + '\')">' +
+              '<span style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0">' +
+                '<span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">' + v.nome + '</span>' +
+                (loc ? '<span style="font-size:var(--text-xs);opacity:.85">📍 ' + loc + '</span>' : '') +
+              '</span>' +
+              '<span class="badge ' + (ativa ? 'badge-ok' : 'badge-neutral') + '">' + (ativa ? 'Atual' : 'Selecionar') + '</span>' +
+            '</button>'
+          );
+        }).join('') +
+      '</div>'
+    );
+  }
+
+  return {
+    init: _inject,
+
+    abrir: function () {
+      if (!_overlay) return;
+      var body = document.getElementById('trip-switcher-body');
+      if (body) body.innerHTML = _renderLista();
+      _overlay.classList.add('aberto');
+      document.body.style.overflow = 'hidden';
+    },
+
+    fechar: function () {
+      if (!_overlay) return;
+      _overlay.classList.remove('aberto');
+      document.body.style.overflow = '';
+    },
+
+    selecionar: function (tripId) {
+      var atual = Store.getViagemSelecionada();
+      if (!tripId || (atual && atual.id === tripId)) {
+        TripSwitcher.fechar();
+        return;
+      }
+      Store.selecionarViagem(tripId);
+      TripSwitcher.fechar();
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    },
+  };
+})();
 
 // ================================================================
 // AtividadeModal — Criação e edição de atividades do roteiro
@@ -1442,18 +1593,292 @@ var DespesaModal = (function () {
 // ================================================================
 var DespesaActions = {
   editar: function (tripId, despesaId) {
+    var lista = Store.getDespesas(tripId);
+    var despesa = lista.find(function (d) { return d.id === despesaId; }) || null;
+    var eRota = despesa && (despesa.origem === 'rota' || !!despesa.routeSegmentId);
+
+    if (eRota) {
+      var routeId = despesa.routeSegmentId;
+      if (!routeId) return;
+      if (Store.getState().viagemSelecionadaId !== tripId) {
+        Store.selecionarViagem(tripId);
+      }
+      if (window.location.hash === '#/rotas') {
+        TrechoModal.abrir(tripId, routeId);
+      } else {
+        Router.navegar('#/rotas');
+        setTimeout(function () {
+          TrechoModal.abrir(tripId, routeId);
+        }, 0);
+      }
+      return;
+    }
+
     DespesaModal.abrir(tripId, despesaId);
   },
 
   excluir: function (tripId, despesaId) {
     var lista = Store.getDespesas(tripId);
+    var despesa = lista.find(function (d) { return d.id === despesaId; }) || null;
+    var eRota = despesa && (despesa.origem === 'rota' || !!despesa.routeSegmentId);
+
+    if (eRota) {
+      ConfirmModal.abrirComCallback(
+        'Excluir rota vinculada?',
+        'Esta despesa foi gerada por uma rota. Ao confirmar, o trecho também será removido.',
+        function () {
+          Store.excluirTrecho(tripId, despesa.routeSegmentId);
+          window.dispatchEvent(new HashChangeEvent('hashchange'));
+        }
+      );
+      return;
+    }
+
     var desc = 'esta despesa';
-    lista.forEach(function (d) { if (d.id === despesaId) desc = '"' + d.descricao + '"'; });
+    if (despesa) desc = '"' + despesa.descricao + '"';
     ConfirmModal.abrirComCallback(
       'Excluir despesa?',
       'Excluir ' + desc + '? Esta ação não pode ser desfeita.',
       function () {
         Store.excluirDespesa(tripId, despesaId);
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      }
+    );
+  },
+};
+
+// ================================================================
+// TrechoModal — Criação e edição de trechos de rota
+// ================================================================
+var TrechoModal = (function () {
+  var _overlay = null;
+  var _tripId = null;
+  var _trechoId = null;
+
+  var _tipos = [
+    ['aereo', 'Aéreo ✈️'],
+    ['carro', 'Carro 🚗'],
+    ['van', 'Van 🚐'],
+    ['onibus', 'Ônibus 🚌'],
+    ['trem', 'Trem 🚆'],
+    ['barco', 'Barco ⛵'],
+    ['caminhada', 'Caminhada 🚶'],
+    ['outro', 'Outro 🧭'],
+  ];
+
+  function _inject() {
+    var div = document.createElement('div');
+    div.id = 'trecho-modal-overlay';
+    div.className = 'modal-overlay';
+    div.setAttribute('role', 'dialog');
+    div.setAttribute('aria-modal', 'true');
+    div.setAttribute('aria-label', 'Formulário de trecho');
+    div.innerHTML = (
+      '<div class="modal-box" id="trecho-modal-box">' +
+        '<div class="modal-handle"></div>' +
+        '<div class="modal-header">' +
+          '<span class="modal-title" id="trecho-modal-title">Novo trecho</span>' +
+          '<button class="modal-close" onclick="TrechoModal.fechar()" aria-label="Fechar">✕</button>' +
+        '</div>' +
+        '<div class="modal-body" id="trecho-modal-body"></div>' +
+        '<div class="modal-footer">' +
+          '<button class="btn btn-ghost" onclick="TrechoModal.fechar()">Cancelar</button>' +
+          '<button class="btn btn-primary" id="trecho-modal-save" onclick="TrechoModal.salvar()">Salvar</button>' +
+        '</div>' +
+      '</div>'
+    );
+    div.addEventListener('click', function (e) {
+      if (e.target === div) TrechoModal.fechar();
+    });
+    document.body.appendChild(div);
+    _overlay = div;
+  }
+
+  function _esc(str) {
+    return String(str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function _opt(val, label, atual) {
+    return '<option value="' + val + '"' + (val === atual ? ' selected' : '') + '>' + label + '</option>';
+  }
+
+  function _renderForm(t) {
+    t = t || {};
+    return (
+      '<div class="form-row">' +
+        '<div class="form-group">' +
+          '<label class="form-label form-label-required" for="rf-origem">Origem</label>' +
+          '<input id="rf-origem" class="form-input" type="text" maxlength="90" placeholder="Ex: Salvador - BA" value="' + _esc(t.origem) + '">' +
+          '<span class="form-error" id="re-origem">Informe a origem.</span>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label form-label-required" for="rf-destino">Destino</label>' +
+          '<input id="rf-destino" class="form-input" type="text" maxlength="90" placeholder="Ex: Lençóis - BA" value="' + _esc(t.destino) + '">' +
+          '<span class="form-error" id="re-destino">Informe o destino.</span>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="form-row">' +
+        '<div class="form-group">' +
+          '<label class="form-label form-label-required" for="rf-tipo">Tipo</label>' +
+          '<select id="rf-tipo" class="form-select">' +
+            '<option value="">Selecione...</option>' +
+            _tipos.map(function (p) { return _opt(p[0], p[1], t.tipo); }).join('') +
+          '</select>' +
+          '<span class="form-error" id="re-tipo">Selecione o tipo do trecho.</span>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label" for="rf-dist">Distância (km)</label>' +
+          '<input id="rf-dist" class="form-input" type="number" min="0" step="0.1" value="' + _esc(t.distanciaKm || '') + '">' +
+          '<span class="form-error" id="re-dist">Distância deve ser zero ou maior.</span>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="form-row">' +
+        '<div class="form-group">' +
+          '<label class="form-label" for="rf-dur">Duração estimada</label>' +
+          '<input id="rf-dur" class="form-input" type="text" maxlength="40" placeholder="Ex: 2h 30min" value="' + _esc(t.duracaoEstimada) + '">' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label" for="rf-consumo">Consumo médio (km/L)</label>' +
+          '<input id="rf-consumo" class="form-input" type="number" min="0" step="0.01" value="' + _esc(t.consumoKmL || '') + '">' +
+          '<span class="form-error" id="re-consumo">Consumo deve ser zero ou maior.</span>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="form-row">' +
+        '<div class="form-group">' +
+          '<label class="form-label" for="rf-preco">Preço do combustível (R$/L)</label>' +
+          '<input id="rf-preco" class="form-input" type="number" min="0" step="0.01" value="' + _esc(t.precoCombustivelLitro || '') + '">' +
+          '<span class="form-error" id="re-preco">Preço deve ser zero ou maior.</span>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label" for="rf-fixo">Custo fixo do trecho (R$)</label>' +
+          '<input id="rf-fixo" class="form-input" type="number" min="0" step="0.01" value="' + _esc(t.custoFixo || '') + '">' +
+          '<span class="form-error" id="re-fixo">Custo fixo deve ser zero ou maior.</span>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="form-group">' +
+        '<label class="form-label" for="rf-obs">Observações</label>' +
+        '<textarea id="rf-obs" class="form-textarea" maxlength="300" placeholder="Observações do trecho...">' + _esc(t.observacoes) + '</textarea>' +
+      '</div>'
+    );
+  }
+
+  function _erro(id, mostrar, msg) {
+    var el = document.getElementById('re-' + id);
+    var inp = document.getElementById('rf-' + id);
+    if (!el) return;
+    if (mostrar) {
+      if (msg) el.textContent = msg;
+      el.classList.add('visivel');
+      if (inp) inp.classList.add('invalido');
+    } else {
+      el.classList.remove('visivel');
+      if (inp) inp.classList.remove('invalido');
+    }
+  }
+
+  function _limparErros() {
+    ['origem', 'destino', 'tipo', 'dist', 'consumo', 'preco', 'fixo'].forEach(function (k) { _erro(k, false); });
+  }
+
+  function _validar() {
+    _limparErros();
+    var ok = true;
+    var origem = document.getElementById('rf-origem');
+    var destino = document.getElementById('rf-destino');
+    var tipo = document.getElementById('rf-tipo');
+    var dist = Number(document.getElementById('rf-dist').value || 0);
+    var consumo = Number(document.getElementById('rf-consumo').value || 0);
+    var preco = Number(document.getElementById('rf-preco').value || 0);
+    var fixo = Number(document.getElementById('rf-fixo').value || 0);
+
+    if (!origem || !origem.value.trim()) { _erro('origem', true); ok = false; }
+    if (!destino || !destino.value.trim()) { _erro('destino', true); ok = false; }
+    if (!tipo || !tipo.value) { _erro('tipo', true); ok = false; }
+    if (dist < 0) { _erro('dist', true); ok = false; }
+    if (consumo < 0) { _erro('consumo', true); ok = false; }
+    if (preco < 0) { _erro('preco', true); ok = false; }
+    if (fixo < 0) { _erro('fixo', true); ok = false; }
+
+    return ok;
+  }
+
+  return {
+    init: _inject,
+
+    abrir: function (tripId, trechoId) {
+      _tripId = tripId;
+      _trechoId = trechoId || null;
+      var trecho = null;
+      if (_trechoId) {
+        Store.getTrechosRota(tripId).forEach(function (t) {
+          if (t.id === _trechoId) trecho = t;
+        });
+      }
+      document.getElementById('trecho-modal-title').textContent = trechoId ? 'Editar trecho' : 'Novo trecho';
+      document.getElementById('trecho-modal-save').textContent = trechoId ? 'Salvar alterações' : 'Salvar trecho';
+      document.getElementById('trecho-modal-body').innerHTML = _renderForm(trecho || {});
+      _overlay.classList.add('aberto');
+      document.body.style.overflow = 'hidden';
+      var f = document.getElementById('rf-origem');
+      if (f) setTimeout(function () { f.focus(); }, 300);
+    },
+
+    fechar: function () {
+      _overlay.classList.remove('aberto');
+      document.body.style.overflow = '';
+      _tripId = _trechoId = null;
+    },
+
+    salvar: function () {
+      if (!_validar()) return;
+
+      var dados = {
+        origem: document.getElementById('rf-origem').value.trim(),
+        destino: document.getElementById('rf-destino').value.trim(),
+        tipo: document.getElementById('rf-tipo').value,
+        distanciaKm: Number(document.getElementById('rf-dist').value) || 0,
+        duracaoEstimada: document.getElementById('rf-dur').value.trim(),
+        consumoKmL: Number(document.getElementById('rf-consumo').value) || 0,
+        precoCombustivelLitro: Number(document.getElementById('rf-preco').value) || 0,
+        custoFixo: Number(document.getElementById('rf-fixo').value) || 0,
+        observacoes: document.getElementById('rf-obs').value.trim(),
+      };
+
+      if (_trechoId) {
+        Store.editarTrechoRota(_tripId, _trechoId, dados);
+      } else {
+        Store.adicionarTrechoRota(_tripId, dados);
+      }
+
+      TrechoModal.fechar();
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    },
+  };
+})();
+
+// ================================================================
+// TrechoActions — Ações nos cards de trecho
+// ================================================================
+var TrechoActions = {
+  editar: function (tripId, trechoId) {
+    TrechoModal.abrir(tripId, trechoId);
+  },
+
+  excluir: function (tripId, trechoId) {
+    var lista = Store.getTrechosRota(tripId);
+    var nome = 'este trecho';
+    lista.forEach(function (t) {
+      if (t.id === trechoId) nome = '"' + t.origem + ' → ' + t.destino + '"';
+    });
+    ConfirmModal.abrirComCallback(
+      'Excluir trecho?',
+      'Excluir ' + nome + '? Esta ação não pode ser desfeita.',
+      function () {
+        Store.excluirTrechoRota(tripId, trechoId);
         window.dispatchEvent(new HashChangeEvent('hashchange'));
       }
     );
@@ -1466,8 +1891,10 @@ var DespesaActions = {
   // Injeta modais no DOM antes de qualquer coisa
   TripModal.init();
   ConfirmModal.init();
+  TripSwitcher.init();
   AtividadeModal.init();
   DespesaModal.init();
+  TrechoModal.init();
 
   // Registra todas as rotas
   Router.registrar('/inicio',        paginaInicio);

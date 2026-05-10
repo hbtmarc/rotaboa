@@ -157,6 +157,7 @@ var UI = (function () {
   // ---- Renderiza cartão de despesa funcional (com editar/excluir) ----
   function renderDespesaItem(desp, tripId) {
     var cat   = _despCatMeta[desp.categoria] || _despCatMeta.outros;
+    var eRota = desp.origem === 'rota' || !!desp.routeSegmentId;
     var data  = '';
     if (desp.data) {
       var p = desp.data.split('-');
@@ -169,11 +170,19 @@ var UI = (function () {
     var splitLabel = partic > 1
       ? '<span class="desp-split">' + cat.emoji + ' ' + formatarMoeda(porPessoa) + '/pessoa (' + partic + ' pessoas)</span>'
       : '';
+    var badgeRota = eRota
+      ? '<span class="badge badge-info">Gerado por rota</span>'
+      : '';
+    var acaoEditar = eRota ? 'Editar rota' : 'Editar';
+    var acaoExcluir = eRota ? 'Excluir rota' : 'Excluir';
 
     return (
       '<div class="desp-card" data-desp-id="' + desp.id + '">' +
         '<div class="desp-card-top">' +
-          '<span class="desp-cat-chip">' + cat.emoji + ' ' + cat.nome + '</span>' +
+          '<div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">' +
+            '<span class="desp-cat-chip">' + cat.emoji + ' ' + cat.nome + '</span>' +
+            badgeRota +
+          '</div>' +
           '<span class="desp-date">' + data + '</span>' +
         '</div>' +
         '<div class="desp-card-main">' +
@@ -186,8 +195,8 @@ var UI = (function () {
         '</div>' +
         (desp.observacoes ? '<div class="desp-obs">' + desp.observacoes + '</div>' : '') +
         '<div class="desp-actions">' +
-          '<button class="desp-btn" onclick="DespesaActions.editar(\'' + tripId + '\',\'' + desp.id + '\')">✏️ <span>Editar</span></button>' +
-          '<button class="desp-btn desp-btn-delete" onclick="DespesaActions.excluir(\'' + tripId + '\',\'' + desp.id + '\')">🗑️ <span>Excluir</span></button>' +
+          '<button class="desp-btn" onclick="DespesaActions.editar(\'' + tripId + '\',\'' + desp.id + '\')">✏️ <span>' + acaoEditar + '</span></button>' +
+          '<button class="desp-btn desp-btn-delete" onclick="DespesaActions.excluir(\'' + tripId + '\',\'' + desp.id + '\')">🗑️ <span>' + acaoExcluir + '</span></button>' +
         '</div>' +
       '</div>'
     );
@@ -236,6 +245,46 @@ var UI = (function () {
           '<div class="route-step-detail">' + trecho.modo + ' · ' + trecho.distancia + ' · ' + trecho.duracao + '</div>' +
         '</div>' +
         '<div class="route-step-value">' + trecho.custoPessoa + '</div>' +
+      '</div>'
+    );
+  }
+
+  var _tipoMetaRota = {
+    aereo:     { emoji: '✈️', nome: 'Aéreo' },
+    carro:     { emoji: '🚗', nome: 'Carro' },
+    van:       { emoji: '🚐', nome: 'Van' },
+    onibus:    { emoji: '🚌', nome: 'Ônibus' },
+    trem:      { emoji: '🚆', nome: 'Trem' },
+    barco:     { emoji: '⛵', nome: 'Barco' },
+    caminhada: { emoji: '🚶', nome: 'Caminhada' },
+    outro:     { emoji: '🧭', nome: 'Outro' },
+  };
+
+  function renderTrechoItem(trecho, tripId) {
+    var meta = _tipoMetaRota[trecho.tipo] || _tipoMetaRota.outro;
+    var distanciaTxt = (Number(trecho.distanciaKm) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+    var litrosTxt = (Number(trecho.litrosEstimados) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+
+    return (
+      '<div class="rota-card" data-trecho-id="' + trecho.id + '">' +
+        '<div class="rota-card-top">' +
+          '<span class="rota-type-chip">' + meta.emoji + ' ' + meta.nome + '</span>' +
+          '<span class="rota-distance">' + distanciaTxt + ' km</span>' +
+        '</div>' +
+        '<div class="rota-main">' +
+          '<div class="rota-route">' + trecho.origem + ' → ' + trecho.destino + '</div>' +
+          '<div class="rota-total">' + formatarMoeda(trecho.custoTotal || 0) + '</div>' +
+        '</div>' +
+        '<div class="rota-sub">' +
+          '<span>🕒 ' + (trecho.duracaoEstimada || '—') + '</span>' +
+          '<span>⛽ ' + litrosTxt + ' L</span>' +
+          '<span>👥 ' + formatarMoeda(trecho.custoPorPessoa || 0) + '/pessoa</span>' +
+        '</div>' +
+        (trecho.observacoes ? '<div class="rota-obs">' + trecho.observacoes + '</div>' : '') +
+        '<div class="rota-actions">' +
+          '<button class="desp-btn" onclick="TrechoActions.editar(\'' + tripId + '\',\'' + trecho.id + '\')">✏️ <span>Editar</span></button>' +
+          '<button class="desp-btn desp-btn-delete" onclick="TrechoActions.excluir(\'' + tripId + '\',\'' + trecho.id + '\')">🗑️ <span>Excluir</span></button>' +
+        '</div>' +
       '</div>'
     );
   }
@@ -449,6 +498,7 @@ var UI = (function () {
     renderBarraCategoria: renderBarraCategoria,
     renderCategoriaFinanceira: renderCategoriaFinanceira,
     renderTrecho: renderTrecho,
+    renderTrechoItem: renderTrechoItem,
     renderStatCard: renderStatCard,
     renderEmptyState: renderEmptyState,
     renderSectionHeader: renderSectionHeader,

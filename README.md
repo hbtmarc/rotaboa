@@ -94,6 +94,11 @@ Acesse `http://192.168.1.100:8000` pelo celular (mesmo Wi-Fi).
 - PWA: Service Worker + Web Manifest
 - Hash routing nativo
 
+## Nota sobre custos de rota
+
+- Custos de rotas no Financeiro são derivados de `rotaboa.routes.v1`.
+- Eles não são duplicados em `rotaboa.expenses.v1`, que armazena apenas despesas manuais.
+
 ---
 
 ## Roadmap
