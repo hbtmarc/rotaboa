@@ -22,8 +22,8 @@ function paginaInicio(params, container) {
   }
 
   var pct    = UI.calcularPorcentagem(viagem.gastoAtual, viagem.orcamento);
-  var fin    = Store.getFinanceiro();
   var config = Store.getConfiguracoes();
+  var ultimasDespesas = Store.getDespesas(viagem.id).slice(0, 4);
 
   var html = (
     '<div class="hero-banner">' +
@@ -78,7 +78,13 @@ function paginaInicio(params, container) {
       UI.renderSectionHeader('Últimas despesas', 'Ver tudo', '#/financeiro') +
       '<div class="card">' +
         '<div class="card-body" style="padding:0">' +
-          fin.despesas.slice(0, 4).map(UI.renderDespesa).join('') +
+          (ultimasDespesas.length > 0
+            ? ultimasDespesas.map(function (d) { return UI.renderDespesa({ emoji: '💳', descricao: d.descricao, categoria: d.categoria, valor: d.valor }); }).join('')
+            : '<div class="itin-empty-day" style="margin:var(--space-4)">Nenhuma despesa registrada ainda.</div>'
+          ) +
+        '</div>' +
+        '<div class="card-footer">' +
+          '<button class="btn btn-primary btn-sm" onclick="DespesaModal.abrir(\'' + viagem.id + '\', null)">+ Nova despesa</button>' +
         '</div>' +
       '</div>' +
     '</div>'
@@ -168,8 +174,14 @@ function paginaViagemDetalhe(params, container) {
     return;
   }
 
+  // URL de detalhe sempre define a viagem ativa (inclusive em link direto)
+  if (Store.getState().viagemSelecionadaId !== id) {
+    Store.selecionarViagem(id);
+  }
+
   var pct = UI.calcularPorcentagem(viagem.gastoAtual, viagem.orcamento);
   var proximas = Store.getProximasAtividades(id, 3);
+  var resFinanceiro = Store.getResumoFinanceiro(id);
 
   // Bloco de prévia do roteiro
   var previewRoteiro;
@@ -228,7 +240,27 @@ function paginaViagemDetalhe(params, container) {
       '</div>' +
     '</div>' +
 
-    previewRoteiro
+    previewRoteiro +
+
+    // Prévia financeira
+    '<div class="card" style="margin-bottom:var(--space-5)">' +
+      '<div class="card-header" style="justify-content:space-between">' +
+        '<span class="font-semibold">💰 Financeiro</span>' +
+        '<a href="#/financeiro" class="btn btn-ghost btn-sm">Ver detalhes</a>' +
+      '</div>' +
+      '<div class="card-body">' +
+        '<div style="display:flex;justify-content:space-between;margin-bottom:var(--space-2)">' +
+          '<span class="text-sm text-secondary">Orçamento utilizado</span>' +
+          '<span class="text-sm font-bold">' + resFinanceiro.pct + '%</span>' +
+        '</div>' +
+        UI.progressBar(resFinanceiro.pct, UI.corBarra(resFinanceiro.pct)) +
+        '<div style="display:flex;justify-content:space-between;margin-top:var(--space-3);flex-wrap:wrap;gap:var(--space-2)">' +
+          '<span class="text-xs text-secondary">💸 Gasto: <strong>' + UI.formatarMoeda(resFinanceiro.totalGasto) + '</strong></span>' +
+          '<span class="text-xs text-secondary">🏦 Saldo: <strong>' + UI.formatarMoeda(resFinanceiro.saldo) + '</strong></span>' +
+          '<span class="text-xs text-muted">🧾 ' + resFinanceiro.despesas.length + ' despesa' + (resFinanceiro.despesas.length !== 1 ? 's' : '') + '</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
   );
 
   container.innerHTML = html;
@@ -301,60 +333,113 @@ function paginaRoteiro(params, container) {
 
 // ==== PÁGINA: Financeiro ====
 function paginaFinanceiro(params, container) {
-  var fin = Store.getFinanceiro();
-  var saldo = fin.orcamentoTotal - fin.gastoTotal;
-  var pct = UI.calcularPorcentagem(fin.gastoTotal, fin.orcamentoTotal);
   var viagem = Store.getViagemSelecionada();
   if (!viagem) {
-    container.innerHTML = UI.renderEmptyState('Nenhuma viagem selecionada', 'Crie ou selecione uma viagem primeiro.');
+    container.innerHTML = (
+      '<div class="page-section">' +
+        '<div class="fin-empty">' +
+          '<div style="font-size:2.5rem;margin-bottom:var(--space-3)">✈️</div>' +
+          '<p class="font-semibold" style="margin-bottom:var(--space-1)">Nenhuma viagem selecionada</p>' +
+          '<p class="text-sm text-secondary" style="margin-bottom:var(--space-4)">Selecione uma viagem para visualizar o financeiro.</p>' +
+          '<a href="#/viagens" class="btn btn-primary btn-sm">Ir para viagens</a>' +
+        '</div>' +
+      '</div>'
+    );
     return;
   }
 
-  var html = (
-    // Resumo geral
-    '<div class="page-section">' +
-      UI.renderSectionHeader('Resumo Financeiro', '', '') +
-      '<div class="stats-grid" style="margin-bottom:var(--space-5)">' +
-        UI.renderStatCard('Orçamento', UI.formatarMoeda(fin.orcamentoTotal), viagem.nome, 'stat-icon-blue', '💰') +
-        UI.renderStatCard('Total gasto', UI.formatarMoeda(fin.gastoTotal), pct + '% do total', 'stat-icon-yellow', '💸') +
-        UI.renderStatCard('Disponível', UI.formatarMoeda(saldo), 'Saldo atual', 'stat-icon-green', '✅') +
-        UI.renderStatCard('Categorias', fin.categorias.length + '', 'Tipos de gasto', 'stat-icon-blue', '📊') +
-      '</div>' +
+  var res  = Store.getResumoFinanceiro(viagem.id);
+  var desp = res.despesas;
+  var loc  = viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '';
 
-      // Barra global
-      '<div class="card" style="margin-bottom:var(--space-5)">' +
-        '<div class="card-body">' +
-          '<div style="display:flex;justify-content:space-between;margin-bottom:var(--space-2)">' +
-            '<span class="text-sm font-semibold">Orçamento total utilizado</span>' +
-            '<span class="text-sm font-bold">' + pct + '%</span>' +
+  // ---- Cartão de contexto: viagem selecionada ----
+  var cartaoViagem = (
+    '<div class="card fin-trip-card" style="margin-bottom:var(--space-5)">' +
+      '<div class="fin-trip-cover trip-card-cover trip-card-cover-' + viagem.capa + '"></div>' +
+      '<div class="fin-trip-info">' +
+        '<div class="fin-trip-top">' +
+          '<div class="fin-trip-names">' +
+            '<div class="fin-trip-nome">' + viagem.nome + '</div>' +
+            (loc ? '<div class="fin-trip-loc">📍 ' + loc + '</div>' : '') +
           '</div>' +
-          UI.progressBar(pct, UI.corBarra(pct)) +
-          '<div style="display:flex;justify-content:space-between;margin-top:var(--space-2)">' +
-            '<span class="text-xs text-muted">' + UI.formatarMoeda(fin.gastoTotal) + ' gastos</span>' +
-            '<span class="text-xs text-secondary">de ' + UI.formatarMoeda(fin.orcamentoTotal) + '</span>' +
-          '</div>' +
+          '<span class="badge ' + UI.badgeStatus(viagem.status) + '">' + UI.textoStatus(viagem.status) + '</span>' +
+        '</div>' +
+        '<div class="fin-trip-meta">' +
+          '<span>💰 Orçamento: <strong>' + UI.formatarMoeda(res.orcamento) + '</strong></span>' +
+          '<span>🧾 ' + desp.length + ' despesa' + (desp.length !== 1 ? 's' : '') + '</span>' +
         '</div>' +
       '</div>' +
+      '<a href="#/viagens" class="btn btn-ghost btn-sm fin-trip-troca" title="Trocar viagem">⇄ Trocar viagem</a>' +
+    '</div>'
+  );
 
-      // Por categoria
+  var kpis = (
+    '<div class="stats-grid" style="margin-bottom:var(--space-5)">' +
+      UI.renderStatCard('Orçamento', UI.formatarMoeda(res.orcamento), viagem.nome, 'stat-icon-blue', '💰') +
+      UI.renderStatCard('Total gasto', UI.formatarMoeda(res.totalGasto), res.pct + '% do total', 'stat-icon-yellow', '💸') +
+      UI.renderStatCard('Disponível', UI.formatarMoeda(res.saldo), res.saldo >= 0 ? 'Saldo positivo' : 'Orçamento estourado', res.saldo >= 0 ? 'stat-icon-green' : 'stat-icon-red', res.saldo >= 0 ? '✅' : '⚠️') +
+      UI.renderStatCard('Despesas', String(desp.length), 'Lançamentos', 'stat-icon-blue', '🧾') +
+    '</div>'
+  );
+
+  var barraGlobal = (
+    '<div class="card" style="margin-bottom:var(--space-5)">' +
+      '<div class="card-body">' +
+        '<div style="display:flex;justify-content:space-between;margin-bottom:var(--space-2)">' +
+          '<span class="text-sm font-semibold">Orçamento total utilizado</span>' +
+          '<span class="text-sm font-bold">' + res.pct + '%</span>' +
+        '</div>' +
+        UI.progressBar(res.pct, UI.corBarra(res.pct)) +
+        '<div style="display:flex;justify-content:space-between;margin-top:var(--space-2)">' +
+          '<span class="text-xs text-muted">' + UI.formatarMoeda(res.totalGasto) + ' gastos</span>' +
+          '<span class="text-xs text-secondary">de ' + UI.formatarMoeda(res.orcamento) + '</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+
+  var secCategorias = '';
+  if (res.categorias.length > 0) {
+    secCategorias = (
       UI.renderSectionHeader('Por categoria', '', '') +
       '<div class="card" style="margin-bottom:var(--space-5)">' +
         '<div class="card-body">' +
-          fin.categorias.map(UI.renderCategoriaFinanceira).join('') +
+          res.categorias.map(UI.renderBarraCategoria).join('') +
         '</div>' +
-      '</div>' +
+      '</div>'
+    );
+  }
 
-      // Lista de despesas
-      UI.renderSectionHeader('Despesas', '', '') +
-      '<div class="card">' +
-        '<div class="card-body" style="padding:0">' +
-          fin.despesas.map(UI.renderDespesa).join('') +
-        '</div>' +
-        '<div class="card-footer">' +
-          '<span class="text-sm text-secondary">' + fin.despesas.length + ' lançamentos</span>' +
-          '<button class="btn btn-primary btn-sm" disabled style="opacity:0.5;cursor:not-allowed">+ Adicionar (em breve)</button>' +
-        '</div>' +
+  var listaDesp;
+  if (desp.length === 0) {
+    listaDesp = (
+      '<div class="fin-empty">' +
+        '<div style="font-size:2.5rem;margin-bottom:var(--space-3)">🧾</div>' +
+        '<p class="font-semibold" style="margin-bottom:var(--space-1)">Nenhuma despesa registrada</p>' +
+        '<p class="text-sm text-secondary" style="margin-bottom:var(--space-4)">Adicione a primeira despesa desta viagem.</p>' +
+        '<button class="btn btn-primary btn-sm" onclick="DespesaModal.abrir(\'' + viagem.id + '\', null)">+ Nova despesa</button>' +
+      '</div>'
+    );
+  } else {
+    listaDesp = (
+      '<div class="desp-list">' +
+        desp.map(function (d) { return UI.renderDespesaItem(d, viagem.id); }).join('') +
+      '</div>'
+    );
+  }
+
+  var html = (
+    '<div class="page-section">' +
+      '<div class="section-header" style="margin-bottom:var(--space-4)">' +
+        '<h2 class="section-title">Financeiro</h2>' +
+        '<button class="btn btn-primary btn-sm" onclick="DespesaModal.abrir(\'' + viagem.id + '\', null)">+ Nova despesa</button>' +
       '</div>' +
+      cartaoViagem +
+      kpis +
+      barraGlobal +
+      secCategorias +
+      UI.renderSectionHeader('Despesas', '', '') +
+      listaDesp +
     '</div>'
   );
 
@@ -490,6 +575,7 @@ function _bindTripCards(container) {
       // Ignora cliques em elementos interativos internos
       if (e.target.closest('a, button')) return;
       var id = card.getAttribute('data-viagem-id');
+      Store.selecionarViagem(id);
       Router.navegar('#/viagem/' + id);
     });
   });
@@ -824,6 +910,11 @@ var ConfirmModal = (function () {
 // TripActions — Ações nos cards de viagem (chamadas via onclick)
 // ================================================================
 var TripActions = {
+  abrirDetalhes: function (id) {
+    Store.selecionarViagem(id);
+    Router.navegar('#/viagem/' + id);
+  },
+
   selecionar: function (id) {
     Store.selecionarViagem(id);
     // Re-renderiza a página atual para atualizar o badge de seleção
@@ -1139,6 +1230,236 @@ var AtividadeActions = {
   },
 };
 
+// ================================================================
+// DespesaModal — Criação e edição de despesas financeiras
+// ================================================================
+var DespesaModal = (function () {
+  var _overlay   = null;
+  var _tripId    = null;
+  var _despesaId = null;
+
+  var _cats = [
+    ['transporte',  'Transporte 🚗'],
+    ['hospedagem',  'Hospedagem 🏨'],
+    ['alimentacao', 'Alimentação 🍽️'],
+    ['passeios',    'Passeios 🎡'],
+    ['compras',     'Compras 🛍️'],
+    ['outros',      'Outros 📌'],
+  ];
+
+  function _inject() {
+    var div = document.createElement('div');
+    div.id = 'desp-modal-overlay';
+    div.className = 'modal-overlay';
+    div.setAttribute('role', 'dialog');
+    div.setAttribute('aria-modal', 'true');
+    div.setAttribute('aria-label', 'Formulário de despesa');
+    div.innerHTML = (
+      '<div class="modal-box" id="desp-modal-box">' +
+        '<div class="modal-handle"></div>' +
+        '<div class="modal-header">' +
+          '<span class="modal-title" id="desp-modal-title">Nova despesa</span>' +
+          '<button class="modal-close" onclick="DespesaModal.fechar()" aria-label="Fechar">✕</button>' +
+        '</div>' +
+        '<div class="modal-body" id="desp-modal-body"></div>' +
+        '<div class="modal-footer">' +
+          '<button class="btn btn-ghost" onclick="DespesaModal.fechar()">Cancelar</button>' +
+          '<button class="btn btn-primary" id="desp-modal-save" onclick="DespesaModal.salvar()">Salvar</button>' +
+        '</div>' +
+      '</div>'
+    );
+    div.addEventListener('click', function (e) {
+      if (e.target === div) DespesaModal.fechar();
+    });
+    document.body.appendChild(div);
+    _overlay = div;
+  }
+
+  function _esc(str) {
+    return String(str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function _opt(val, label, atual) {
+    return '<option value="' + val + '"' + (val === atual ? ' selected' : '') + '>' + label + '</option>';
+  }
+
+  // Gera checkboxes de participantes baseados na contagem da viagem
+  function _checkboxesPartic(viagem, selecionados) {
+    var n = Math.max(1, Number(viagem.participantes) || 1);
+    var checks = '';
+    for (var i = 1; i <= n; i++) {
+      var label = 'Pessoa ' + i;
+      var checked = (!selecionados || selecionados.length === 0 || selecionados.indexOf(label) !== -1) ? ' checked' : '';
+      checks += (
+        '<label class="desp-check-label">' +
+          '<input type="checkbox" name="df-partic" value="' + label + '"' + checked + '> ' + label +
+        '</label>'
+      );
+    }
+    return checks;
+  }
+
+  function _renderForm(viagem, desp) {
+    desp = desp || {};
+    return (
+      '<div class="form-row">' +
+        '<div class="form-group">' +
+          '<label class="form-label form-label-required" for="df-data">Data</label>' +
+          '<input id="df-data" class="form-input" type="date" value="' + _esc(desp.data || '') + '">' +
+          '<span class="form-error" id="de-data">Informe a data.</span>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label form-label-required" for="df-cat">Categoria</label>' +
+          '<select id="df-cat" class="form-select">' +
+            '<option value="">Selecione...</option>' +
+            _cats.map(function (c) { return _opt(c[0], c[1], desp.categoria); }).join('') +
+          '</select>' +
+          '<span class="form-error" id="de-cat">Selecione uma categoria.</span>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="form-group">' +
+        '<label class="form-label form-label-required" for="df-desc">Descrição</label>' +
+        '<input id="df-desc" class="form-input" type="text" maxlength="120" placeholder="Ex: Almoço no restaurante" value="' + _esc(desp.descricao) + '">' +
+        '<span class="form-error" id="de-desc">Descrição é obrigatória.</span>' +
+      '</div>' +
+
+      '<div class="form-row">' +
+        '<div class="form-group">' +
+          '<label class="form-label form-label-required" for="df-valor">Valor (R$)</label>' +
+          '<input id="df-valor" class="form-input" type="number" min="0.01" step="0.01" placeholder="0,00" value="' + _esc(desp.valor > 0 ? desp.valor : '') + '">' +
+          '<span class="form-error" id="de-valor">Valor deve ser maior que zero.</span>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label form-label-required" for="df-pagante">Quem pagou</label>' +
+          '<input id="df-pagante" class="form-input" type="text" maxlength="60" placeholder="Ex: Pessoa 1" value="' + _esc(desp.quemPagou) + '">' +
+          '<span class="form-error" id="de-pagante">Informe quem pagou.</span>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="form-group">' +
+        '<label class="form-label">Participantes no rateio</label>' +
+        '<div class="desp-check-grid">' + _checkboxesPartic(viagem, desp.participantes) + '</div>' +
+        '<span class="text-xs text-muted" style="margin-top:4px;display:block">Padrão: todos selecionados.</span>' +
+      '</div>' +
+
+      '<div class="form-group">' +
+        '<label class="form-label" for="df-obs">Observações</label>' +
+        '<textarea id="df-obs" class="form-textarea" maxlength="300" placeholder="Detalhes ou observações...">' + _esc(desp.observacoes) + '</textarea>' +
+      '</div>'
+    );
+  }
+
+  function _erro(id, mostrar, msg) {
+    var el  = document.getElementById('de-' + id);
+    var inp = document.getElementById('df-' + id);
+    if (!el) return;
+    if (mostrar) {
+      if (msg) el.textContent = msg;
+      el.classList.add('visivel');
+      if (inp) inp.classList.add('invalido');
+    } else {
+      el.classList.remove('visivel');
+      if (inp) inp.classList.remove('invalido');
+    }
+  }
+
+  function _limparErros() {
+    ['data', 'cat', 'desc', 'valor', 'pagante'].forEach(function (k) { _erro(k, false); });
+  }
+
+  function _validar() {
+    _limparErros();
+    var ok = true;
+    if (!document.getElementById('df-data').value) { _erro('data', true); ok = false; }
+    if (!document.getElementById('df-cat').value)  { _erro('cat', true);  ok = false; }
+    var desc = document.getElementById('df-desc');
+    if (!desc || !desc.value.trim()) { _erro('desc', true); ok = false; }
+    var val = Number(document.getElementById('df-valor').value);
+    if (!val || val <= 0) { _erro('valor', true, 'Valor deve ser maior que zero.'); ok = false; }
+    var pag = document.getElementById('df-pagante');
+    if (!pag || !pag.value.trim()) { _erro('pagante', true); ok = false; }
+    return ok;
+  }
+
+  function _coletarPartic() {
+    var checks = document.querySelectorAll('input[name="df-partic"]:checked');
+    return Array.prototype.map.call(checks, function (c) { return c.value; });
+  }
+
+  return {
+    init: _inject,
+
+    abrir: function (tripId, despesaId) {
+      _tripId    = tripId;
+      _despesaId = despesaId || null;
+      var viagem = Store.getViagens().find(function (v) { return v.id === tripId; }) || {};
+      var desp   = null;
+      if (_despesaId) {
+        Store.getDespesas(tripId).forEach(function (d) {
+          if (d.id === _despesaId) desp = d;
+        });
+      }
+      document.getElementById('desp-modal-title').textContent = despesaId ? 'Editar despesa' : 'Nova despesa';
+      document.getElementById('desp-modal-save').textContent  = despesaId ? 'Salvar alterações' : 'Salvar despesa';
+      document.getElementById('desp-modal-body').innerHTML    = _renderForm(viagem, desp || {});
+      _overlay.classList.add('aberto');
+      document.body.style.overflow = 'hidden';
+      var f = document.getElementById('df-desc');
+      if (f) setTimeout(function () { f.focus(); }, 300);
+    },
+
+    fechar: function () {
+      _overlay.classList.remove('aberto');
+      document.body.style.overflow = '';
+      _tripId = _despesaId = null;
+    },
+
+    salvar: function () {
+      if (!_validar()) return;
+      var dados = {
+        data:         document.getElementById('df-data').value,
+        categoria:    document.getElementById('df-cat').value,
+        descricao:    document.getElementById('df-desc').value.trim(),
+        valor:        Number(document.getElementById('df-valor').value),
+        quemPagou:    document.getElementById('df-pagante').value.trim(),
+        participantes: _coletarPartic(),
+        observacoes:  document.getElementById('df-obs').value.trim(),
+      };
+      if (_despesaId) {
+        Store.editarDespesa(_tripId, _despesaId, dados);
+      } else {
+        Store.adicionarDespesa(_tripId, dados);
+      }
+      DespesaModal.fechar();
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    },
+  };
+})();
+
+// ================================================================
+// DespesaActions — Ações nos cards de despesa
+// ================================================================
+var DespesaActions = {
+  editar: function (tripId, despesaId) {
+    DespesaModal.abrir(tripId, despesaId);
+  },
+
+  excluir: function (tripId, despesaId) {
+    var lista = Store.getDespesas(tripId);
+    var desc = 'esta despesa';
+    lista.forEach(function (d) { if (d.id === despesaId) desc = '"' + d.descricao + '"'; });
+    ConfirmModal.abrirComCallback(
+      'Excluir despesa?',
+      'Excluir ' + desc + '? Esta ação não pode ser desfeita.',
+      function () {
+        Store.excluirDespesa(tripId, despesaId);
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      }
+    );
+  },
+};
+
 // ==== INICIALIZAÇÃO ====
 (function inicializar() {
 
@@ -1146,6 +1467,7 @@ var AtividadeActions = {
   TripModal.init();
   ConfirmModal.init();
   AtividadeModal.init();
+  DespesaModal.init();
 
   // Registra todas as rotas
   Router.registrar('/inicio',        paginaInicio);

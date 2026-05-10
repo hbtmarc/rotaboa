@@ -92,11 +92,7 @@ var UI = (function () {
           '</div>' +
         '</div>' +
         '<div class="card-footer" style="flex-wrap:wrap;gap:var(--space-2)">' +
-          '<a href="#/viagem/' + viagem.id + '" class="btn btn-primary btn-sm">Detalhes</a>' +
-          (eSelecionada
-            ? '<span class="badge badge-ok" style="align-self:center">✓ Selecionada</span>'
-            : '<button class="btn btn-secondary btn-sm" onclick="TripActions.selecionar(\'' + viagem.id + '\')">Selecionar</button>'
-          ) +
+          '<a href="#/viagem/' + viagem.id + '" class="btn btn-primary btn-sm" onclick="TripActions.abrirDetalhes(\'' + viagem.id + '\');return false;">Detalhes</a>' +
           '<button class="btn btn-ghost btn-sm" onclick="TripActions.editar(\'' + viagem.id + '\')">Editar</button>' +
           '<button class="btn btn-ghost btn-sm" style="color:var(--color-danger)" onclick="TripActions.excluir(\'' + viagem.id + '\')">Excluir</button>' +
         '</div>' +
@@ -132,7 +128,7 @@ var UI = (function () {
     );
   }
 
-  // ---- Renderiza linha de despesa ----
+  // ---- Renderiza linha de despesa (mock — mantido para retrocompatibilidade) ----
   function renderDespesa(despesa) {
     return (
       '<div class="expense-row">' +
@@ -144,6 +140,72 @@ var UI = (function () {
           '</div>' +
         '</div>' +
         '<div class="expense-amount">' + formatarMoeda(despesa.valor) + '</div>' +
+      '</div>'
+    );
+  }
+
+  // ---- Mapa de categorias de despesas ----
+  var _despCatMeta = {
+    transporte:  { emoji: '🚗', nome: 'Transporte'  },
+    hospedagem:  { emoji: '🏨', nome: 'Hospedagem'  },
+    alimentacao: { emoji: '🍽️', nome: 'Alimentação' },
+    passeios:    { emoji: '🎡', nome: 'Passeios'    },
+    compras:     { emoji: '🛍️', nome: 'Compras'     },
+    outros:      { emoji: '📌', nome: 'Outros'      },
+  };
+
+  // ---- Renderiza cartão de despesa funcional (com editar/excluir) ----
+  function renderDespesaItem(desp, tripId) {
+    var cat   = _despCatMeta[desp.categoria] || _despCatMeta.outros;
+    var data  = '';
+    if (desp.data) {
+      var p = desp.data.split('-');
+      data = p[2] + '/' + p[1] + '/' + p[0];
+    }
+    var partic = (desp.participantes && desp.participantes.length)
+      ? desp.participantes.length
+      : 1;
+    var porPessoa = partic > 0 ? (Number(desp.valor) / partic) : Number(desp.valor);
+    var splitLabel = partic > 1
+      ? '<span class="desp-split">' + cat.emoji + ' ' + formatarMoeda(porPessoa) + '/pessoa (' + partic + ' pessoas)</span>'
+      : '';
+
+    return (
+      '<div class="desp-card" data-desp-id="' + desp.id + '">' +
+        '<div class="desp-card-top">' +
+          '<span class="desp-cat-chip">' + cat.emoji + ' ' + cat.nome + '</span>' +
+          '<span class="desp-date">' + data + '</span>' +
+        '</div>' +
+        '<div class="desp-card-main">' +
+          '<div class="desp-desc">' + desp.descricao + '</div>' +
+          '<div class="desp-valor">' + formatarMoeda(Number(desp.valor)) + '</div>' +
+        '</div>' +
+        '<div class="desp-card-sub">' +
+          '<span class="desp-pagante">💳 ' + (desp.quemPagou || '—') + '</span>' +
+          splitLabel +
+        '</div>' +
+        (desp.observacoes ? '<div class="desp-obs">' + desp.observacoes + '</div>' : '') +
+        '<div class="desp-actions">' +
+          '<button class="desp-btn" onclick="DespesaActions.editar(\'' + tripId + '\',\'' + desp.id + '\')">✏️ <span>Editar</span></button>' +
+          '<button class="desp-btn desp-btn-delete" onclick="DespesaActions.excluir(\'' + tripId + '\',\'' + desp.id + '\')">🗑️ <span>Excluir</span></button>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  // ---- Linha de barra de categoria financeira ----
+  function renderBarraCategoria(cat) {
+    var largura = Math.min(100, cat.pct || 0);
+    return (
+      '<div class="fin-cat-row">' +
+        '<div class="fin-cat-label">' +
+          '<span>' + cat.emoji + ' ' + cat.nome + '</span>' +
+          '<span class="fin-cat-valor">' + formatarMoeda(cat.valor) + '</span>' +
+        '</div>' +
+        '<div class="fin-bar-track">' +
+          '<div class="fin-bar-fill" style="width:' + largura + '%"></div>' +
+        '</div>' +
+        '<div class="fin-cat-pct">' + (cat.pct || 0) + '% do orçamento</div>' +
       '</div>'
     );
   }
@@ -383,6 +445,8 @@ var UI = (function () {
     renderTripCard: renderTripCard,
     renderDiaRoteiro: renderDiaRoteiro,
     renderDespesa: renderDespesa,
+    renderDespesaItem: renderDespesaItem,
+    renderBarraCategoria: renderBarraCategoria,
     renderCategoriaFinanceira: renderCategoriaFinanceira,
     renderTrecho: renderTrecho,
     renderStatCard: renderStatCard,

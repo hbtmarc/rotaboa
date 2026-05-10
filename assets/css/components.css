@@ -1253,3 +1253,286 @@
     padding: var(--space-5);
   }
 }
+/* ================================================================
+   Financeiro — Despesas e resumo (Step 4)
+   ================================================================ */
+
+/* ---- Lista de despesas ---- */
+.desp-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* ---- Cartão de despesa ---- */
+.desp-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.desp-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.desp-cat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.desp-date {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.desp-card-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.desp-desc {
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--color-text);
+  flex: 1;
+  min-width: 0;
+}
+
+.desp-valor {
+  font-size: var(--text-lg);
+  font-weight: 800;
+  color: var(--color-text);
+  flex-shrink: 0;
+}
+
+.desp-card-sub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.desp-pagante {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.desp-split {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--color-text-muted);
+}
+
+.desp-obs {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-style: italic;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border-light);
+}
+
+/* ---- Botões de ação de despesa ---- */
+.desp-actions {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.desp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  min-height: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.desp-btn:hover {
+  background: var(--color-bg-alt);
+  border-color: #cbd5e1;
+  color: var(--color-text);
+}
+
+.desp-btn.desp-btn-delete:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: var(--color-danger);
+}
+
+/* ---- Grade de checkboxes de participantes ---- */
+.desp-check-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.desp-check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  background: var(--color-bg-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.desp-check-label:has(input:checked) {
+  background: var(--color-primary-light);
+  border-color: #93c5fd;
+}
+
+/* ---- Barra de categoria financeira ---- */
+.fin-cat-row {
+  margin-bottom: var(--space-4);
+}
+
+.fin-cat-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.fin-cat-valor {
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.fin-bar-track {
+  height: 8px;
+  background: var(--color-border);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.fin-bar-fill {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: var(--radius-full);
+  transition: width 0.4s ease;
+}
+
+.fin-cat-pct {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-align: right;
+  margin-top: 3px;
+}
+
+/* ---- Estado vazio do financeiro ---- */
+.fin-empty {
+  text-align: center;
+  padding: var(--space-12) var(--space-5);
+  color: var(--color-text-secondary);
+}
+
+/* ---- KPI vermelho (orçamento estourado) ---- */
+.stat-icon-red {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* ---- Cartão de contexto de viagem (topo do Financeiro) ---- */
+.fin-trip-card {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+  border-radius: var(--radius-xl);
+}
+
+.fin-trip-cover {
+  width: 72px;
+  min-height: 80px;
+  flex-shrink: 0;
+  border-radius: 0;
+}
+
+.fin-trip-info {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.fin-trip-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.fin-trip-names {
+  flex: 1;
+  min-width: 0;
+}
+
+.fin-trip-nome {
+  font-size: var(--text-base);
+  font-weight: 800;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fin-trip-loc {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fin-trip-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.fin-trip-troca {
+  align-self: center;
+  flex-shrink: 0;
+  margin: 0 var(--space-3) 0 0;
+  white-space: nowrap;
+}

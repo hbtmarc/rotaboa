@@ -11,6 +11,7 @@ var Store = (function () {
   var _LS_TRIPS    = 'rotaboa.trips.v1';
   var _LS_SELECTED = 'rotaboa.selectedTripId.v1';
   var _LS_ITIN     = 'rotaboa.itineraries.v1';
+  var _LS_EXPENSES = 'rotaboa.expenses.v1';
 
   // ---- Migra viagem antiga (campo destino → destinoPrincipal + localizacaoCurta) ----
   function _migrarViagem(v) {
@@ -107,11 +108,68 @@ var Store = (function () {
     } catch (e) { console.warn('[Store] Falha ao salvar itinerários:', e); }
   }
 
+  // ---- Carrega despesas do localStorage (com migração de formato antigo) ----
+  function _carregarDespesas(viagens, selectedId) {
+    try {
+      var raw = localStorage.getItem(_LS_EXPENSES);
+      if (!raw) return {};
+      var parsed = JSON.parse(raw);
+
+      // Migração: formato antigo era array plano de despesas
+      if (Array.isArray(parsed)) {
+        console.info('[RotaBoa] Migrando despesas do formato antigo para formato isolado por viagem...');
+        var migrado = {};
+        var fallbackId = selectedId || (viagens && viagens.length > 0 ? viagens[0].id : null);
+        parsed.forEach(function (d) {
+          var tid = d.tripId || fallbackId;
+          if (!tid) return;
+          if (!migrado[tid]) migrado[tid] = [];
+          migrado[tid].push(Object.assign({}, d, { tripId: tid }));
+        });
+        try { localStorage.setItem(_LS_EXPENSES, JSON.stringify(migrado)); } catch (e) {}
+        console.info('[RotaBoa] Migração concluída:', Object.keys(migrado).length, 'viagem(ns) com despesas.');
+        return migrado;
+      }
+
+      // Formato correto: objeto keyed por tripId
+      // Garante que cada despesa tenha tripId embutido
+      var corrigido = false;
+      Object.keys(parsed).forEach(function (tid) {
+        if (!Array.isArray(parsed[tid])) { parsed[tid] = []; corrigido = true; return; }
+        parsed[tid].forEach(function (d, i) {
+          if (!d.tripId) { parsed[tid][i] = Object.assign({}, d, { tripId: tid }); corrigido = true; }
+        });
+      });
+      if (corrigido) {
+        try { localStorage.setItem(_LS_EXPENSES, JSON.stringify(parsed)); } catch (e) {}
+      }
+      return parsed;
+    } catch (e) {
+      console.warn('[Store] Falha ao ler despesas:', e);
+      return {};
+    }
+  }
+
+  // ---- Persiste despesas ----
+  function _salvarDespesas() {
+    try {
+      localStorage.setItem(_LS_EXPENSES, JSON.stringify(_despesas));
+    } catch (e) { console.warn('[Store] Falha ao salvar despesas:', e); }
+  }
+
+  // ---- Gera ID de despesa ----
+  function _gerarDespesaId() {
+    return 'desp-' + Date.now() + '-' + Math.floor(Math.random() * 9999);
+  }
+
   var _itinerarios = _carregarItinerarios();
 
   // ---- Inicializa estado a partir do localStorage ----
   var _viagens    = _carregarViagens();
   var _selectedId = _carregarSelectedId(_viagens);
+
+  // Despesas carregadas DEPOIS de viagens/selectedId para permitir migração com fallback
+  var _despesas = _carregarDespesas(_viagens, _selectedId);
 
   var _state = {
     viagemSelecionadaId: _selectedId,
@@ -315,6 +373,95 @@ var Store = (function () {
         return (a._data + (a.hora || '')).localeCompare(b._data + (b.hora || ''));
       });
       return todas.slice(0, max || 3);
+    },
+
+    // ================================================================
+    // Despesas financeiras
+    // ================================================================
+
+    // Retorna despesas de uma viagem
+    getDespesas: function (tripId) {
+      return (_despesas[tripId] || []).slice();
+    },
+
+    // Adiciona despesa
+    adicionarDespesa: function (tripId, dados) {
+      if (!_despesas[tripId]) _despesas[tripId] = [];
+      var desp = Object.assign({}, dados, { id: _gerarDespesaId(), tripId: tripId });
+      _despesas[tripId].push(desp);
+      _despesas[tripId].sort(function (a, b) { return (b.data || '').localeCompare(a.data || ''); });
+      _salvarDespesas();
+      _notificar();
+      return desp;
+    },
+
+    // Edita despesa
+    editarDespesa: function (tripId, despesaId, dados) {
+      if (!_despesas[tripId]) return false;
+      var idx = _despesas[tripId].findIndex(function (d) { return d.id === despesaId; });
+      if (idx === -1) return false;
+      _despesas[tripId][idx] = Object.assign({}, _despesas[tripId][idx], dados);
+      _despesas[tripId].sort(function (a, b) { return (b.data || '').localeCompare(a.data || ''); });
+      _salvarDespesas();
+      _notificar();
+      return true;
+    },
+
+    // Exclui despesa
+    excluirDespesa: function (tripId, despesaId) {
+      if (!_despesas[tripId]) return false;
+      _despesas[tripId] = _despesas[tripId].filter(function (d) { return d.id !== despesaId; });
+      _salvarDespesas();
+      _notificar();
+      return true;
+    },
+
+    // Resumo financeiro calculado a partir das despesas reais (isolado por viagem)
+    getResumoFinanceiro: function (tripId) {
+      var viagem = _state.viagens.find(function (v) { return v.id === tripId; });
+      var orcamento = viagem ? (Number(viagem.orcamento) || 0) : 0;
+      // Garante isolamento: apenas despesas da viagem solicitada
+      var lista = (_despesas[tripId] || []).filter(function (d) {
+        return !d.tripId || d.tripId === tripId;
+      });
+      console.info('[financeiro] viagem ativa:', tripId, '| despesas:', lista.length);
+
+      var totalGasto = lista.reduce(function (acc, d) { return acc + (Number(d.valor) || 0); }, 0);
+
+      // Agrupa por categoria
+      var _catCfg = {
+        transporte:   { emoji: '🚗', nome: 'Transporte'   },
+        hospedagem:   { emoji: '🏨', nome: 'Hospedagem'   },
+        alimentacao:  { emoji: '🍽️', nome: 'Alimentação'  },
+        passeios:     { emoji: '🎡', nome: 'Passeios'     },
+        compras:      { emoji: '🛍️', nome: 'Compras'      },
+        outros:       { emoji: '📌', nome: 'Outros'       },
+      };
+      var porCat = {};
+      lista.forEach(function (d) {
+        var k = d.categoria || 'outros';
+        porCat[k] = (porCat[k] || 0) + (Number(d.valor) || 0);
+      });
+
+      var categorias = Object.keys(_catCfg).map(function (k) {
+        var cfg = _catCfg[k];
+        return {
+          key:    k,
+          nome:   cfg.nome,
+          emoji:  cfg.emoji,
+          valor:  porCat[k] || 0,
+          pct:    orcamento > 0 ? Math.round(((porCat[k] || 0) / orcamento) * 100) : 0,
+        };
+      }).filter(function (c) { return c.valor > 0; });
+
+      return {
+        orcamento:   orcamento,
+        totalGasto:  totalGasto,
+        saldo:       orcamento - totalGasto,
+        pct:         orcamento > 0 ? Math.min(100, Math.round((totalGasto / orcamento) * 100)) : 0,
+        categorias:  categorias,
+        despesas:    lista,
+      };
     },
   };
 
