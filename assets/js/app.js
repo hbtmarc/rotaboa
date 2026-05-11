@@ -2406,6 +2406,23 @@ var AtividadeModal = (function () {
     }).join('');
   }
 
+  // Gera options de dias para check-in/check-out (hospedagem)
+  function _optsHospDia(itin, sel, def) {
+    if (!itin || !itin.dias || !itin.dias.length) return '<option value="">-- sem dias --</option>';
+    var escolha = sel || def || itin.dias[0].data;
+    return itin.dias.map(function (d, i) {
+      var p = d.data.split('-');
+      var label = 'Dia ' + (i + 1) + ' · ' + p[2] + '/' + p[1] + '/' + p[0];
+      var selected = d.data === escolha ? ' selected' : '';
+      return '<option value="' + d.data + '"' + selected + '>' + label + '</option>';
+    }).join('');
+  }
+
+  function _lerDiaSelect(id) {
+    var el = document.getElementById(id);
+    return el ? (el.value || '') : '';
+  }
+
   function _esc(str) {
     return String(str || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
@@ -2477,7 +2494,55 @@ var AtividadeModal = (function () {
       '<div class="form-group">' +
         '<label class="form-label" for="af-obs">Observações</label>' +
         '<textarea id="af-obs" class="form-textarea" maxlength="300" placeholder="Detalhes, links, dicas...">' + _esc(ativ.observacoes) + '</textarea>' +
-      '</div>'
+      '</div>' +
+
+      // Bloco Hospedagem (aparece quando categoria = hospedagem)
+      (function () {
+        var h = (ativ.hospedagem && typeof ativ.hospedagem === 'object') ? ativ.hospedagem : {};
+        var isH = ativ.categoria === 'hospedagem';
+        var temDias = itin && itin.dias && itin.dias.length > 0;
+        var primeiroDia = temDias ? itin.dias[0].data : '';
+        var ultimoDia   = temDias ? itin.dias[itin.dias.length - 1].data : '';
+        var ciDataPre = (h.checkInDate  && temDias && itin.dias.some(function(d){return d.data===h.checkInDate;}))
+          ? h.checkInDate : primeiroDia;
+        var coDataPre = (h.checkOutDate && temDias && itin.dias.some(function(d){return d.data===h.checkOutDate;}))
+          ? h.checkOutDate : ultimoDia;
+        return (
+          '<div id="af-hosp-extra" class="desp-hosp-block' + (isH ? ' desp-hosp-block-visivel' : '') + '">' +
+            (!temDias
+              ? '<p class="desp-hosp-nodates">⚠️ Cadastre as datas da viagem antes de configurar hospedagem.</p>'
+              : (
+                '<div class="desp-hosp-header">🏨 Datas da hospedagem</div>' +
+                '<div class="form-row">' +
+                  '<div class="form-group">' +
+                    '<label class="form-label form-label-required">Check-in · dia</label>' +
+                    '<select id="af-ci-data" class="form-select">' + _optsHospDia(itin, ciDataPre, primeiroDia) + '</select>' +
+                    '<span class="form-error" id="ae-ci-data">Selecione o dia.</span>' +
+                  '</div>' +
+                  '<div class="form-group">' +
+                    '<label class="form-label form-label-required">Check-in · hora</label>' +
+                    _DTWidget.renderHora('af-ci-hora', h.checkInTime || '14:00') +
+                    '<span class="form-error" id="ae-ci-hora">Informe o horário.</span>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="form-row">' +
+                  '<div class="form-group">' +
+                    '<label class="form-label form-label-required">Check-out · dia</label>' +
+                    '<select id="af-co-data" class="form-select">' + _optsHospDia(itin, coDataPre, ultimoDia) + '</select>' +
+                    '<span class="form-error" id="ae-co-data">Selecione o dia.</span>' +
+                  '</div>' +
+                  '<div class="form-group">' +
+                    '<label class="form-label form-label-required">Check-out · hora</label>' +
+                    _DTWidget.renderHora('af-co-hora', h.checkOutTime || '11:00') +
+                    '<span class="form-error" id="ae-co-hora">Informe o horário.</span>' +
+                  '</div>' +
+                '</div>' +
+                '<span class="form-error" id="ae-hosp-order">Check-out deve ser igual ou após o check-in.</span>'
+              )
+            ) +
+          '</div>'
+        );
+      })()
     );
   }
 
@@ -2497,7 +2562,12 @@ var AtividadeModal = (function () {
   }
 
   function _limparErros() {
-    ['dia','hora','nome','cat','custo'].forEach(function (k) { _erro(k, false); });
+    ['dia','hora','nome','cat','custo','ci-data','ci-hora','co-data','co-hora','hosp-order'].forEach(function (k) { _erro(k, false); });
+  }
+
+  function _isHospAtiv() {
+    var cat = document.getElementById('af-cat');
+    return cat && cat.value === 'hospedagem';
   }
 
   function _validar() {
@@ -2521,6 +2591,29 @@ var AtividadeModal = (function () {
       ok = false;
     }
 
+    if (_isHospAtiv()) {
+      var ciData = _lerDiaSelect('af-ci-data');
+      var ciHora = _DTWidget.lerHora('af-ci-hora');
+      var coData = _lerDiaSelect('af-co-data');
+      var coHora = _DTWidget.lerHora('af-co-hora');
+      var ciEl   = document.getElementById('af-ci-data');
+      if (!ciEl) {
+        _erro('ci-data', true, 'Cadastre as datas da viagem antes de configurar hospedagem.');
+        ok = false;
+      } else {
+        if (!ciData) { _erro('ci-data', true, 'Selecione o dia do check-in.'); ok = false; }
+        if (!ciHora) { _erro('ci-hora', true); ok = false; }
+        if (!coData) { _erro('co-data', true, 'Selecione o dia do check-out.'); ok = false; }
+        if (!coHora) { _erro('co-hora', true); ok = false; }
+        if (ciData && coData && ciHora && coHora) {
+          if ((coData + 'T' + coHora) < (ciData + 'T' + ciHora)) {
+            _erro('hosp-order', true, 'Check-out deve ser igual ou após o check-in.');
+            ok = false;
+          }
+        }
+      }
+    }
+
     return ok;
   }
 
@@ -2537,6 +2630,7 @@ var AtividadeModal = (function () {
       document.getElementById('ativ-modal-title').textContent = 'Nova atividade';
       document.getElementById('ativ-modal-save').textContent  = 'Salvar atividade';
       document.getElementById('ativ-modal-body').innerHTML    = _renderForm(itin, {});
+      this._onCatChange();
 
       _overlay.classList.add('aberto');
       document.body.style.overflow = 'hidden';
@@ -2556,7 +2650,7 @@ var AtividadeModal = (function () {
       if (itin) {
         itin.dias.forEach(function (d) {
           d.atividades.forEach(function (a) {
-            if (a.id === atividadeId) ativ = Object.assign({ data: d.data }, a);
+            if (a.id === atividadeId) ativ = Object.assign({ data: d.data, _data: d.data }, a);
           });
         });
       }
@@ -2565,6 +2659,7 @@ var AtividadeModal = (function () {
       document.getElementById('ativ-modal-title').textContent = 'Editar atividade';
       document.getElementById('ativ-modal-save').textContent  = 'Salvar alterações';
       document.getElementById('ativ-modal-body').innerHTML    = _renderForm(itin, ativ);
+      this._onCatChange();
 
       _overlay.classList.add('aberto');
       document.body.style.overflow = 'hidden';
@@ -2590,6 +2685,69 @@ var AtividadeModal = (function () {
         observacoes:    document.getElementById('af-obs').value.trim(),
       };
 
+      // --- Hospedagem: collect extra fields and link to Financeiro ---
+      if (_isHospAtiv()) {
+        var ciData = _lerDiaSelect('af-ci-data');
+        var ciHora = _DTWidget.lerHora('af-ci-hora');
+        var coData = _lerDiaSelect('af-co-data');
+        var coHora = _DTWidget.lerHora('af-co-hora');
+        dados.hospedagem = {
+          nome:         dados.nome,
+          endereco:     dados.local,
+          checkInDate:  ciData  || dados.data,
+          checkInTime:  ciHora  || '14:00',
+          checkOutDate: coData  || '',
+          checkOutTime: coHora  || '11:00',
+        };
+        dados.linkedActivityType = 'hospedagem';
+        dados.origemModulo       = 'roteiro';
+
+        // Build expense payload
+        var viagem = Store.getViagens().find(function (v) { return v.id === _tripId; }) || {};
+        var partAtivos = (Array.isArray(viagem.participantes)
+          ? viagem.participantes.filter(function (p) { return p && p.ativo !== false; })
+          : []).map(function (p) { return String(p.id || ''); }).filter(Boolean);
+        var despData = {
+          data:                   dados.hospedagem.checkInDate || dados.data,
+          categoria:              'hospedagem',
+          descricao:              dados.nome,
+          valor:                  dados.custoEstimado,
+          quemPagouId:            partAtivos[0] || '',
+          participantesRateioIds: partAtivos,
+          observacoes:            dados.observacoes,
+          tipoPagamento:          'avista',
+          totalParcelas:          1,
+          hospedagem:             Object.assign({}, dados.hospedagem),
+          origemModulo:           'roteiro',
+        };
+
+        // Find existing linked despesa id (only relevant when editing)
+        var linkedId = null;
+        if (_atividadeId) {
+          var itin = Store.getItinerario(_tripId);
+          if (itin) {
+            itin.dias.forEach(function (d) {
+              d.atividades.forEach(function (a) {
+                if (a.id === _atividadeId && a.linkedDespesaId) linkedId = a.linkedDespesaId;
+              });
+            });
+          }
+        }
+
+        if (linkedId) {
+          Store.editarDespesa(_tripId, linkedId, despData);
+          dados.linkedDespesaId = linkedId;
+        } else {
+          var despCriada = Store.adicionarDespesa(_tripId, despData);
+          if (despCriada && despCriada.id) dados.linkedDespesaId = despCriada.id;
+        }
+      } else {
+        // Se havia hospedagem vinculada antes e categoria mudou: limpar
+        dados.hospedagem        = null;
+        dados.linkedActivityType = null;
+        // linkedDespesaId kept intentionally to avoid orphan — user must manage via Financeiro
+      }
+
       if (_atividadeId) {
         Store.editarAtividade(_tripId, _atividadeId, dados);
       } else {
@@ -2598,6 +2756,16 @@ var AtividadeModal = (function () {
 
       AtividadeModal.fechar();
       window.dispatchEvent(new HashChangeEvent('hashchange'));
+    },
+
+    _onCatChange: function () {
+      var extra = document.getElementById('af-hosp-extra');
+      if (!extra) return;
+      if (_isHospAtiv()) {
+        extra.classList.add('desp-hosp-block-visivel');
+      } else {
+        extra.classList.remove('desp-hosp-block-visivel');
+      }
     },
   };
 })();
@@ -2619,14 +2787,26 @@ var AtividadeActions = {
     // Pequeno confirm inline usando o ConfirmModal existente com override de callback
     var itin = Store.getItinerario(tripId);
     var nome = 'esta atividade';
+    var linkedDespesaId = null;
     if (itin) {
       itin.dias.forEach(function (d) {
-        d.atividades.forEach(function (a) { if (a.id === atividadeId) nome = '"' + a.nome + '"'; });
+        d.atividades.forEach(function (a) {
+          if (a.id === atividadeId) {
+            nome = '"' + a.nome + '"';
+            linkedDespesaId = a.linkedDespesaId || null;
+          }
+        });
       });
     }
-    if (!_confirmarExclusoesAtivo()) {
+
+    function _doExcluir() {
       Store.excluirAtividade(tripId, atividadeId);
+      if (linkedDespesaId) Store.excluirDespesa(tripId, linkedDespesaId);
       window.dispatchEvent(new HashChangeEvent('hashchange'));
+    }
+
+    if (!_confirmarExclusoesAtivo()) {
+      _doExcluir();
       return;
     }
 
@@ -2634,10 +2814,7 @@ var AtividadeActions = {
     ConfirmModal.abrirComCallback(
       'Excluir atividade?',
       'Excluir ' + nome + '? Esta ação não pode ser desfeita.',
-      function () {
-        Store.excluirAtividade(tripId, atividadeId);
-        window.dispatchEvent(new HashChangeEvent('hashchange'));
-      }
+      _doExcluir
     );
   },
 };
@@ -2747,13 +2924,46 @@ var DespesaModal = (function () {
     return total + 'x de ' + UI.formatarMoeda(base / 100) + ' (última de ' + UI.formatarMoeda(ultima / 100) + ')';
   }
 
-  function _renderForm(viagem, desp) {
+  // Gera <option>s de dias da viagem para selects de data de hospedagem
+  // itin = Store.getItinerario result, sel = ISO date pre-selected, def = ISO date fallback default
+  function _optsHospDia(itin, sel, def) {
+    if (!itin || !itin.dias || !itin.dias.length) return '<option value="">-- sem dias --</option>';
+    var escolha = sel || def || itin.dias[0].data;
+    return itin.dias.map(function (d, i) {
+      var p = d.data.split('-');
+      var label = 'Dia ' + (i + 1) + ' · ' + p[2] + '/' + p[1] + '/' + p[0];
+      var selected = d.data === escolha ? ' selected' : '';
+      return '<option value="' + d.data + '"' + selected + '>' + label + '</option>';
+    }).join('');
+  }
+
+  // Lê data ISO de um select de dia de viagem
+  function _lerDiaSelect(id) {
+    var el = document.getElementById(id);
+    return el ? (el.value || '') : '';
+  }
+
+  function _renderForm(viagem, desp, itin) {
     desp = desp || {};
     var participantesAtivos = _participantesAtivos(viagem);
     var totalParcelas = Math.max(1, Number(desp.totalParcelas) || 1);
     var modoPagamento = totalParcelas > 1 ? 'parcelado' : 'avista';
+    var h = (desp.hospedagem && typeof desp.hospedagem === 'object') ? desp.hospedagem : {};
+    var isHosp = desp.categoria === 'hospedagem';
+
+    // Trip days for lodging date selects
+    var temDias = itin && itin.dias && itin.dias.length > 0;
+    var primeiroDia = temDias ? itin.dias[0].data : '';
+    var ultimoDia   = temDias ? itin.dias[itin.dias.length - 1].data : '';
+    // Map saved ISO dates to trip days; use trip defaults if no saved date
+    var ciDataPre = (h.checkInDate  && temDias && itin.dias.some(function(d){return d.data===h.checkInDate;}))
+      ? h.checkInDate  : primeiroDia;
+    var coDataPre = (h.checkOutDate && temDias && itin.dias.some(function(d){return d.data===h.checkOutDate;}))
+      ? h.checkOutDate : ultimoDia;
+
     return (
-      '<div class="form-row">' +
+      /* --- Linha 1: Data + Categoria --- */
+      '<div class="desp-form-grid">' +
         '<div class="form-group">' +
           '<label class="form-label form-label-required">Data</label>' +
           _DTWidget.renderData('df-data', desp.data || '') +
@@ -2762,12 +2972,22 @@ var DespesaModal = (function () {
         '<div class="form-group">' +
           '<label class="form-label form-label-required" for="df-cat">Categoria</label>' +
           '<select id="df-cat" class="form-select" onchange="DespesaModal._onCatChange()">' +
+            '<option value="">Selecione...</option>' +
+            _cats.map(function (c) { return _opt(c[0], c[1], desp.categoria); }).join('') +
+          '</select>' +
+          '<span class="form-error" id="de-cat">Selecione uma categoria.</span>' +
+        '</div>' +
+      '</div>' +
+
+      /* --- Descrição (largura total) --- */
+      '<div class="form-group">' +
         '<label class="form-label form-label-required" for="df-desc">Descrição</label>' +
         '<input id="df-desc" class="form-input" type="text" maxlength="120" placeholder="Ex: Almoço no restaurante" value="' + _esc(desp.descricao) + '">' +
         '<span class="form-error" id="de-desc">Descrição é obrigatória.</span>' +
       '</div>' +
 
-      '<div class="form-row">' +
+      /* --- Linha 2: Valor + Quem Pagou --- */
+      '<div class="desp-form-grid">' +
         '<div class="form-group">' +
           '<label class="form-label form-label-required" for="df-valor">Valor (R$)</label>' +
           '<input id="df-valor" class="form-input" type="number" min="0.01" step="0.01" placeholder="0,00" value="' + _esc(desp.valor > 0 ? desp.valor : '') + '">' +
@@ -2783,7 +3003,8 @@ var DespesaModal = (function () {
         '</div>' +
       '</div>' +
 
-      '<div class="form-row">' +
+      /* --- Linha 3: Modo de pagamento + Parcelas --- */
+      '<div class="desp-form-grid">' +
         '<div class="form-group">' +
           '<label class="form-label" for="df-pagamento">Pagamento</label>' +
           '<select id="df-pagamento" class="form-select" onchange="DespesaModal.alterarPagamento()">' +
@@ -2791,62 +3012,69 @@ var DespesaModal = (function () {
             _opt('parcelado', 'Parcelado', modoPagamento) +
           '</select>' +
         '</div>' +
-        '<div class="form-group" id="df-parcelas-wrap" style="display:' + (modoPagamento === 'parcelado' ? 'block' : 'none') + '">' +
-          '<label class="form-label" for="df-parcelas">Quantidade de parcelas</label>' +
+        '<div class="form-group" id="df-parcelas-wrap" style="display:' + (modoPagamento === 'parcelado' ? '' : 'none') + '">' +
+          '<label class="form-label" for="df-parcelas">Nº de parcelas</label>' +
           '<input id="df-parcelas" class="form-input" type="number" min="2" max="48" step="1" value="' + (totalParcelas > 1 ? totalParcelas : 2) + '" oninput="DespesaModal.alterarPagamento()">' +
         '</div>' +
       '</div>' +
-      '<div class="text-xs text-muted" id="df-parcelas-resumo" style="margin-top:calc(var(--space-2) * -1);margin-bottom:var(--space-2)">' + _resumoParcelas(desp.valor, totalParcelas) + '</div>' +
+      '<p class="text-xs text-muted desp-parcelas-resumo" id="df-parcelas-resumo">' + _resumoParcelas(desp.valor, totalParcelas) + '</p>' +
 
+      /* --- Participantes no rateio --- */
       '<div class="form-group">' +
         '<label class="form-label">Participantes no rateio</label>' +
         '<div class="desp-check-grid">' + _checkboxesPartic(participantesAtivos, desp.participantesRateioIds) + '</div>' +
-        '<span class="text-xs text-muted" style="margin-top:4px;display:block">Padrão: todos selecionados.</span>' +
+        '<span class="text-xs text-muted desp-partic-hint">Padrão: todos selecionados.</span>' +
+        '<span class="form-error" id="de-partic">Selecione ao menos 1 participante.</span>' +
       '</div>' +
 
+      /* --- Observações --- */
       '<div class="form-group">' +
         '<label class="form-label" for="df-obs">Observações</label>' +
         '<textarea id="df-obs" class="form-textarea" maxlength="300" placeholder="Detalhes ou observações...">' + _esc(desp.observacoes) + '</textarea>' +
       '</div>' +
 
-      // Bloco de Hospedagem — visível somente quando categoria = hospedagem
-      (function () {
-        var h = desp.hospedagem || {};
-        var isHosp = desp.categoria === 'hospedagem';
-        return (
-          '<div id="df-hosp-extra" style="display:' + (isHosp ? '' : 'none') + ';border-top:1px solid var(--color-border);margin-top:var(--space-3);padding-top:var(--space-3)">' +
+      /* --- Bloco Hospedagem (aparece só quando categoria = hospedagem) --- */
+      '<div id="df-hosp-extra" class="desp-hosp-block' + (isHosp ? ' desp-hosp-block-visivel' : '') + '">' +
+        (!temDias
+          ? '<p class="desp-hosp-nodates">⚠️ Cadastre as datas da viagem antes de configurar hospedagem.</p>'
+          : (
+            '<div class="desp-hosp-header">🏨 Dados da hospedagem</div>' +
             '<div class="form-group">' +
-              '<label class="form-label" for="df-hosp-nome">Nome/local da hospedagem</label>' +
+              '<label class="form-label" for="df-hosp-nome">Nome da hospedagem</label>' +
               '<input id="df-hosp-nome" class="form-input" type="text" maxlength="120" placeholder="Ex: Pousada Serra Verde" value="' + _esc(h.nome || desp.descricao) + '">' +
             '</div>' +
-            '<div class="form-row">' +
+            '<div class="form-group">' +
+              '<label class="form-label" for="df-hosp-end">Endereço / local</label>' +
+              '<input id="df-hosp-end" class="form-input" type="text" maxlength="200" placeholder="Ex: Rua das Flores, 42 – Centro" value="' + _esc(h.endereco || '') + '">' +
+            '</div>' +
+            '<div class="desp-form-grid">' +
               '<div class="form-group">' +
-                '<label class="form-label form-label-required">Check-in (data)</label>' +
-                _DTWidget.renderData('df-ci-data', h.checkInDate || '') +
-                '<span class="form-error" id="de-ci-data">Informe a data do check-in.</span>' +
+                '<label class="form-label form-label-required">Check-in · dia</label>' +
+                '<select id="df-ci-data" class="form-select">' + _optsHospDia(itin, ciDataPre, primeiroDia) + '</select>' +
+                '<span class="form-error" id="de-ci-data">Selecione o dia do check-in.</span>' +
               '</div>' +
               '<div class="form-group">' +
-                '<label class="form-label form-label-required">Check-in (hora)</label>' +
+                '<label class="form-label form-label-required">Check-in · hora</label>' +
                 _DTWidget.renderHora('df-ci-hora', h.checkInTime || '14:00') +
-                '<span class="form-error" id="de-ci-hora">Informe o horário do check-in.</span>' +
+                '<span class="form-error" id="de-ci-hora">Informe o horário.</span>' +
               '</div>' +
             '</div>' +
-            '<div class="form-row">' +
+            '<div class="desp-form-grid">' +
               '<div class="form-group">' +
-                '<label class="form-label form-label-required">Check-out (data)</label>' +
-                _DTWidget.renderData('df-co-data', h.checkOutDate || '') +
-                '<span class="form-error" id="de-co-data">Informe a data do check-out.</span>' +
+                '<label class="form-label form-label-required">Check-out · dia</label>' +
+                '<select id="df-co-data" class="form-select">' + _optsHospDia(itin, coDataPre, ultimoDia) + '</select>' +
+                '<span class="form-error" id="de-co-data">Selecione o dia do check-out.</span>' +
               '</div>' +
               '<div class="form-group">' +
-                '<label class="form-label form-label-required">Check-out (hora)</label>' +
+                '<label class="form-label form-label-required">Check-out · hora</label>' +
                 _DTWidget.renderHora('df-co-hora', h.checkOutTime || '11:00') +
-                '<span class="form-error" id="de-co-hora">Informe o horário do check-out.</span>' +
+                '<span class="form-error" id="de-co-hora">Informe o horário.</span>' +
               '</div>' +
             '</div>' +
-            '<span class="form-error" id="de-hosp-order">O check-out deve ser após o check-in.</span>' +
-          '</div>'
-        );
-      })()
+            '<span class="form-error" id="de-hosp-order">Check-out deve ser após o check-in.</span>'
+          )
+        ) +
+      '</div>'
     );
   }
 
@@ -2865,7 +3093,7 @@ var DespesaModal = (function () {
   }
 
   function _limparErros() {
-    ['data', 'cat', 'desc', 'valor', 'pagante', 'ci-data', 'ci-hora', 'co-data', 'co-hora', 'hosp-order'].forEach(function (k) { _erro(k, false); });
+    ['data', 'cat', 'desc', 'valor', 'pagante', 'partic', 'ci-data', 'ci-hora', 'co-data', 'co-hora', 'hosp-order'].forEach(function (k) { _erro(k, false); });
   }
 
   function _isHospedagem() {
@@ -2896,26 +3124,31 @@ var DespesaModal = (function () {
 
     var checks = _coletarPartic();
     if (!checks.length) {
-      _erro('pagante', true, 'Selecione ao menos 1 participante no rateio.');
+      _erro('partic', true, 'Selecione ao menos 1 participante no rateio.');
       ok = false;
     }
 
     // Validação extra para Hospedagem
     if (_isHospedagem()) {
-      var ciData = _DTWidget.lerData('df-ci-data');
+      var ciData = _lerDiaSelect('df-ci-data');
       var ciHora = _DTWidget.lerHora('df-ci-hora');
-      var coData = _DTWidget.lerData('df-co-data');
+      var coData = _lerDiaSelect('df-co-data');
       var coHora = _DTWidget.lerHora('df-co-hora');
-      if (!ciData) { _erro('ci-data', true); ok = false; }
-      if (!ciHora) { _erro('ci-hora', true); ok = false; }
-      if (!coData) { _erro('co-data', true); ok = false; }
-      if (!coHora) { _erro('co-hora', true); ok = false; }
-      if (ciData && coData && ciHora && coHora) {
-        var ciStamp = ciData + 'T' + ciHora;
-        var coStamp = coData + 'T' + coHora;
-        if (coStamp <= ciStamp) {
-          _erro('hosp-order', true, 'O check-out deve ser após o check-in.');
-          ok = false;
+      // Verifica se o select foi gerado (pode estar oculto por falta de dias na viagem)
+      var ciDataEl = document.getElementById('df-ci-data');
+      if (!ciDataEl) {
+        _erro('ci-data', true, 'Cadastre as datas da viagem antes de configurar hospedagem.');
+        ok = false;
+      } else {
+        if (!ciData) { _erro('ci-data', true, 'Selecione o dia do check-in.'); ok = false; }
+        if (!ciHora) { _erro('ci-hora', true); ok = false; }
+        if (!coData) { _erro('co-data', true, 'Selecione o dia do check-out.'); ok = false; }
+        if (!coHora) { _erro('co-hora', true); ok = false; }
+        if (ciData && coData && ciHora && coHora) {
+          if ((coData + 'T' + coHora) < (ciData + 'T' + ciHora)) {
+            _erro('hosp-order', true, 'Check-out deve ser igual ou após o check-in.');
+            ok = false;
+          }
         }
       }
     }
@@ -2998,18 +3231,21 @@ var DespesaModal = (function () {
       };
       // Coleta dados de hospedagem se aplicável
       if (dados.categoria === 'hospedagem') {
-        var hospNome  = document.getElementById('df-hosp-nome');
-        var ciData   = _DTWidget.lerData('df-ci-data');
-        var ciHora   = _DTWidget.lerHora('df-ci-hora');
-        var coData   = _DTWidget.lerData('df-co-data');
-        var coHora   = _DTWidget.lerHora('df-co-hora');
+        var hospNome     = document.getElementById('df-hosp-nome');
+        var hospEnd      = document.getElementById('df-hosp-end');
+        var ciData       = _lerDiaSelect('df-ci-data');
+        var ciHora       = _DTWidget.lerHora('df-ci-hora');
+        var coData       = _lerDiaSelect('df-co-data');
+        var coHora       = _DTWidget.lerHora('df-co-hora');
         dados.hospedagem = {
-          nome:        (hospNome ? hospNome.value.trim() : '') || dados.descricao,
-          checkInDate: ciData  || '',
-          checkInTime: ciHora  || '',
-          checkOutDate: coData || '',
-          checkOutTime: coHora || '',
+          nome:         (hospNome ? hospNome.value.trim() : '') || dados.descricao,
+          endereco:     hospEnd  ? hospEnd.value.trim()  : '',
+          checkInDate:  ciData  || '',
+          checkInTime:  ciHora  || '',
+          checkOutDate: coData  || '',
+          checkOutTime: coHora  || '',
         };
+        dados.origemModulo = dados.origemModulo || 'financeiro';
       } else {
         dados.hospedagem = null;
       }
@@ -3026,7 +3262,11 @@ var DespesaModal = (function () {
     _onCatChange: function () {
       var extra = document.getElementById('df-hosp-extra');
       if (!extra) return;
-      extra.style.display = _isHospedagem() ? '' : 'none';
+      if (_isHospedagem()) {
+        extra.classList.add('desp-hosp-block-visivel');
+      } else {
+        extra.classList.remove('desp-hosp-block-visivel');
+      }
     },
   };
 })();

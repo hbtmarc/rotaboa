@@ -883,7 +883,10 @@
 .modal-body {
   padding: var(--space-5);
   overflow-y: auto;
+  overflow-x: hidden;
   flex: 1;
+  /* ensure select/input never cause horizontal overflow */
+  min-width: 0;
 }
 
 /* ---- Rodapé do modal ---- */
@@ -1749,6 +1752,60 @@
 .desp-check-label:has(input:checked) {
   background: var(--color-primary-light);
   border-color: #93c5fd;
+}
+
+/* ---- Modal despesa: grid 2 colunas ---- */
+.desp-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  align-items: start;
+}
+
+@media (max-width: 480px) {
+  .desp-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.desp-parcelas-resumo {
+  margin-top: calc(var(--space-1) * -1);
+  margin-bottom: var(--space-3);
+}
+
+.desp-partic-hint {
+  display: block;
+  margin-top: 4px;
+}
+
+/* ---- Bloco de Hospedagem (oculto por padrão) ---- */
+.desp-hosp-block {
+  display: none;
+  border-top: 2px solid #8b5cf6;
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+}
+
+.desp-hosp-block.desp-hosp-block-visivel {
+  display: block;
+}
+
+.desp-hosp-header {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: #7c3aed;
+  margin-bottom: var(--space-3);
+  letter-spacing: 0.01em;
+}
+
+.desp-hosp-nodates {
+  color: #d97706;
+  font-size: var(--text-sm);
+  background: rgba(217, 119, 6, 0.1);
+  border: 1px solid rgba(217, 119, 6, 0.3);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  margin: 0;
 }
 
 /* ---- Barra de categoria financeira ---- */
