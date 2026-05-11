@@ -597,6 +597,8 @@ var Store = (function () {
         origem: 'rota',
         categoria: 'transporte',
         descricao: 'Rota: ' + normalizado.origem + ' → ' + normalizado.destino,
+        routeDirection: trecho.direction || '',
+        routeTipo: normalizado.tipo || 'outro',
         valor: total,
         data: trecho.data || _hojeISO(),
         quemPagouId: '',
@@ -1224,29 +1226,21 @@ var Store = (function () {
 
     getBalancoMensal: function (tripId) {
       var viagem = _state.viagens.find(function (v) { return v.id === tripId; });
-      if (!viagem) return { meses: [], totaisPorParticipante: [] };
+      if (!viagem) return { meses: [] };
 
       var participantes = _participantesAtivosComId(viagem);
-      if (!participantes.length) return { meses: [], totaisPorParticipante: [] };
+      if (!participantes.length) return { meses: [] };
 
-      var participantesPorId = {};
-      participantes.forEach(function (p) { participantesPorId[p.id] = p; });
-
+      var nPartic = participantes.length;
       var despesas = this.getDespesas(tripId);
       var mapaMeses = {};
 
       function garantirMes(chave) {
         if (!mapaMeses[chave]) {
-          var participantesMes = {};
-          participantes.forEach(function (p) {
-            participantesMes[p.id] = _inicializarMesParticipante(p);
-          });
           mapaMeses[chave] = {
             chave: chave,
             label: _labelMesPtBr(chave),
             totalMesCents: 0,
-            participantesMap: participantesMes,
-            dividasMap: {},
             despesas: [],
           };
         }
@@ -1255,47 +1249,13 @@ var Store = (function () {
 
       despesas.forEach(function (despesa) {
         if (!despesa || !despesa.tripId || despesa.tripId !== tripId) return;
-
         var dataBase = despesa.data || _hojeISO();
         var parcelasCentavos = _parcelasCentavosComAjuste(despesa);
-        var rateioIds = Array.isArray(despesa.participantesRateioIds)
-          ? despesa.participantesRateioIds.filter(function (id, idx, arr) {
-              return participantesPorId[id] && arr.indexOf(id) === idx;
-            })
-          : [];
-        if (!rateioIds.length) {
-          rateioIds = participantes.map(function (p) { return p.id; });
-        }
-
-        var paganteId = (despesa.quemPagouId && participantesPorId[despesa.quemPagouId])
-          ? despesa.quemPagouId
-          : '';
-
         parcelasCentavos.forEach(function (valorParcelaCentavos, idxParcela) {
           var dataParcela = _somarMes(dataBase, idxParcela);
           var chave = _chaveMes(dataParcela);
           var mes = garantirMes(chave);
-
           mes.totalMesCents += valorParcelaCentavos;
-          var cotas = _ratearCentavosComAjuste(valorParcelaCentavos, rateioIds);
-
-          Object.keys(cotas).forEach(function (pid) {
-            mes.participantesMap[pid].suaParteCents += cotas[pid];
-          });
-
-          if (paganteId) {
-            mes.participantesMap[paganteId].pagouCents += valorParcelaCentavos;
-            Object.keys(cotas).forEach(function (devedorId) {
-              if (devedorId === paganteId) return;
-              if (!mes.dividasMap[devedorId]) mes.dividasMap[devedorId] = {};
-              mes.dividasMap[devedorId][paganteId] = (mes.dividasMap[devedorId][paganteId] || 0) + cotas[devedorId];
-            });
-          } else {
-            Object.keys(cotas).forEach(function (pid) {
-              mes.participantesMap[pid].pagouCents += cotas[pid];
-            });
-          }
-
           mes.despesas.push({
             despesaId: despesa.id,
             descricao: despesa.descricao,
@@ -1304,98 +1264,37 @@ var Store = (function () {
             parcelaAtual: idxParcela + 1,
             totalParcelas: parcelasCentavos.length,
             valorParcela: _fromCents(valorParcelaCentavos),
-            quemPagouId: paganteId,
-            participantesRateioIds: rateioIds.slice(),
+            quemPagouId: despesa.quemPagouId || '',
+            origemRota: !!(despesa.routeSegmentId || despesa.origem === 'rota'),
+            routeDirection: despesa.routeDirection || '',
+            routeTipo: despesa.routeTipo || '',
           });
         });
+      });
+
+      var participantesAtivos = participantes.map(function (p) {
+        return { id: p.id, nome: p.nome };
       });
 
       var meses = Object.keys(mapaMeses).sort().map(function (chave) {
         var mes = mapaMeses[chave];
-        var dividas = mes.dividasMap;
-
-        Object.keys(dividas).forEach(function (deId) {
-          Object.keys(dividas[deId] || {}).forEach(function (paraId) {
-            var valor = dividas[deId][paraId] || 0;
-            if (valor <= 0) return;
-            if (mes.participantesMap[deId]) mes.participantesMap[deId].aPagarCents += valor;
-            if (mes.participantesMap[paraId]) mes.participantesMap[paraId].aReceberCents += valor;
-          });
-        });
-
-        var participantesMes = Object.keys(mes.participantesMap).map(function (pid) {
-          var p = mes.participantesMap[pid];
-          p.saldoCents = p.aReceberCents - p.aPagarCents;
-          return {
-            participanteId: p.participanteId,
-            nome: p.nome,
-            pagou: _fromCents(p.pagouCents),
-            suaParte: _fromCents(p.suaParteCents),
-            aReceber: _fromCents(p.aReceberCents),
-            aPagar: _fromCents(p.aPagarCents),
-            saldo: _fromCents(p.saldoCents),
-          };
-        }).sort(function (a, b) { return a.nome.localeCompare(b.nome); });
-
-        var acertos = [];
-        Object.keys(dividas).forEach(function (deId) {
-          Object.keys(dividas[deId] || {}).forEach(function (paraId) {
-            var valor = dividas[deId][paraId] || 0;
-            if (valor <= 0) return;
-            acertos.push({
-              deId: deId,
-              paraId: paraId,
-              deNome: (participantesPorId[deId] && participantesPorId[deId].nome) || 'Participante',
-              paraNome: (participantesPorId[paraId] && participantesPorId[paraId].nome) || 'Participante',
-              valor: _fromCents(valor),
-            });
-          });
-        });
-
+        // Integer division: distribute remainder to first participants
+        var base = Math.floor(mes.totalMesCents / nPartic);
+        var resto = mes.totalMesCents % nPartic;
+        var partePorPessoaCents = base + (resto > 0 ? 1 : 0); // Use ceil for display simplicity
         return {
           chave: mes.chave,
           label: mes.label,
           totalMes: _fromCents(mes.totalMesCents),
-          participantes: participantesMes,
-          acertos: acertos,
+          totalMesCents: mes.totalMesCents,
+          participantesAtivos: participantesAtivos,
+          partePorPessoa: _fromCents(partePorPessoaCents),
+          partePorPessoaCents: partePorPessoaCents,
           despesas: mes.despesas,
         };
       });
 
-      var totaisMap = {};
-      participantes.forEach(function (p) {
-        totaisMap[p.id] = _inicializarMesParticipante(p);
-      });
-
-      meses.forEach(function (mes) {
-        mes.participantes.forEach(function (p) {
-          var t = totaisMap[p.participanteId];
-          if (!t) return;
-          t.pagouCents += _toCents(p.pagou);
-          t.suaParteCents += _toCents(p.suaParte);
-          t.aReceberCents += _toCents(p.aReceber);
-          t.aPagarCents += _toCents(p.aPagar);
-        });
-      });
-
-      var totaisPorParticipante = Object.keys(totaisMap).map(function (pid) {
-        var t = totaisMap[pid];
-        t.saldoCents = t.aReceberCents - t.aPagarCents;
-        return {
-          participanteId: t.participanteId,
-          nome: t.nome,
-          pagou: _fromCents(t.pagouCents),
-          suaParte: _fromCents(t.suaParteCents),
-          aReceber: _fromCents(t.aReceberCents),
-          aPagar: _fromCents(t.aPagarCents),
-          saldo: _fromCents(t.saldoCents),
-        };
-      }).sort(function (a, b) { return a.nome.localeCompare(b.nome); });
-
-      return {
-        meses: meses,
-        totaisPorParticipante: totaisPorParticipante,
-      };
+      return { meses: meses };
     },
 
     // ================================================================

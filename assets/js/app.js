@@ -1044,8 +1044,6 @@ function paginaFinanceiro(params, container) {
   var secBalancoMensal = '';
   var detalhesBalanco = window._finBalancoDetalhes || {};
   var mostrarOutrosMeses = !!window._finBalancoOutrosMeses;
-  var config = Store.getConfiguracoes() || {};
-  var nomeUsuarioPreferencial = String(config.nomeUsuario || _nomeUsuarioAuth(RB_AUTH_STATE && RB_AUTH_STATE.user) || '').trim();
 
   function _mesAtualChave() {
     var hoje = new Date();
@@ -1053,101 +1051,140 @@ function paginaFinanceiro(params, container) {
     return String(hoje.getFullYear()) + '-' + mes;
   }
 
-  function _somaAcertos(mes) {
-    return (mes.acertos || []).reduce(function (acc, a) {
-      return acc + (Number(a.valor) || 0);
-    }, 0);
+  function _escBm(str) {
+    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  function _principalAcerto(mes) {
-    if (!mes.acertos || !mes.acertos.length) return null;
-    var sorted = mes.acertos.slice().sort(function (a, b) { return (Number(b.valor) || 0) - (Number(a.valor) || 0); });
-    return sorted[0] || null;
-  }
-
-  function _normalizarNome(nome) {
-    return String(nome || '').trim().toLowerCase();
-  }
-
-  function _participanteFoco(mes) {
-    var participantes = (mes && mes.participantes) || [];
-    if (!participantes.length) return null;
-    var alvo = _normalizarNome(nomeUsuarioPreferencial);
-    if (alvo) {
-      var encontrado = participantes.find(function (p) {
-        return _normalizarNome(p.nome) === alvo;
-      });
-      if (encontrado) return encontrado;
+  function _ordenarMeses(meses, chavAtual) {
+    // Numeric key: YYYY-MM → number for stable chronological sort
+    function chaveNum(chave) {
+      var parts = String(chave || '').split('-');
+      return (parseInt(parts[0], 10) || 0) * 100 + (parseInt(parts[1], 10) || 0);
     }
-    return participantes[0];
+    var atual = chaveNum(chavAtual);
+    var presentes = [], futuros = [], passados = [];
+    (meses || []).forEach(function (mes) {
+      var n = chaveNum(mes.chave);
+      if (n === atual) presentes.push(mes);
+      else if (n > atual) futuros.push(mes);
+      else passados.push(mes);
+    });
+    futuros.sort(function (a, b) { return chaveNum(a.chave) - chaveNum(b.chave); }); // ASC
+    passados.sort(function (a, b) { return chaveNum(b.chave) - chaveNum(a.chave); }); // DESC newest first
+    return presentes.concat(futuros).concat(passados);
   }
 
-  function _ordenarMesesDesc(meses) {
-    return (meses || []).slice().sort(function (a, b) {
-      return String(b.chave || '').localeCompare(String(a.chave || ''));
-    });
+  var _catChip = {
+    deslocamento: { emoji: '🚗', label: 'Deslocamento' },
+    transporte:   { emoji: '🚗', label: 'Transporte'   },
+    hospedagem:   { emoji: '🏨', label: 'Hospedagem'   },
+    alimentacao:  { emoji: '🍽️', label: 'Alimentação'  },
+    passeio:      { emoji: '🎡', label: 'Passeio'       },
+    compra:       { emoji: '🛍️', label: 'Compra'        },
+    livre:        { emoji: '🌴', label: 'Livre'         },
+    outro:        { emoji: '📌', label: 'Outro'         },
+  };
+
+  function _renderDetalheItem(d) {
+    var chip = _catChip[d.categoria] || { emoji: '📌', label: d.categoria || 'Outro' };
+
+    // Route expense: build compact directional title with smart icon per transport mode
+    var titulo = _escBm(d.descricao);
+    if (d.origemRota) {
+      var destLabel = loc || 'da viagem';
+      var _routeTipo = d.routeTipo || 'outro';
+      // Icon map per mode: [neutral, ida, volta]
+      var _modoIcones = {
+        aereo:     { n: '✈️',  ida: '🛫', volta: '🛬', lbl: 'Aéreo'      },
+        carro:     { n: '⛽',  ida: '⛽',  volta: '⛽',  lbl: 'Combustível' },
+        van:       { n: '🚐',  ida: '🚐',  volta: '🚐',  lbl: 'Van'         },
+        onibus:    { n: '🚌',  ida: '🚌',  volta: '🚌',  lbl: 'Ônibus'      },
+        trem:      { n: '🚆',  ida: '🚆',  volta: '🚆',  lbl: 'Trem'        },
+        barco:     { n: '⛵',  ida: '⛵',  volta: '⛵',  lbl: 'Barco'       },
+        caminhada: { n: '🚶',  ida: '🚶',  volta: '🚶',  lbl: 'Caminhada'   },
+        moto:      { n: '⛽',  ida: '⛽',  volta: '⛽',  lbl: 'Combustível' },
+        outro:     { n: '🧭',  ida: '🧭',  volta: '🧭',  lbl: 'Rota'        },
+      };
+      var _modoInfo = _modoIcones[_routeTipo] || _modoIcones.outro;
+      if (d.routeDirection === 'ida') {
+        titulo = 'IDA p/ ' + _escBm(destLabel);
+        chip = { emoji: _modoInfo.ida, label: _modoInfo.lbl };
+      } else if (d.routeDirection === 'volta') {
+        titulo = 'VOLTA de ' + _escBm(destLabel);
+        chip = { emoji: _modoInfo.volta, label: _modoInfo.lbl };
+      } else {
+        titulo = 'Rota ' + _escBm(destLabel);
+        chip = { emoji: _modoInfo.n, label: _modoInfo.lbl };
+      }
+    }
+
+    var meta = '';
+    if (d.totalParcelas > 1) {
+      meta += 'Parcela ' + d.parcelaAtual + '/' + d.totalParcelas;
+    }
+    if (d.dataParcela) {
+      var p = d.dataParcela.split('-');
+      if (p.length === 3) {
+        meta += (meta ? ' · ' : '') + p[2] + '/' + p[1] + '/' + p[0];
+      }
+    }
+    return (
+      '<div class="fin-bm-detail-item">' +
+        '<div class="fin-bm-detail-chip">' + chip.emoji + '</div>' +
+        '<div class="fin-bm-detail-main">' +
+          '<div class="fin-bm-detail-title">' + titulo + '</div>' +
+          (meta ? '<div class="fin-bm-detail-meta">' + _escBm(chip.label) + ' · ' + meta + '</div>' : '<div class="fin-bm-detail-meta">' + _escBm(chip.label) + '</div>') +
+        '</div>' +
+        '<div class="fin-bm-detail-amount">' + UI.formatarMoeda(d.valorParcela) + '</div>' +
+      '</div>'
+    );
   }
 
   function _renderMesCard(mes, destaqueAtual) {
-    var totalAcertar = _somaAcertos(mes);
-    var acertoPrincipal = _principalAcerto(mes);
-    var participanteFoco = _participanteFoco(mes);
     var detalhesAbertos = !!detalhesBalanco[mes.chave];
+    var nPartic = (mes.participantesAtivos || []).length;
 
-    var acertosDetalhe = mes.acertos.length
-      ? (
-        '<div class="fin-acertos-list">' +
-          mes.acertos.map(function (a) {
-            return '<div class="expense-row"><span class="text-sm text-secondary">' + a.deNome + ' → ' + a.paraNome + '</span><strong>' + UI.formatarMoeda(a.valor) + '</strong></div>';
-          }).join('') +
-        '</div>'
-      )
-      : '<div class="text-sm text-secondary">Sem acertos sugeridos neste mês.</div>';
-
-    var parcelasMes = mes.despesas.length
-      ? ('<div class="fin-acertos-list">' + mes.despesas.map(function (d) {
-          var refParcela = d.parcelaAtual + '/' + d.totalParcelas;
-          return '<div class="expense-row"><span class="text-sm text-secondary">' + d.descricao + ' · parcela ' + refParcela + '</span><strong>' + UI.formatarMoeda(d.valorParcela) + '</strong></div>';
-        }).join('') + '</div>')
-      : '<div class="text-sm text-secondary">Sem parcelas neste mês.</div>';
+    var parcelasMes = mes.despesas && mes.despesas.length
+      ? '<div class="fin-bm-detail-list">' + mes.despesas.map(_renderDetalheItem).join('') + '</div>'
+      : '<div class="fin-bm-detail-vazio">Sem despesas neste mês.</div>';
 
     return (
       '<div class="card fin-bm-card' + (destaqueAtual ? ' fin-bm-card-atual' : '') + '">' +
         '<div class="card-body">' +
           '<div class="fin-bm-top">' +
             '<div class="fin-bm-title-wrap">' +
-              '<div class="fin-bm-title">' + mes.label + '</div>' +
-              (destaqueAtual ? '<div class="fin-bm-subtitle">Mês atual em destaque</div>' : '') +
+              '<div class="fin-bm-title">' + _escBm(mes.label) + (destaqueAtual ? ' <span class="fin-bm-badge">mês atual</span>' : '') + '</div>' +
             '</div>' +
-            '<button type="button" class="btn btn-ghost btn-sm" data-bm-toggle="' + mes.chave + '">' + (detalhesAbertos ? 'Ocultar detalhes' : 'Ver detalhes') + '</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-bm-toggle="' + mes.chave + '">' +
+              (detalhesAbertos ? 'Ocultar despesas' : 'Ver despesas') +
+            '</button>' +
           '</div>' +
-          '<div class="fin-bm-kpi-grid">' +
-            '<div class="fin-bm-kpi"><span>Sua parte</span><strong>' + UI.formatarMoeda(participanteFoco ? participanteFoco.suaParte : 0) + '</strong></div>' +
-            '<div class="fin-bm-kpi"><span>Você pagou</span><strong>' + UI.formatarMoeda(participanteFoco ? participanteFoco.pagou : 0) + '</strong></div>' +
-            '<div class="fin-bm-kpi"><span>A receber</span><strong>' + UI.formatarMoeda(participanteFoco ? participanteFoco.aReceber : 0) + '</strong></div>' +
-            '<div class="fin-bm-kpi"><span>A pagar</span><strong>' + UI.formatarMoeda(participanteFoco ? participanteFoco.aPagar : 0) + '</strong></div>' +
-            '<div class="fin-bm-kpi fin-bm-kpi-highlight"><span>Acerto sugerido</span><strong>' + (acertoPrincipal ? (acertoPrincipal.deNome + ' → ' + acertoPrincipal.paraNome + ' · ' + UI.formatarMoeda(acertoPrincipal.valor)) : 'Sem acertos') + '</strong></div>' +
+          '<div class="fin-bm-headline">' +
+            '<div class="fin-bm-kpi"><span>Total do mês</span><strong>' + UI.formatarMoeda(mes.totalMes) + '</strong></div>' +
+            '<div class="fin-bm-kpi"><span>Participantes</span><strong>' + nPartic + '</strong></div>' +
+            '<div class="fin-bm-kpi"><span>Parte por pessoa</span><strong>' + UI.formatarMoeda(mes.partePorPessoa) + '</strong></div>' +
           '</div>' +
-          '<div class="fin-bm-foot">Total do mês: <strong>' + UI.formatarMoeda(mes.totalMes) + '</strong> · Total a acertar: <strong>' + UI.formatarMoeda(totalAcertar) + '</strong></div>' +
+          '<div class="fin-bm-summary">' +
+            (mes.participantesAtivos || []).map(function (p) {
+              return (
+                '<div class="fin-bm-part-row">' +
+                  '<span class="fin-bm-part-name">' + _escBm(p.nome) + '</span>' +
+                  '<span class="fin-bm-part-valor">' + UI.formatarMoeda(mes.partePorPessoa) + '</span>' +
+                '</div>'
+              );
+            }).join('') +
+          '</div>' +
           '<div class="fin-bm-details' + (detalhesAbertos ? ' aberto' : '') + '">' +
-            '<div class="font-semibold" style="margin:var(--space-3) 0 var(--space-2)">Participantes (detalhe)</div>' +
-            '<div class="fin-acertos-list">' +
-              mes.participantes.map(function (p) {
-                return '<div class="expense-row"><span class="text-sm text-secondary">' + p.nome + '</span><strong>Sua parte ' + UI.formatarMoeda(p.suaParte) + ' · Pagou ' + UI.formatarMoeda(p.pagou) + ' · A receber ' + UI.formatarMoeda(p.aReceber) + ' · A pagar ' + UI.formatarMoeda(p.aPagar) + ' · Saldo ' + UI.formatarMoeda(p.saldo) + '</strong></div>';
-              }).join('') +
-            '</div>' +
-            '<div class="font-semibold" style="margin:var(--space-3) 0 var(--space-2)">Parcelas no mês</div>' +
+            '<div class="fin-bm-detalhe-titulo">Parcelas/despesas no mês</div>' +
             parcelasMes +
-            '<div class="font-semibold" style="margin:var(--space-3) 0 var(--space-2)">Acertos sugeridos</div>' +
-            acertosDetalhe +
           '</div>' +
         '</div>' +
       '</div>'
     );
   }
 
-  var mesesOrdenados = _ordenarMesesDesc(balancoMensal.meses);
   var chaveMesAtual = _mesAtualChave();
+  var mesesOrdenados = _ordenarMeses(balancoMensal.meses, chaveMesAtual);
   var mesAtual = mesesOrdenados.find(function (mes) { return mes.chave === chaveMesAtual; }) || mesesOrdenados[0] || null;
   var outrosMeses = mesesOrdenados.filter(function (mes) {
     return mesAtual ? mes.chave !== mesAtual.chave : true;
@@ -1219,18 +1256,28 @@ function paginaFinanceiro(params, container) {
   container.innerHTML = html;
 
   container.querySelectorAll('[data-bm-toggle]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
       var chave = btn.getAttribute('data-bm-toggle');
+      var card = btn.closest('.fin-bm-card');
+      if (!card) return;
+      var detalhes = card.querySelector('.fin-bm-details');
+      if (!detalhes) return;
+      var aberto = detalhes.classList.toggle('aberto');
+      btn.textContent = aberto ? 'Ocultar despesas' : 'Ver despesas';
       if (!window._finBalancoDetalhes) window._finBalancoDetalhes = {};
-      window._finBalancoDetalhes[chave] = !window._finBalancoDetalhes[chave];
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      window._finBalancoDetalhes[chave] = aberto;
     });
   });
 
   container.querySelectorAll('[data-bm-toggle-outros]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      window._finBalancoOutrosMeses = !window._finBalancoOutrosMeses;
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      var lista = btn.parentElement && btn.parentElement.querySelector('.fin-bm-others-list');
+      if (!lista) return;
+      var aberto = lista.classList.toggle('aberto');
+      btn.textContent = aberto ? 'Ocultar outros meses' : 'Ver outros meses';
+      window._finBalancoOutrosMeses = aberto;
     });
   });
 }
