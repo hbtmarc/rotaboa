@@ -603,7 +603,7 @@ var Store = (function () {
         data: trecho.data || _hojeISO(),
         quemPagouId: '',
         participantesRateioIds: _participantesAtivosComId(_state.viagens.find(function (v) { return v.id === tripId; })).map(function (p) { return p.id; }),
-        observacoes: 'Gerado automaticamente pelo módulo de rotas.',
+        observacoes: '',
       };
     }).filter(Boolean);
 

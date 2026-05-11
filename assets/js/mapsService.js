@@ -203,7 +203,7 @@ var MapsService = (function () {
         onRouteComputed(res);
       }).catch(function (e) {
         _computing = false;
-        onError(e && e.message ? e.message : 'Não foi possível calcular automaticamente. Preencha distância e duração manualmente.');
+        onError(e && e.message ? e.message : 'Não foi possível calcular a rota. Preencha distância e duração manualmente.');
       });
     }
 

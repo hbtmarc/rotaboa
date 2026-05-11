@@ -22,6 +22,14 @@ var RB_PREFS_DEFAULT = {
   paginaInicialPadrao: '/inicio',
   mostrarValoresInicio: true,
   confirmarAntesExcluir: true,
+  densidadeVisual: 'confortavel',
+  checkInPadrao: '14:00',
+  checkOutPadrao: '12:00',
+  routeTipoPadrao: 'carro',
+  consumoPadrao: '',
+  precoCombustivelPadrao: '',
+  syncAuto: true,
+  syncIntervalo: 1,
 };
 
 var RB_AUTH_STATE = {
@@ -190,11 +198,15 @@ var SyncService = (function () {
   function startAutoSync() {
     stopAutoSync();
     if (!_temSessaoAtiva()) return;
-
+    var prefs = _lerPreferencias();
+    if (prefs.syncAuto === false) {
+      syncLocalToCloud({ silent: true, source: 'start' });
+      return;
+    }
+    var intervalMs = Math.max(1, Number(prefs.syncIntervalo) || 1) * 60000;
     _timer = setInterval(function () {
       syncLocalToCloud({ silent: true, source: 'interval' });
-    }, 60000);
-
+    }, intervalMs);
     syncLocalToCloud({ silent: true, source: 'start' });
   }
 
@@ -317,6 +329,11 @@ function _rotaInicialPadrao() {
 
 function _confirmarExclusoesAtivo() {
   return _lerPreferencias().confirmarAntesExcluir !== false;
+}
+
+function _aplicarDensidade() {
+  var d = _lerPreferencias().densidadeVisual || 'confortavel';
+  document.body.setAttribute('data-density', d);
 }
 
 function atualizarBadgeModoDadosHeader() {
@@ -1398,29 +1415,114 @@ function paginaConfiguracoes(params, container) {
     }
   }
 
+  function _opt(val, label, atual) {
+    return '<option value="' + val + '"' + (String(val) === String(atual) ? ' selected' : '') + '>' + label + '</option>';
+  }
+
+  var _tiposRota = [
+    ['carro', 'Carro 🚗'], ['van', 'Van 🚐'], ['onibus', 'Ônibus 🚌'],
+    ['aereo', 'Aéreo ✈️'], ['trem', 'Trem 🚆'], ['barco', 'Barco ⛵'],
+    ['caminhada', 'Caminhada 🚶'], ['outro', 'Outro 🧭'],
+  ];
+
   var html = (
     '<div class="page-section">' +
-      UI.renderSectionHeader('Configuração', '', '') +
+
+      '<div class="cfg-hero">' +
+        '<h2 class="section-title" style="margin-bottom:var(--space-1)">Configurações</h2>' +
+        '<p class="text-sm text-secondary">Ajuste preferências, sincronização, integrações e dados locais.</p>' +
+      '</div>' +
 
       avisoSync +
 
-      // Conta
+      '<div class="card cfg-account-card" style="margin-bottom:var(--space-5)">' +
+        '<div class="cfg-account-info">' +
+          '<div class="cfg-account-avatar">👤</div>' +
+          '<div>' +
+            (RB_AUTH_STATE.offlineMode
+              ? '<div class="font-semibold text-sm">Modo offline</div><div class="text-xs text-secondary">Dados salvos neste dispositivo</div>'
+              : '<div class="font-semibold text-sm">' + _esc(_nomeUsuarioAuth(RB_AUTH_STATE.user)) + '</div><div class="text-xs text-secondary">' + _esc((RB_AUTH_STATE.user && RB_AUTH_STATE.user.email) || '') + '</div>') +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:var(--space-2)">' +
+          (RB_AUTH_STATE.user ? '<button class="btn btn-ghost btn-sm" onclick="AuthActions.sair()">Sair</button>' : '') +
+          (RB_AUTH_STATE.offlineMode ? '<button class="btn btn-ghost btn-sm" onclick="ConfigActions.sairModoOffline()">Sair do modo offline</button>' : '') +
+        '</div>' +
+      '</div>' +
+
+      '<div class="cfg-section-title">⚙️ Preferências do app</div>' +
       '<div class="card" style="margin-bottom:var(--space-5)">' +
-        '<div class="card-header"><span class="font-semibold">👤 Conta</span></div>' +
         '<div class="card-body">' +
-          (RB_AUTH_STATE.offlineMode
-            ? '<p class="text-sm">Modo offline ativo neste dispositivo.</p>'
-            : '<p class="text-sm">' + _esc(_nomeUsuarioAuth(RB_AUTH_STATE.user)) + '</p>') +
-          '<div style="display:flex;gap:var(--space-2);flex-wrap:wrap;margin-top:var(--space-3)">' +
-            (RB_AUTH_STATE.user ? '<button class="btn btn-ghost btn-sm" onclick="AuthActions.sair()">Sair</button>' : '') +
-            (RB_AUTH_STATE.offlineMode ? '<button class="btn btn-ghost btn-sm" onclick="ConfigActions.sairModoOffline()">Sair do modo offline</button>' : '') +
+          '<div class="cfg-grid">' +
+            '<div class="form-group">' +
+              '<label class="form-label" for="pref-pagina-inicial">Página inicial</label>' +
+              '<select id="pref-pagina-inicial" class="form-select" onchange="ConfigActions.salvarPreferencias(true)">' +
+                _opt('/inicio', 'Início', prefs.paginaInicialPadrao) +
+                _opt('/viagens', 'Viagens', prefs.paginaInicialPadrao) +
+                _opt('/roteiro', 'Roteiro', prefs.paginaInicialPadrao) +
+                _opt('/financeiro', 'Financeiro', prefs.paginaInicialPadrao) +
+                _opt('/rotas', 'Rotas', prefs.paginaInicialPadrao) +
+              '</select>' +
+            '</div>' +
+            '<div class="form-group">' +
+              '<label class="form-label" for="pref-densidade">Densidade visual</label>' +
+              '<select id="pref-densidade" class="form-select" onchange="ConfigActions.salvarPreferencias(true)">' +
+                _opt('confortavel', 'Confortável', prefs.densidadeVisual) +
+                _opt('compacta', 'Compacta', prefs.densidadeVisual) +
+              '</select>' +
+            '</div>' +
+            '<div class="form-group">' +
+              '<label class="form-label" for="pref-mostrar-valores">Valores financeiros na tela inicial</label>' +
+              '<select id="pref-mostrar-valores" class="form-select" onchange="ConfigActions.salvarPreferencias(true)">' +
+                '<option value="sim"' + (prefs.mostrarValoresInicio !== false ? ' selected' : '') + '>Sim</option>' +
+                '<option value="nao"' + (prefs.mostrarValoresInicio === false ? ' selected' : '') + '>Não</option>' +
+              '</select>' +
+            '</div>' +
+            '<div class="form-group">' +
+              '<label class="form-label" for="pref-confirmar-exclusao">Confirmar antes de excluir</label>' +
+              '<select id="pref-confirmar-exclusao" class="form-select" onchange="ConfigActions.salvarPreferencias(true)">' +
+                '<option value="sim"' + (prefs.confirmarAntesExcluir !== false ? ' selected' : '') + '>Sim</option>' +
+                '<option value="nao"' + (prefs.confirmarAntesExcluir === false ? ' selected' : '') + '>Não</option>' +
+              '</select>' +
+            '</div>' +
+          '</div>' +
+          '<div id="cfg-pref-status" class="text-xs text-muted" style="margin-top:var(--space-2)"></div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="cfg-section-title">🗓️ Viagens e roteiro</div>' +
+      '<div class="card" style="margin-bottom:var(--space-5)">' +
+        '<div class="card-body">' +
+          '<div class="cfg-grid">' +
+            '<div class="form-group">' +
+              '<label class="form-label" for="pref-ci-hora">Horário padrão de check-in</label>' +
+              '<input id="pref-ci-hora" class="form-input" type="time" value="' + _esc(prefs.checkInPadrao || '14:00') + '" onchange="ConfigActions.salvarPreferencias(true)">' +
+            '</div>' +
+            '<div class="form-group">' +
+              '<label class="form-label" for="pref-co-hora">Horário padrão de check-out</label>' +
+              '<input id="pref-co-hora" class="form-input" type="time" value="' + _esc(prefs.checkOutPadrao || '12:00') + '" onchange="ConfigActions.salvarPreferencias(true)">' +
+            '</div>' +
+            '<div class="form-group">' +
+              '<label class="form-label" for="pref-route-tipo">Tipo padrão de trecho</label>' +
+              '<select id="pref-route-tipo" class="form-select" onchange="ConfigActions.salvarPreferencias(true)">' +
+                _tiposRota.map(function (p) { return _opt(p[0], p[1], prefs.routeTipoPadrao || 'carro'); }).join('') +
+              '</select>' +
+            '</div>' +
+            '<div class="form-group">' +
+              '<label class="form-label" for="pref-consumo">Consumo médio padrão (km/L)</label>' +
+              '<input id="pref-consumo" class="form-input" type="number" min="0" step="0.01" placeholder="Ex: 12" value="' + _esc(prefs.consumoPadrao) + '" onblur="ConfigActions.salvarPreferencias(true)">' +
+            '</div>' +
+            '<div class="form-group">' +
+              '<label class="form-label" for="pref-preco-comb">Preço padrão do combustível (R$/L)</label>' +
+              '<input id="pref-preco-comb" class="form-input" type="number" min="0" step="0.01" placeholder="Ex: 6.20" value="' + _esc(prefs.precoCombustivelPadrao) + '" onblur="ConfigActions.salvarPreferencias(true)">' +
+              '<div class="text-xs text-muted" style="margin-top:var(--space-1)">Aplicado ao criar novos trechos.</div>' +
+            '</div>' +
           '</div>' +
         '</div>' +
       '</div>' +
 
-      // Sincronização
+      '<div class="cfg-section-title">🔄 Sincronização</div>' +
       '<div class="card" style="margin-bottom:var(--space-5)">' +
-        '<div class="card-header"><span class="font-semibold">🔄 Sincronização</span></div>' +
         '<div class="card-body">' +
           '<div class="expense-row">' +
             '<span class="text-sm text-secondary">Status</span>' +
@@ -1430,7 +1532,24 @@ function paginaConfiguracoes(params, container) {
             '<span class="text-sm text-secondary">Última sincronização</span>' +
             '<span class="text-sm">' + _esc(_txtUltimaSync()) + '</span>' +
           '</div>' +
-          (sync.lastError ? '<p class="text-xs" style="margin-top:var(--space-2);color:var(--color-danger)">Não foi possível sincronizar agora.</p>' : '') +
+          (sync.lastError ? '<p class="text-xs" style="margin-top:var(--space-2);color:var(--color-danger)">Não foi possível sincronizar.</p>' : '') +
+          '<div class="cfg-grid" style="margin-top:var(--space-4)">' +
+            '<div class="form-group">' +
+              '<label class="form-label" for="pref-sync-auto">Sincronização periódica</label>' +
+              '<select id="pref-sync-auto" class="form-select" onchange="ConfigActions.salvarPreferencias(true)">' +
+                '<option value="sim"' + (prefs.syncAuto !== false ? ' selected' : '') + '>Ativa</option>' +
+                '<option value="nao"' + (prefs.syncAuto === false ? ' selected' : '') + '>Inativa</option>' +
+              '</select>' +
+            '</div>' +
+            '<div class="form-group">' +
+              '<label class="form-label" for="pref-sync-intervalo">Intervalo</label>' +
+              '<select id="pref-sync-intervalo" class="form-select" onchange="ConfigActions.salvarPreferencias(true)">' +
+                _opt(1, '1 minuto', prefs.syncIntervalo) +
+                _opt(5, '5 minutos', prefs.syncIntervalo) +
+                _opt(15, '15 minutos', prefs.syncIntervalo) +
+              '</select>' +
+            '</div>' +
+          '</div>' +
           ((!RB_AUTH_STATE.offlineMode && RB_AUTH_STATE.user)
             ? '<div style="margin-top:var(--space-3)"><button class="btn btn-secondary btn-sm" onclick="ConfigActions.sincronizarAgora()"' + (navigator.onLine ? '' : ' disabled') + '>Sincronizar agora</button></div>'
             : '') +
@@ -1438,64 +1557,31 @@ function paginaConfiguracoes(params, container) {
         '</div>' +
       '</div>' +
 
-      // Dados locais
+      '<div class="cfg-section-title">🗺️ Integrações</div>' +
       '<div class="card" style="margin-bottom:var(--space-5)">' +
-        '<div class="card-header"><span class="font-semibold">💾 Dados locais</span></div>' +
+        '<div class="card-body">' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="cfg-google-maps-key">Google Maps — chave de acesso</label>' +
+            '<div style="display:flex;gap:var(--space-2)">' +
+              '<input id="cfg-google-maps-key" class="form-input" type="password" autocomplete="off" placeholder="Cole sua chave aqui" value="' + _esc(mapsKey) + '" style="flex:1">' +
+              '<button class="btn btn-primary btn-sm" onclick="ConfigActions.salvarGoogleMapsKey()">Salvar</button>' +
+            '</div>' +
+            '<div class="text-xs text-muted" style="margin-top:var(--space-2)">' + (mapsConfigurado ? '✅ Configurado' : '⚠️ Não configurado') + ' · Usado para busca de endereços, distância e rotas.</div>' +
+          '</div>' +
+          '<div id="cfg-maps-status" class="text-xs text-muted" style="margin-top:var(--space-2)"></div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="cfg-section-title">💾 Dados locais</div>' +
+      '<div class="card" style="margin-bottom:var(--space-5)">' +
         '<div class="card-body">' +
           '<div style="display:flex;gap:var(--space-2);flex-wrap:wrap">' +
-            '<button class="btn btn-primary btn-sm" onclick="ConfigActions.exportarBackup()">Exportar backup JSON</button>' +
-            '<button class="btn btn-secondary btn-sm" onclick="ConfigActions.importarBackup()">Importar backup JSON</button>' +
+            '<button class="btn btn-primary btn-sm" onclick="ConfigActions.exportarBackup()">Exportar backup</button>' +
+            '<button class="btn btn-secondary btn-sm" onclick="ConfigActions.importarBackup()">Importar backup</button>' +
             '<button class="btn btn-ghost btn-sm" style="color:var(--color-danger)" onclick="ConfigActions.limparDadosLocais()">Limpar dados locais</button>' +
           '</div>' +
           '<input id="cfg-backup-input" type="file" accept="application/json" style="display:none" onchange="ConfigActions.processarArquivoBackup(event)">' +
           '<div id="cfg-backup-status" class="text-xs text-muted" style="margin-top:var(--space-3)"></div>' +
-        '</div>' +
-      '</div>' +
-
-      // Integrações
-      '<div class="card" style="margin-bottom:var(--space-5)">' +
-        '<div class="card-header"><span class="font-semibold">🗺️ Integrações</span></div>' +
-        '<div class="card-body">' +
-          '<div class="form-group">' +
-            '<label class="form-label" for="cfg-google-maps-key">Chave Google Maps</label>' +
-            '<input id="cfg-google-maps-key" class="form-input" type="password" autocomplete="off" placeholder="Cole sua chave aqui" value="' + _esc(mapsKey) + '">' +
-            '<div class="text-xs text-muted" style="margin-top:var(--space-2)">' + (mapsConfigurado ? 'Google Maps configurado' : 'Google Maps não configurado') + '</div>' +
-          '</div>' +
-          '<button class="btn btn-primary btn-sm" onclick="ConfigActions.salvarGoogleMapsKey()">Salvar Google Maps</button>' +
-          '<div id="cfg-maps-status" class="text-xs text-muted" style="margin-top:var(--space-3)"></div>' +
-        '</div>' +
-      '</div>' +
-
-      // Preferências
-      '<div class="card" style="margin-bottom:var(--space-5)">' +
-        '<div class="card-header"><span class="font-semibold">⚙️ Preferências</span></div>' +
-        '<div class="card-body">' +
-          '<div class="form-group">' +
-            '<label class="form-label" for="pref-pagina-inicial">Página inicial padrão</label>' +
-            '<select id="pref-pagina-inicial" class="form-select">' +
-              '<option value="/inicio"' + (prefs.paginaInicialPadrao === '/inicio' ? ' selected' : '') + '>Início</option>' +
-              '<option value="/viagens"' + (prefs.paginaInicialPadrao === '/viagens' ? ' selected' : '') + '>Viagens</option>' +
-              '<option value="/roteiro"' + (prefs.paginaInicialPadrao === '/roteiro' ? ' selected' : '') + '>Roteiro</option>' +
-              '<option value="/financeiro"' + (prefs.paginaInicialPadrao === '/financeiro' ? ' selected' : '') + '>Financeiro</option>' +
-              '<option value="/rotas"' + (prefs.paginaInicialPadrao === '/rotas' ? ' selected' : '') + '>Rotas</option>' +
-            '</select>' +
-          '</div>' +
-          '<div class="form-group">' +
-            '<label class="form-label" for="pref-mostrar-valores">Mostrar valores financeiros na tela inicial</label>' +
-            '<select id="pref-mostrar-valores" class="form-select">' +
-              '<option value="sim"' + (prefs.mostrarValoresInicio !== false ? ' selected' : '') + '>Sim</option>' +
-              '<option value="nao"' + (prefs.mostrarValoresInicio === false ? ' selected' : '') + '>Não</option>' +
-            '</select>' +
-          '</div>' +
-          '<div class="form-group">' +
-            '<label class="form-label" for="pref-confirmar-exclusao">Confirmações antes de excluir</label>' +
-            '<select id="pref-confirmar-exclusao" class="form-select">' +
-              '<option value="sim"' + (prefs.confirmarAntesExcluir !== false ? ' selected' : '') + '>Sim</option>' +
-              '<option value="nao"' + (prefs.confirmarAntesExcluir === false ? ' selected' : '') + '>Não</option>' +
-            '</select>' +
-          '</div>' +
-          '<button class="btn btn-primary btn-sm" onclick="ConfigActions.salvarPreferencias()">Salvar preferências</button>' +
-          '<div id="cfg-pref-status" class="text-xs text-muted" style="margin-top:var(--space-3)"></div>' +
         '</div>' +
       '</div>' +
 
@@ -1676,20 +1762,43 @@ var ConfigActions = {
     this._statusSync('Não foi possível sincronizar agora.', true);
   },
 
-  salvarPreferencias: function () {
-    var pagina = document.getElementById('pref-pagina-inicial');
-    var mostrarValores = document.getElementById('pref-mostrar-valores');
+  salvarPreferencias: function (silencioso) {
+    var pagina    = document.getElementById('pref-pagina-inicial');
+    var valores   = document.getElementById('pref-mostrar-valores');
     var confirmar = document.getElementById('pref-confirmar-exclusao');
+    var densidade = document.getElementById('pref-densidade');
+    var ciHora    = document.getElementById('pref-ci-hora');
+    var coHora    = document.getElementById('pref-co-hora');
+    var routeTipo = document.getElementById('pref-route-tipo');
+    var consumo   = document.getElementById('pref-consumo');
+    var precoComb = document.getElementById('pref-preco-comb');
+    var syncAuto  = document.getElementById('pref-sync-auto');
+    var syncInt   = document.getElementById('pref-sync-intervalo');
 
-    _salvarPreferencias({
-      paginaInicialPadrao: pagina ? pagina.value : '/inicio',
-      mostrarValoresInicio: mostrarValores ? mostrarValores.value !== 'nao' : true,
-      confirmarAntesExcluir: confirmar ? confirmar.value !== 'nao' : true,
-    });
+    var prefs = {};
+    if (pagina)    prefs.paginaInicialPadrao    = pagina.value;
+    if (valores)   prefs.mostrarValoresInicio   = valores.value !== 'nao';
+    if (confirmar) prefs.confirmarAntesExcluir  = confirmar.value !== 'nao';
+    if (densidade) prefs.densidadeVisual        = densidade.value;
+    if (ciHora)    prefs.checkInPadrao          = ciHora.value || '14:00';
+    if (coHora)    prefs.checkOutPadrao         = coHora.value || '12:00';
+    if (routeTipo) prefs.routeTipoPadrao        = routeTipo.value || 'carro';
+    if (consumo)   prefs.consumoPadrao          = consumo.value;
+    if (precoComb) prefs.precoCombustivelPadrao = precoComb.value;
+    if (syncAuto)  prefs.syncAuto              = syncAuto.value !== 'nao';
+    if (syncInt)   prefs.syncIntervalo         = Number(syncInt.value) || 1;
 
-    this._statusPrefs('Preferências salvas neste dispositivo.', false);
-    _mostrarToast('Preferências salvas.');
-    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    _salvarPreferencias(prefs);
+    _aplicarDensidade();
+
+    if (syncAuto || syncInt) {
+      SyncService.startAutoSync();
+    }
+
+    if (!silencioso) {
+      this._statusPrefs('Preferências salvas.', false);
+      _mostrarToast('Preferências salvas.');
+    }
   },
 
   salvarGoogleMapsKey: function () {
@@ -2568,7 +2677,7 @@ var AtividadeModal = (function () {
                   '</div>' +
                   '<div class="form-group">' +
                     '<label class="form-label form-label-required">Check-in · hora</label>' +
-                    _DTWidget.renderHora('af-ci-hora', h.checkInTime || '14:00') +
+                    _DTWidget.renderHora('af-ci-hora', h.checkInTime || _lerPreferencias().checkInPadrao || '14:00') +
                     '<span class="form-error" id="ae-ci-hora">Informe o horário.</span>' +
                   '</div>' +
                 '</div>' +
@@ -2580,7 +2689,7 @@ var AtividadeModal = (function () {
                   '</div>' +
                   '<div class="form-group">' +
                     '<label class="form-label form-label-required">Check-out · hora</label>' +
-                    _DTWidget.renderHora('af-co-hora', h.checkOutTime || '11:00') +
+                    _DTWidget.renderHora('af-co-hora', h.checkOutTime || _lerPreferencias().checkOutPadrao || '12:00') +
                     '<span class="form-error" id="ae-co-hora">Informe o horário.</span>' +
                   '</div>' +
                 '</div>' +
@@ -3102,7 +3211,7 @@ var DespesaModal = (function () {
               '</div>' +
               '<div class="form-group">' +
                 '<label class="form-label form-label-required">Check-in · hora</label>' +
-                _DTWidget.renderHora('df-ci-hora', h.checkInTime || '14:00') +
+                _DTWidget.renderHora('df-ci-hora', h.checkInTime || _lerPreferencias().checkInPadrao || '14:00') +
                 '<span class="form-error" id="de-ci-hora">Informe o horário.</span>' +
               '</div>' +
             '</div>' +
@@ -3114,7 +3223,7 @@ var DespesaModal = (function () {
               '</div>' +
               '<div class="form-group">' +
                 '<label class="form-label form-label-required">Check-out · hora</label>' +
-                _DTWidget.renderHora('df-co-hora', h.checkOutTime || '11:00') +
+                _DTWidget.renderHora('df-co-hora', h.checkOutTime || _lerPreferencias().checkOutPadrao || '12:00') +
                 '<span class="form-error" id="de-co-hora">Informe o horário.</span>' +
               '</div>' +
             '</div>' +
@@ -3634,7 +3743,18 @@ var TrechoModal = (function () {
         : null;
       document.getElementById('trecho-modal-title').textContent = trechoId ? 'Editar trecho' : 'Novo trecho';
       document.getElementById('trecho-modal-save').textContent = trechoId ? 'Salvar alterações' : 'Salvar trecho';
-      document.getElementById('trecho-modal-body').innerHTML = _renderForm(trecho || {}, tripId);
+      var _trechoBase = trecho;
+      if (!_trechoId) {
+        var _prefs = _lerPreferencias();
+        _trechoBase = Object.assign({
+          tipo: _prefs.routeTipoPadrao || 'carro',
+          consumoKmL: (_prefs.consumoPadrao !== '' && _prefs.consumoPadrao != null) ? Number(_prefs.consumoPadrao) || '' : '',
+          precoCombustivelLitro: (_prefs.precoCombustivelPadrao !== '' && _prefs.precoCombustivelPadrao != null) ? Number(_prefs.precoCombustivelPadrao) || '' : '',
+        }, trecho || {});
+      } else {
+        _trechoBase = trecho || {};
+      }
+      document.getElementById('trecho-modal-body').innerHTML = _renderForm(_trechoBase, tripId);
 
       _smController = null;
 
@@ -3975,6 +4095,7 @@ var TrechoActions = {
   await iniciarAuthStateListener();
   atualizarHeaderAuthUI();
   atualizarBadgeModoDadosHeader();
+  _aplicarDensidade();
 
   if (window.MapsService && typeof MapsService.init === 'function') {
     MapsService.init().catch(function () {});

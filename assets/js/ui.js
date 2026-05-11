@@ -517,9 +517,7 @@ var UI = (function () {
     return (
       '<div class="itin-hosp-entry">' +
         '<span class="itin-activity-time">' + (entry.hora || '--:--') + '</span>' +
-        '<span class="itin-hosp-chip ' + chipCls + '">' + emoji + ' Hospedagem</span>' +
-        '<span class="itin-hosp-chip itin-hosp-chip-auto">Automático</span>' +
-        '<span class="itin-hosp-chip ' + chipCls + '">' + label + '</span>' +
+        '<span class="itin-hosp-chip ' + chipCls + '">' + emoji + ' ' + label + '</span>' +
         '<div class="itin-hosp-nome">' + (entry.nome || '') + '</div>' +
       '</div>'
     );
@@ -537,9 +535,9 @@ var UI = (function () {
       return renderAtividade(a, tripId);
     }).join('');
 
-    var countText = n === 0 ? 'Nenhuma' : n + ' atividade' + (n !== 1 ? 's' : '');
-    var vazio = n === 0 && trechos.length === 0 && hospEntradas.length === 0
-      ? '<div class="itin-empty-day">📭 Nenhuma atividade planejada para este dia.</div>'
+    var totalItens = n + trechos.length + hospEntradas.length;
+    var vazio = totalItens === 0
+      ? '<div class="itin-empty-day">📭 Sem itens planejados para este dia.</div>'
       : '';
 
     var hospHtml = hospEntradas.length
@@ -563,7 +561,6 @@ var UI = (function () {
             '<div class="itin-day-date">' + _formatarDataRoteiro(dia.data) + '</div>' +
             (dia.titulo ? '<div class="itin-day-titulo">' + dia.titulo + '</div>' : '') +
           '</div>' +
-          '<span class="itin-day-count">' + countText + '</span>' +
         '</div>' +        hospHtml +        trechosHtml +
         vazio + atividades +
         '<button class="itin-add-btn" onclick="AtividadeModal.abrir(\'' + tripId + '\',\'' + dia.data + '\')">' +
