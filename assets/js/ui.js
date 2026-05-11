@@ -493,32 +493,52 @@ var UI = (function () {
     var destino = String(trecho.destino || '?');
     var icones  = { carro: '🚗', moto: '🏍️', aviao: '✈️', onibus: '🚌', trem: '🚆', barco: '⛵', bicicleta: '🚲', caminhando: '🚶' };
     var ico     = icones[trecho.tipo] || '🚗';
-    var distStr = trecho.distanciaKm  ? (Number(trecho.distanciaKm).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' km') : '';
-    var durStr  = trecho.duracaoEstimada  ? trecho.duracaoEstimada : '';
-    var meta    = [distStr, durStr].filter(Boolean).join(' · ');
+
+    var dir = trecho.direction || trecho.direcao || '';
+    var titulo;
+    if (dir === 'ida') {
+      titulo = 'Ida · ' + destino;
+    } else if (dir === 'volta') {
+      titulo = 'Volta · ' + origem;
+    } else {
+      titulo = origem + ' → ' + destino;
+    }
+
+    var distStr = trecho.distanciaKm
+      ? (Number(trecho.distanciaKm).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' km')
+      : '';
+    var durStr = trecho.duracaoEstimada || '';
+    var sub    = [distStr, durStr].filter(Boolean).join(' · ');
+
     return (
-      '<div class="itin-rota-trecho">' +
-        '<div class="itin-rota-ico">' + ico + '</div>' +
-        '<div class="itin-rota-info">' +
-          '<div class="itin-rota-nome">' + origem + ' → ' + destino + '</div>' +
-          (meta ? '<div class="itin-rota-meta">' + meta + '</div>' : '') +
+      '<div class="itin-row rota-row">' +
+        '<div class="itin-row-icon">' + ico + '</div>' +
+        '<div class="itin-row-main">' +
+          '<div class="itin-row-title">' + titulo + '</div>' +
+          (sub ? '<div class="itin-row-sub">' + sub + '</div>' : '') +
         '</div>' +
-        '<a href="#/rotas" class="itin-rota-link" title="Ver rota">Ver rota</a>' +
+        '<div class="itin-row-action">' +
+          '<a href="#/rotas" class="itin-rota-link" title="Ver rota">Ver rota</a>' +
+        '</div>' +
       '</div>'
     );
   }
 
   // ---- Renderiza entrada de hospedagem (check-in/check-out) no roteiro ----
   function renderHospedagemEntry(entry) {
-    var isIn  = entry.tipo === 'check-in';
-    var emoji = isIn ? '🏨' : '🚪';
-    var label = isIn ? 'Check-in' : 'Check-out';
-    var chipCls = isIn ? 'itin-hosp-chip-in' : 'itin-hosp-chip-out';
+    var isIn    = entry.tipo === 'check-in';
+    var emoji   = isIn ? '🏨' : '🚪';
+    var label   = isIn ? 'Check-in' : 'Check-out';
+    var rowCls  = isIn ? 'hosp-in' : 'hosp-out';
+    var nome    = entry.nome ? ' · ' + entry.nome : '';
+    var hora    = entry.hora || '--:--';
     return (
-      '<div class="itin-hosp-entry">' +
-        '<span class="itin-activity-time">' + (entry.hora || '--:--') + '</span>' +
-        '<span class="itin-hosp-chip ' + chipCls + '">' + emoji + ' ' + label + '</span>' +
-        '<div class="itin-hosp-nome">' + (entry.nome || '') + '</div>' +
+      '<div class="itin-row ' + rowCls + '">' +
+        '<div class="itin-row-icon">' + emoji + '</div>' +
+        '<div class="itin-row-main">' +
+          '<div class="itin-row-title">' + label + nome + '</div>' +
+          '<div class="itin-row-sub">' + hora + '</div>' +
+        '</div>' +
       '</div>'
     );
   }
@@ -530,27 +550,22 @@ var UI = (function () {
     var hospEntradas = (dia.hospedagem || []).slice().sort(function (a, b) {
       return (a.hora || '').localeCompare(b.hora || '');
     });
-    var n = lista.length;
+
+    var totalItens = lista.length + trechos.length + hospEntradas.length;
+
+    var timelineItems = hospEntradas.map(renderHospedagemEntry).join('') +
+      trechos.map(function (t) { return renderTrechoNoRoteiro(t, tripId); }).join('');
+
+    var timelineHtml = timelineItems
+      ? '<div class="itin-timeline">' + timelineItems + '</div>'
+      : '';
+
     var atividades = lista.map(function (a) {
       return renderAtividade(a, tripId);
     }).join('');
 
-    var totalItens = n + trechos.length + hospEntradas.length;
     var vazio = totalItens === 0
       ? '<div class="itin-empty-day">📭 Sem itens planejados para este dia.</div>'
-      : '';
-
-    var hospHtml = hospEntradas.length
-      ? '<div class="itin-hosp-section">' +
-          hospEntradas.map(renderHospedagemEntry).join('') +
-        '</div>'
-      : '';
-
-    var trechosHtml = trechos.length
-      ? '<div class="itin-rotas-section">' +
-          '<div class="itin-rotas-label">🛣️ Rotas do dia</div>' +
-          trechos.map(function (t) { return renderTrechoNoRoteiro(t, tripId); }).join('') +
-        '</div>'
       : '';
 
     return (
@@ -561,8 +576,10 @@ var UI = (function () {
             '<div class="itin-day-date">' + _formatarDataRoteiro(dia.data) + '</div>' +
             (dia.titulo ? '<div class="itin-day-titulo">' + dia.titulo + '</div>' : '') +
           '</div>' +
-        '</div>' +        hospHtml +        trechosHtml +
-        vazio + atividades +
+        '</div>' +
+        timelineHtml +
+        vazio +
+        atividades +
         '<button class="itin-add-btn" onclick="AtividadeModal.abrir(\'' + tripId + '\',\'' + dia.data + '\')">' +
           '＋ Adicionar atividade' +
         '</button>' +

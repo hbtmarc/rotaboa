@@ -237,49 +237,69 @@
 .text-ok     { color: var(--color-success, #059669); }
 
 /* ---- Entradas de hospedagem no roteiro ---- */
-.itin-hosp-section {
-  border-left: 3px solid #8b5cf6;
-  padding-left: var(--space-3);
-  margin-bottom: var(--space-3);
+/* ---- Timeline unificada por dia (hospedagem + rotas) ---- */
+.itin-timeline {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
-.itin-hosp-entry {
+.itin-row {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: rgba(139 92 246 / 0.07);
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  min-height: 48px;
+  overflow: hidden;
+}
+
+.itin-row-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: var(--radius-lg);
+  background: var(--color-bg-alt);
 }
 
-.itin-hosp-chip {
-  font-size: 0.65rem;
-  font-weight: 700;
-  border-radius: var(--radius-full);
-  padding: 2px 8px;
-  white-space: nowrap;
+.itin-row-main {
+  flex: 1;
+  min-width: 0;
 }
 
-.itin-hosp-chip-in {
-  background: rgba(16 185 129 / 0.15);
-  color: #059669;
-}
-
-.itin-hosp-chip-out {
-  background: rgba(239 68 68 / 0.12);
-  color: #dc2626;
-}
-
-.itin-hosp-nome {
+.itin-row-title {
   font-size: var(--text-sm);
-  color: var(--color-text-primary);
-  font-weight: 500;
-  flex: 1 1 100%;
+  font-weight: 700;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
+.itin-row-sub {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.itin-row-action {
+  flex-shrink: 0;
+}
+
+/* Check-in: borda verde; Check-out: borda laranja; Rota: borda índigo */
+.itin-row.hosp-in  { border-left: 3px solid #10b981; }
+.itin-row.hosp-out { border-left: 3px solid #f97316; }
+.itin-row.rota-row { border-left: 3px solid #6366f1; }
 
 /* ---- Stat Card ---- */
 .stat-card {
@@ -1200,77 +1220,9 @@
   margin-top: 2px;
 }
 
-.itin-day-count {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--color-text-muted);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-full);
-  padding: 3px 10px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
+/* .itin-day-count removed — badge not shown */
 
-/* ---- Seção de rotas dentro de cada dia do roteiro ---- */
-.itin-rotas-section {
-  margin: 0 0 var(--space-3) 0;
-  padding: var(--space-3) var(--space-4);
-  background: var(--color-bg-alt);
-  border: 1px solid var(--color-border);
-  border-left: 4px solid #6366f1;
-  border-radius: var(--radius-xl);
-}
-
-.itin-rotas-label {
-  font-size: var(--text-xs);
-  font-weight: 700;
-  color: #6366f1;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: var(--space-2);
-}
-
-.itin-rota-trecho {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.itin-rota-trecho:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
-.itin-rota-ico {
-  font-size: 1.25rem;
-  flex-shrink: 0;
-  width: 28px;
-  text-align: center;
-}
-
-.itin-rota-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.itin-rota-nome {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.itin-rota-meta {
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-  margin-top: 2px;
-}
-
+/* ---- Link "Ver rota" dentro do itin-row ---- */
 .itin-rota-link {
   font-size: var(--text-xs);
   font-weight: 600;
@@ -1278,10 +1230,13 @@
   text-decoration: none;
   white-space: nowrap;
   flex-shrink: 0;
-  padding: 3px 8px;
+  padding: 5px 10px;
   border: 1px solid #c7d2fe;
   border-radius: var(--radius-full);
   background: #eef2ff;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
   transition: background 0.15s;
 }
 
@@ -1494,6 +1449,7 @@
   justify-content: center;
   gap: var(--space-2);
   width: 100%;
+  min-height: 44px;
   padding: var(--space-3) var(--space-4);
   background: transparent;
   border: 1.5px dashed #cbd5e1;
@@ -1586,6 +1542,27 @@
 
   .itin-activity {
     padding: var(--space-5);
+  }
+}
+
+/* ---- Mobile: safe-area e ajustes de timeline ---- */
+@media (max-width: 640px) {
+  .itin-day:last-child {
+    padding-bottom: env(safe-area-inset-bottom, 12px);
+  }
+
+  .itin-row {
+    border-radius: var(--radius-lg);
+  }
+
+  .itin-row-title {
+    font-size: var(--text-xs);
+  }
+
+  .itin-act-btn {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 6px 10px;
   }
 }
 /* ================================================================
