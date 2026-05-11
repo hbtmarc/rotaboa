@@ -13,6 +13,7 @@ var Store = (function () {
   var _LS_ITIN     = 'rotaboa.itineraries.v1';
   var _LS_EXPENSES = 'rotaboa.expenses.v1';
   var _LS_ROUTES   = 'rotaboa.routes.v1';
+  var _LS_GOOGLE_MAPS_API_KEY = 'rotaboa.googleMapsApiKey.v1';
   var _rotasLegacySemTripIdLogado = false;
 
   var _MOCK_TRIP_IDS = {
@@ -101,6 +102,60 @@ var Store = (function () {
     var arr = [];
     for (var i = 1; i <= n; i++) arr.push('Pessoa ' + i);
     return arr;
+  }
+
+  function _participantesAtivosComId(viagem) {
+    if (!viagem) return [];
+    if (Array.isArray(viagem.participantes)) {
+      var ativos = viagem.participantes
+        .filter(function (p) { return p && p.ativo !== false; })
+        .map(function (p) {
+          return {
+            id: String(p.id || ''),
+            nome: _normalizarNomeParticipante(p.nome),
+          };
+        })
+        .filter(function (p) { return p.id && p.nome; });
+      if (ativos.length > 0) return ativos;
+    }
+    var nomes = _nomesParticipantesAtivos(viagem);
+    return nomes.map(function (nome, idx) {
+      return { id: 'legacy-' + (idx + 1), nome: nome };
+    });
+  }
+
+  function _indiceParticipantesPorNome(viagem) {
+    var mapa = {};
+    _participantesAtivosComId(viagem).forEach(function (p) {
+      mapa[_normalizarNomeParticipante(p.nome).toLowerCase()] = p.id;
+    });
+    return mapa;
+  }
+
+  function _indiceParticipantesPorId(viagem) {
+    var mapa = {};
+    _participantesAtivosComId(viagem).forEach(function (p) {
+      mapa[p.id] = p.nome;
+    });
+    return mapa;
+  }
+
+  function _resolverParticipanteIdSeguro(viagem, valorEntrada, contextoAviso) {
+    var valor = String(valorEntrada || '').trim();
+    if (!valor) return '';
+    var porId = _indiceParticipantesPorId(viagem);
+    if (porId[valor]) return valor;
+
+    var porNome = _indiceParticipantesPorNome(viagem);
+    var idPorNome = porNome[_normalizarNomeParticipante(valor).toLowerCase()];
+    if (idPorNome) return idPorNome;
+
+    var ativos = _participantesAtivosComId(viagem);
+    if (ativos.length > 0) {
+      console.warn('[Store] Participante não encontrado para', contextoAviso || 'despesa', '-', valor, 'usando fallback seguro.');
+      return ativos[0].id;
+    }
+    return '';
   }
 
   function _limparViagensMockConhecidas(viagens) {
@@ -224,7 +279,32 @@ var Store = (function () {
     return dias;
   }
 
-  // ---- Carrega itinerários do localStorage ----
+  // Sincroniza os dias do itinerário ao novo período da viagem:
+  // - Adiciona dias que ainda não existem
+  // - Remove dias fora do novo intervalo (atividades são descartadas)
+  // - Reordena cronologicamente
+  function _sincronizarDiasItinerario(tripId, viagem) {
+    if (!viagem || !viagem.dataInicio || !viagem.dataFim) return;
+    if (!_itinerarios[tripId]) {
+      _itinerarios[tripId] = { dias: _gerarDias(viagem) };
+      return;
+    }
+    var diasNovos = _gerarDias(viagem);
+    var datasNovas = diasNovos.map(function (d) { return d.data; });
+    // Mantém dias que estão dentro do novo intervalo
+    var diasFiltrados = _itinerarios[tripId].dias.filter(function (d) {
+      return datasNovas.indexOf(d.data) !== -1;
+    });
+    // Adiciona dias que faltam (sem atividades)
+    var datasExistentes = diasFiltrados.map(function (d) { return d.data; });
+    diasNovos.forEach(function (dNovo) {
+      if (datasExistentes.indexOf(dNovo.data) === -1) {
+        diasFiltrados.push(dNovo);
+      }
+    });
+    diasFiltrados.sort(function (a, b) { return a.data.localeCompare(b.data); });
+    _itinerarios[tripId].dias = diasFiltrados;
+  }
   function _carregarItinerarios() {
     try {
       var raw = localStorage.getItem(_LS_ITIN);
@@ -431,6 +511,7 @@ var Store = (function () {
       custoTotal: _round2(custoTotal),
       custoPorPessoa: _round2(custoTotal / participantes),
       calculoModo: dados.calculoModo || 'manual',
+      routeSource: dados.routeSource || (dados.calculoModo === 'google' ? 'google' : 'manual'),
     });
   }
 
@@ -442,21 +523,31 @@ var Store = (function () {
     if (String(base.origem || '').trim().toLowerCase() === 'rota') delete base.origem;
 
     var viagem = _state.viagens.find(function (v) { return v.id === tripId; });
-    var participantesDisponiveis = _nomesParticipantesAtivos(viagem);
-    var participantesSet = {};
-    participantesDisponiveis.forEach(function (n) { participantesSet[n] = true; });
+    var participantesAtivos = _participantesAtivosComId(viagem);
+    var idsValidos = {};
+    participantesAtivos.forEach(function (p) { idsValidos[p.id] = true; });
 
-    var participantesRateio = Array.isArray(base.participantes)
-      ? base.participantes.map(function (n) { return _normalizarNomeParticipante(n); }).filter(Boolean)
-      : [];
-    participantesRateio = participantesRateio.filter(function (n, idx) {
-      return participantesSet[n] && participantesRateio.indexOf(n) === idx;
+    var quemPagouId = _resolverParticipanteIdSeguro(
+      viagem,
+      base.quemPagouId || base.quemPagou,
+      'quemPagou'
+    );
+
+    var entradaRateio = [];
+    if (Array.isArray(base.participantesRateioIds) && base.participantesRateioIds.length > 0) {
+      entradaRateio = base.participantesRateioIds.slice();
+    } else if (Array.isArray(base.participantes) && base.participantes.length > 0) {
+      entradaRateio = base.participantes.slice();
+    }
+
+    var participantesRateioIds = entradaRateio.map(function (entrada) {
+      return _resolverParticipanteIdSeguro(viagem, entrada, 'participantesRateioIds');
+    }).filter(Boolean).filter(function (id, idx, arr) {
+      return idsValidos[id] && arr.indexOf(id) === idx;
     });
-    if (participantesRateio.length === 0) participantesRateio = participantesDisponiveis.slice();
 
-    var quemPagou = _normalizarNomeParticipante(base.quemPagou);
-    if (!quemPagou || !participantesSet[quemPagou]) {
-      quemPagou = participantesDisponiveis[0] || '';
+    if (participantesRateioIds.length === 0) {
+      participantesRateioIds = participantesAtivos.map(function (p) { return p.id; });
     }
 
     var totalParcelas = Math.max(1, Math.floor(Number(base.totalParcelas) || 1));
@@ -480,8 +571,8 @@ var Store = (function () {
       descricao: String(base.descricao || '').trim(),
       valor: valorTotal,
       data: base.data || _hojeISO(),
-      quemPagou: quemPagou,
-      participantes: participantesRateio,
+      quemPagouId: quemPagouId,
+      participantesRateioIds: participantesRateioIds,
       observacoes: String(base.observacoes || '').trim(),
       tipoPagamento: totalParcelas > 1 ? 'parcelado' : 'avista',
       totalParcelas: totalParcelas,
@@ -508,8 +599,8 @@ var Store = (function () {
         descricao: 'Rota: ' + normalizado.origem + ' → ' + normalizado.destino,
         valor: total,
         data: trecho.data || _hojeISO(),
-        quemPagou: 'Rota',
-        participantes: _labelsParticipantes(tripId),
+        quemPagouId: '',
+        participantesRateioIds: _participantesAtivosComId(_state.viagens.find(function (v) { return v.id === tripId; })).map(function (p) { return p.id; }),
         observacoes: 'Gerado automaticamente pelo módulo de rotas.',
       };
     }).filter(Boolean);
@@ -548,6 +639,82 @@ var Store = (function () {
     return r + 'min';
   }
 
+  function _toCents(valor) {
+    return Math.round((Number(valor) || 0) * 100);
+  }
+
+  function _fromCents(valorCentavos) {
+    return _round2((Number(valorCentavos) || 0) / 100);
+  }
+
+  function _somarMes(iso, meses) {
+    var base = String(iso || _hojeISO());
+    var d = new Date(base + 'T12:00:00');
+    if (Number.isNaN(d.getTime())) d = new Date(_hojeISO() + 'T12:00:00');
+    d.setMonth(d.getMonth() + (Number(meses) || 0));
+    return d.toISOString().slice(0, 10);
+  }
+
+  function _chaveMes(iso) {
+    return String(iso || '').slice(0, 7);
+  }
+
+  function _labelMesPtBr(chave) {
+    var meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    var p = String(chave || '').split('-');
+    var ano = p[0] || '';
+    var mesIdx = Math.max(1, Math.min(12, Number(p[1]) || 1)) - 1;
+    return meses[mesIdx] + '/' + ano;
+  }
+
+  function _ratearCentavosComAjuste(totalCentavos, participantesIds) {
+    var ids = Array.isArray(participantesIds) ? participantesIds.slice() : [];
+    if (!ids.length) return {};
+    var total = Math.max(0, Math.round(Number(totalCentavos) || 0));
+    var base = Math.floor(total / ids.length);
+    var resto = total - (base * ids.length);
+    var out = {};
+    ids.forEach(function (id, idx) {
+      out[id] = base + (idx === ids.length - 1 ? resto : 0);
+    });
+    return out;
+  }
+
+  function _parcelasCentavosComAjuste(despesa) {
+    var totalParcelas = Math.max(1, Math.floor(Number(despesa.totalParcelas) || 1));
+    var totalCentavos = _toCents(despesa.valor);
+    if (totalParcelas === 1) return [totalCentavos];
+
+    var lista = [];
+    if (Array.isArray(despesa.parcelas) && despesa.parcelas.length === totalParcelas) {
+      lista = despesa.parcelas.map(function (v) { return _toCents(v); });
+      var somaLista = lista.reduce(function (acc, c) { return acc + c; }, 0);
+      var diff = totalCentavos - somaLista;
+      if (lista.length > 0 && diff !== 0) lista[lista.length - 1] += diff;
+      return lista;
+    }
+
+    var base = Math.floor(totalCentavos / totalParcelas);
+    for (var i = 0; i < totalParcelas; i++) {
+      lista.push(i === totalParcelas - 1
+        ? (totalCentavos - (base * (totalParcelas - 1)))
+        : base);
+    }
+    return lista;
+  }
+
+  function _inicializarMesParticipante(participante) {
+    return {
+      participanteId: participante.id,
+      nome: participante.nome,
+      pagouCents: 0,
+      suaParteCents: 0,
+      aReceberCents: 0,
+      aPagarCents: 0,
+      saldoCents: 0,
+    };
+  }
+
   var _itinerarios = _carregarItinerarios();
 
   // ---- Inicializa estado a partir do localStorage ----
@@ -581,7 +748,9 @@ var Store = (function () {
     roteiro: MockData.roteiro,        // Mock por enquanto — Prompt 3 tornará dinâmico
     financeiro: MockData.financeiro,  // idem
     rotas: {},
-    configuracoes: MockData.configuracoes,
+    configuracoes: Object.assign({}, MockData.configuracoes, {
+      googleMapsApiKey: localStorage.getItem(_LS_GOOGLE_MAPS_API_KEY) || '',
+    }),
     usuario: {
       nome: MockData.configuracoes.nomeUsuario,
       email: MockData.configuracoes.email,
@@ -595,6 +764,42 @@ var Store = (function () {
     _listeners.forEach(function (fn) { fn(_state); });
   }
 
+  function _enriquecerDespesaComNomes(tripId, despesa) {
+    var viagem = _state.viagens.find(function (v) { return v.id === tripId; });
+    var porId = _indiceParticipantesPorId(viagem);
+    var nomesRateio = (despesa.participantesRateioIds || []).map(function (id) {
+      return porId[id];
+    }).filter(Boolean);
+    var paganteNome = despesa.quemPagouId ? (porId[despesa.quemPagouId] || '') : '';
+
+    if (_isDespesaGeradaPorRota(despesa)) {
+      paganteNome = 'Rota';
+      if (nomesRateio.length === 0) {
+        nomesRateio = _nomesParticipantesAtivos(viagem);
+      }
+    }
+
+    return Object.assign({}, despesa, {
+      quemPagouNome: paganteNome,
+      participantesRateioNomes: nomesRateio,
+    });
+  }
+
+  function _migrarDespesasParaParticipantesId() {
+    var mudou = false;
+    Object.keys(_despesas || {}).forEach(function (tripId) {
+      if (!Array.isArray(_despesas[tripId])) return;
+      _despesas[tripId] = _despesas[tripId].map(function (d) {
+        if (!d || _isDespesaGeradaPorRota(d)) return d;
+        var normalizada = _normalizarDespesaManual(tripId, d, d.id);
+        var alterou = JSON.stringify(normalizada) !== JSON.stringify(d);
+        if (alterou) mudou = true;
+        return normalizada;
+      });
+    });
+    return mudou;
+  }
+
   function _marcarSyncPendente() {
     try {
       if (window.SyncService && typeof window.SyncService.markPendingSync === 'function') {
@@ -602,6 +807,9 @@ var Store = (function () {
       }
     } catch (e) {}
   }
+
+  var _despesasMigradas = _migrarDespesasParaParticipantesId();
+  if (_despesasMigradas) _salvarDespesas();
 
   // ---- API pública ----
   return {
@@ -621,6 +829,25 @@ var Store = (function () {
       }).slice();
     },
     getConfiguracoes:  function () { return _state.configuracoes; },
+
+    getGoogleMapsApiKey: function () {
+      return String((_state.configuracoes && _state.configuracoes.googleMapsApiKey) || localStorage.getItem(_LS_GOOGLE_MAPS_API_KEY) || '').trim();
+    },
+
+    setGoogleMapsApiKey: function (apiKey) {
+      var key = String(apiKey || '').trim();
+      _state.configuracoes = Object.assign({}, _state.configuracoes, {
+        googleMapsApiKey: key,
+      });
+      if (key) {
+        localStorage.setItem(_LS_GOOGLE_MAPS_API_KEY, key);
+      } else {
+        localStorage.removeItem(_LS_GOOGLE_MAPS_API_KEY);
+      }
+      _marcarSyncPendente();
+      _notificar();
+      return true;
+    },
 
     getViagemSelecionada: function () {
       if (!_state.viagens.length) return null;
@@ -679,7 +906,10 @@ var Store = (function () {
       _state.viagens[idx] = Object.assign({}, _state.viagens[idx], dados, {
         participantes: _normalizarListaParticipantes(participantesEntrada, participantesEntrada),
       });
+      // Sincroniza dias do itinerário com o novo período da viagem
+      _sincronizarDiasItinerario(id, _state.viagens[idx]);
       _salvarViagens();
+      _salvarItinerarios();
       _marcarSyncPendente();
       _notificar();
       return true;
@@ -727,7 +957,56 @@ var Store = (function () {
         });
         _itinerarios[tripId].dias.sort(function (a, b) { return a.data.localeCompare(b.data); });
       }
-      return _itinerarios[tripId];
+
+      // Injeta trechos de rota em cada dia (somente leitura — não persiste)
+      var trechosViagem = (_rotasTrechos[tripId] || []).filter(function (t) {
+        return t && t.tripId === tripId;
+      });
+      var trechosPorData = {};
+      trechosViagem.forEach(function (t) {
+        var d = t.data || '';
+        if (!d) return;
+        if (!trechosPorData[d]) trechosPorData[d] = [];
+        trechosPorData[d].push(t);
+      });
+
+      // Injeta entradas de hospedagem (check-in/check-out) por data — somente leitura
+      var despesasTrip = (_despesas[tripId] || []).filter(function (d) {
+        return d && d.tripId === tripId && d.categoria === 'hospedagem' && d.hospedagem;
+      });
+      var hospedagemPorData = {};
+      despesasTrip.forEach(function (d) {
+        var h = d.hospedagem;
+        if (h.checkInDate) {
+          if (!hospedagemPorData[h.checkInDate]) hospedagemPorData[h.checkInDate] = [];
+          hospedagemPorData[h.checkInDate].push({
+            tipo:      'check-in',
+            despesaId: d.id,
+            nome:      h.nome || d.descricao || '',
+            hora:      h.checkInTime  || '14:00',
+          });
+        }
+        if (h.checkOutDate) {
+          if (!hospedagemPorData[h.checkOutDate]) hospedagemPorData[h.checkOutDate] = [];
+          hospedagemPorData[h.checkOutDate].push({
+            tipo:      'check-out',
+            despesaId: d.id,
+            nome:      h.nome || d.descricao || '',
+            hora:      h.checkOutTime || '11:00',
+          });
+        }
+      });
+
+      var resultado = {
+        dias: _itinerarios[tripId].dias.map(function (dia) {
+          return Object.assign({}, dia, {
+            trechos:    (trechosPorData[dia.data]     || []).slice(),
+            hospedagem: (hospedagemPorData[dia.data]  || []).slice(),
+          });
+        }),
+      };
+
+      return resultado;
     },
 
     // Adiciona atividade a um dia específico (por data ISO)
@@ -830,7 +1109,9 @@ var Store = (function () {
         return d && d.tripId === tripId && !_isDespesaGeradaPorRota(d);
       }).slice();
       var virtuais = _gerarDespesasVirtuaisRotas(tripId);
-      var merged = manuais.concat(virtuais);
+      var merged = manuais.concat(virtuais).map(function (d) {
+        return _enriquecerDespesaComNomes(tripId, d);
+      });
       merged.sort(function (a, b) { return (b.data || '').localeCompare(a.data || ''); });
       return merged;
     },
@@ -941,6 +1222,182 @@ var Store = (function () {
       };
     },
 
+    getBalancoMensal: function (tripId) {
+      var viagem = _state.viagens.find(function (v) { return v.id === tripId; });
+      if (!viagem) return { meses: [], totaisPorParticipante: [] };
+
+      var participantes = _participantesAtivosComId(viagem);
+      if (!participantes.length) return { meses: [], totaisPorParticipante: [] };
+
+      var participantesPorId = {};
+      participantes.forEach(function (p) { participantesPorId[p.id] = p; });
+
+      var despesas = this.getDespesas(tripId);
+      var mapaMeses = {};
+
+      function garantirMes(chave) {
+        if (!mapaMeses[chave]) {
+          var participantesMes = {};
+          participantes.forEach(function (p) {
+            participantesMes[p.id] = _inicializarMesParticipante(p);
+          });
+          mapaMeses[chave] = {
+            chave: chave,
+            label: _labelMesPtBr(chave),
+            totalMesCents: 0,
+            participantesMap: participantesMes,
+            dividasMap: {},
+            despesas: [],
+          };
+        }
+        return mapaMeses[chave];
+      }
+
+      despesas.forEach(function (despesa) {
+        if (!despesa || !despesa.tripId || despesa.tripId !== tripId) return;
+
+        var dataBase = despesa.data || _hojeISO();
+        var parcelasCentavos = _parcelasCentavosComAjuste(despesa);
+        var rateioIds = Array.isArray(despesa.participantesRateioIds)
+          ? despesa.participantesRateioIds.filter(function (id, idx, arr) {
+              return participantesPorId[id] && arr.indexOf(id) === idx;
+            })
+          : [];
+        if (!rateioIds.length) {
+          rateioIds = participantes.map(function (p) { return p.id; });
+        }
+
+        var paganteId = (despesa.quemPagouId && participantesPorId[despesa.quemPagouId])
+          ? despesa.quemPagouId
+          : '';
+
+        parcelasCentavos.forEach(function (valorParcelaCentavos, idxParcela) {
+          var dataParcela = _somarMes(dataBase, idxParcela);
+          var chave = _chaveMes(dataParcela);
+          var mes = garantirMes(chave);
+
+          mes.totalMesCents += valorParcelaCentavos;
+          var cotas = _ratearCentavosComAjuste(valorParcelaCentavos, rateioIds);
+
+          Object.keys(cotas).forEach(function (pid) {
+            mes.participantesMap[pid].suaParteCents += cotas[pid];
+          });
+
+          if (paganteId) {
+            mes.participantesMap[paganteId].pagouCents += valorParcelaCentavos;
+            Object.keys(cotas).forEach(function (devedorId) {
+              if (devedorId === paganteId) return;
+              if (!mes.dividasMap[devedorId]) mes.dividasMap[devedorId] = {};
+              mes.dividasMap[devedorId][paganteId] = (mes.dividasMap[devedorId][paganteId] || 0) + cotas[devedorId];
+            });
+          } else {
+            Object.keys(cotas).forEach(function (pid) {
+              mes.participantesMap[pid].pagouCents += cotas[pid];
+            });
+          }
+
+          mes.despesas.push({
+            despesaId: despesa.id,
+            descricao: despesa.descricao,
+            categoria: despesa.categoria,
+            dataParcela: dataParcela,
+            parcelaAtual: idxParcela + 1,
+            totalParcelas: parcelasCentavos.length,
+            valorParcela: _fromCents(valorParcelaCentavos),
+            quemPagouId: paganteId,
+            participantesRateioIds: rateioIds.slice(),
+          });
+        });
+      });
+
+      var meses = Object.keys(mapaMeses).sort().map(function (chave) {
+        var mes = mapaMeses[chave];
+        var dividas = mes.dividasMap;
+
+        Object.keys(dividas).forEach(function (deId) {
+          Object.keys(dividas[deId] || {}).forEach(function (paraId) {
+            var valor = dividas[deId][paraId] || 0;
+            if (valor <= 0) return;
+            if (mes.participantesMap[deId]) mes.participantesMap[deId].aPagarCents += valor;
+            if (mes.participantesMap[paraId]) mes.participantesMap[paraId].aReceberCents += valor;
+          });
+        });
+
+        var participantesMes = Object.keys(mes.participantesMap).map(function (pid) {
+          var p = mes.participantesMap[pid];
+          p.saldoCents = p.aReceberCents - p.aPagarCents;
+          return {
+            participanteId: p.participanteId,
+            nome: p.nome,
+            pagou: _fromCents(p.pagouCents),
+            suaParte: _fromCents(p.suaParteCents),
+            aReceber: _fromCents(p.aReceberCents),
+            aPagar: _fromCents(p.aPagarCents),
+            saldo: _fromCents(p.saldoCents),
+          };
+        }).sort(function (a, b) { return a.nome.localeCompare(b.nome); });
+
+        var acertos = [];
+        Object.keys(dividas).forEach(function (deId) {
+          Object.keys(dividas[deId] || {}).forEach(function (paraId) {
+            var valor = dividas[deId][paraId] || 0;
+            if (valor <= 0) return;
+            acertos.push({
+              deId: deId,
+              paraId: paraId,
+              deNome: (participantesPorId[deId] && participantesPorId[deId].nome) || 'Participante',
+              paraNome: (participantesPorId[paraId] && participantesPorId[paraId].nome) || 'Participante',
+              valor: _fromCents(valor),
+            });
+          });
+        });
+
+        return {
+          chave: mes.chave,
+          label: mes.label,
+          totalMes: _fromCents(mes.totalMesCents),
+          participantes: participantesMes,
+          acertos: acertos,
+          despesas: mes.despesas,
+        };
+      });
+
+      var totaisMap = {};
+      participantes.forEach(function (p) {
+        totaisMap[p.id] = _inicializarMesParticipante(p);
+      });
+
+      meses.forEach(function (mes) {
+        mes.participantes.forEach(function (p) {
+          var t = totaisMap[p.participanteId];
+          if (!t) return;
+          t.pagouCents += _toCents(p.pagou);
+          t.suaParteCents += _toCents(p.suaParte);
+          t.aReceberCents += _toCents(p.aReceber);
+          t.aPagarCents += _toCents(p.aPagar);
+        });
+      });
+
+      var totaisPorParticipante = Object.keys(totaisMap).map(function (pid) {
+        var t = totaisMap[pid];
+        t.saldoCents = t.aReceberCents - t.aPagarCents;
+        return {
+          participanteId: t.participanteId,
+          nome: t.nome,
+          pagou: _fromCents(t.pagouCents),
+          suaParte: _fromCents(t.suaParteCents),
+          aReceber: _fromCents(t.aReceberCents),
+          aPagar: _fromCents(t.aPagarCents),
+          saldo: _fromCents(t.saldoCents),
+        };
+      }).sort(function (a, b) { return a.nome.localeCompare(b.nome); });
+
+      return {
+        meses: meses,
+        totaisPorParticipante: totaisPorParticipante,
+      };
+    },
+
     // ================================================================
     // Rotas por viagem
     // ================================================================
@@ -997,6 +1454,35 @@ var Store = (function () {
 
     excluirTrecho: function (tripId, trechoId) {
       return this.excluirTrechoRota(tripId, trechoId);
+    },
+
+    // Exclui todos os trechos de um grupo ida/volta
+    excluirTrechosPorGrupo: function (tripId, groupId) {
+      if (!tripId || !groupId) return false;
+      if (!_rotasTrechos[tripId]) return false;
+      var antes = _rotasTrechos[tripId].length;
+      _rotasTrechos[tripId] = _rotasTrechos[tripId].filter(function (t) {
+        return !(t && t.tripId === tripId && t.roundTripGroupId === groupId);
+      });
+      if (_rotasTrechos[tripId].length === antes) return false;
+      _salvarRotas();
+      _marcarSyncPendente();
+      _notificar();
+      return true;
+    },
+
+    // Retorna o trecho irmão (volta↔ida) de um grupo round-trip
+    getTrechoIrmao: function (tripId, trechoId) {
+      if (!tripId || !trechoId || !_rotasTrechos[tripId]) return null;
+      var trecho = null;
+      _rotasTrechos[tripId].forEach(function (t) { if (t && t.id === trechoId) trecho = t; });
+      if (!trecho || !trecho.roundTripGroupId) return null;
+      var groupId = trecho.roundTripGroupId;
+      var irmao = null;
+      _rotasTrechos[tripId].forEach(function (t) {
+        if (t && t.id !== trechoId && t.roundTripGroupId === groupId) irmao = t;
+      });
+      return irmao;
     },
 
     getResumoRotas: function (tripId) {

@@ -11,6 +11,7 @@ var RB_LOCAL_KEYS = {
   itineraries: 'rotaboa.itineraries.v1',
   expenses: 'rotaboa.expenses.v1',
   routes: 'rotaboa.routes.v1',
+  googleMapsApiKey: 'rotaboa.googleMapsApiKey.v1',
 };
 var RB_OFFLINE_KEY = 'rotaboa.offlineMode.v1';
 var RB_SYNC_STATUS_KEY = 'rotaboa.sync.status.v1';
@@ -223,6 +224,73 @@ function _guardAcessoRotas(caminho) {
   return '#/login';
 }
 
+// ================================================================
+// _DTWidget — Widget de data/hora cross-platform (sem input nativo)
+// ================================================================
+var _DTWidget = (function () {
+  var _MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  function _pad(n) { return n < 10 ? '0' + n : String(n); }
+  function _parseISO(iso) {
+    if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+    var p = iso.split('-');
+    return { y: p[0], m: p[1], d: p[2] };
+  }
+
+  function renderData(id, valorISO) {
+    var parsed = _parseISO(valorISO);
+    var curD = parsed ? parsed.d : '';
+    var curM = parsed ? parsed.m : '';
+    var curY = parsed ? parsed.y : '';
+    var anoAtual = new Date().getFullYear();
+    var dayOpts = '<option value="">Dia</option>';
+    for (var d = 1; d <= 31; d++) { var dv = _pad(d); dayOpts += '<option value="' + dv + '"' + (dv === curD ? ' selected' : '') + '>' + d + '</option>'; }
+    var mesOpts = '<option value="">Mês</option>';
+    _MESES.forEach(function (m, i) { var mv = _pad(i + 1); mesOpts += '<option value="' + mv + '"' + (mv === curM ? ' selected' : '') + '>' + m + '</option>'; });
+    var anoOpts = '<option value="">Ano</option>';
+    for (var y = anoAtual - 1; y <= anoAtual + 5; y++) { var yv = String(y); anoOpts += '<option value="' + yv + '"' + (yv === curY ? ' selected' : '') + '>' + y + '</option>'; }
+    return '<div class="dt-date-widget">' +
+      '<select id="' + id + '-d" class="form-select dt-sel dt-sel-dia">' + dayOpts + '</select>' +
+      '<select id="' + id + '-m" class="form-select dt-sel dt-sel-mes">' + mesOpts + '</select>' +
+      '<select id="' + id + '-y" class="form-select dt-sel dt-sel-ano">' + anoOpts + '</select>' +
+    '</div>';
+  }
+
+  function lerData(id) {
+    var d = document.getElementById(id + '-d');
+    var m = document.getElementById(id + '-m');
+    var y = document.getElementById(id + '-y');
+    if (!d || !m || !y || !d.value || !m.value || !y.value) return '';
+    return y.value + '-' + m.value + '-' + d.value;
+  }
+
+  function renderHora(id, valor) {
+    var curH = '', curMin = '';
+    if (valor && /^\d{2}:\d{2}/.test(String(valor))) {
+      curH = String(valor).slice(0, 2);
+      var minN = Math.round(Number(String(valor).slice(3, 5)) / 5) * 5;
+      curMin = _pad(minN >= 60 ? 55 : minN);
+    }
+    var horaOpts = '<option value="">Hora</option>';
+    for (var h = 0; h < 24; h++) { var hv = _pad(h); horaOpts += '<option value="' + hv + '"' + (hv === curH ? ' selected' : '') + '>' + hv + 'h</option>'; }
+    var minOpts = '<option value="">Min</option>';
+    for (var mi = 0; mi < 60; mi += 5) { var mv = _pad(mi); minOpts += '<option value="' + mv + '"' + (mv === curMin ? ' selected' : '') + '>' + mv + '</option>'; }
+    return '<div class="dt-time-widget">' +
+      '<select id="' + id + '-h" class="form-select dt-sel">' + horaOpts + '</select>' +
+      '<span class="dt-time-sep">:</span>' +
+      '<select id="' + id + '-min" class="form-select dt-sel">' + minOpts + '</select>' +
+    '</div>';
+  }
+
+  function lerHora(id) {
+    var h = document.getElementById(id + '-h');
+    var m = document.getElementById(id + '-min');
+    if (!h || !m || !h.value || !m.value) return '';
+    return h.value + ':' + m.value;
+  }
+
+  return { renderData: renderData, lerData: lerData, renderHora: renderHora, lerHora: lerHora };
+})();
+
 function _lerPreferencias() {
   try {
     var raw = localStorage.getItem(RB_PREFS_KEY);
@@ -425,6 +493,20 @@ function _contarParticipantesAtivos(viagem) {
   return Math.max(1, Number(viagem.participantes) || 1);
 }
 
+function _nomesParticipantesAtivos(viagem) {
+  if (!viagem) return [];
+  if (Array.isArray(viagem.participantes)) {
+    return viagem.participantes
+      .filter(function (p) { return p && p.ativo !== false; })
+      .map(function (p) { return String(p.nome || '').trim(); })
+      .filter(Boolean);
+  }
+  var qtd = Math.max(1, Number(viagem.participantes) || 1);
+  var lista = [];
+  for (var i = 1; i <= qtd; i++) lista.push('Pessoa ' + i);
+  return lista;
+}
+
 // ==== PÁGINA: Início ====
 function paginaInicio(params, container) {
   var viagem = Store.getViagemSelecionada();
@@ -460,6 +542,7 @@ function paginaInicio(params, container) {
   var resumoFinanceiro = Store.getResumoFinanceiro(viagem.id);
   var resumoRotas = Store.getResumoRotas(viagem.id);
   var proximas = Store.getProximasAtividades(viagem.id, 3);
+  var nomesParticipantesSelecionada = _nomesParticipantesAtivos(viagem);
   var loc = viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '';
 
   var totalOrcamento = 0;
@@ -546,6 +629,7 @@ function paginaInicio(params, container) {
             '<div style="min-width:0">' +
               '<div class="font-semibold" style="font-size:var(--text-lg)">' + viagem.nome + '</div>' +
               '<div class="text-sm text-secondary">📍 ' + loc + '</div>' +
+              '<div class="text-xs text-secondary" style="margin-top:var(--space-1)">👥 ' + (nomesParticipantesSelecionada.length ? nomesParticipantesSelecionada.join(', ') : 'Sem participantes ativos') + '</div>' +
               '<div class="text-xs text-secondary" style="margin-top:var(--space-1)">📅 ' + _fmtData(viagem.dataInicio) + ' → ' + _fmtData(viagem.dataFim) + '</div>' +
             '</div>' +
             '<span class="badge ' + UI.badgeStatus(viagem.status) + '">' + UI.textoStatus(viagem.status) + '</span>' +
@@ -650,7 +734,11 @@ function paginaViagens(params, container) {
     );
   } else {
     conteudoCards = viaigensFiltradas.map(function (v) {
-      return UI.renderTripCard(v, selectedId);
+      var resumoAtual = Store.getResumoFinanceiro(v.id);
+      var viagemAtualizada = Object.assign({}, v, {
+        gastoAtualCalculado: Number(resumoAtual.totalGasto) || 0,
+      });
+      return UI.renderTripCard(viagemAtualizada, selectedId);
     }).join('');
   }
 
@@ -699,6 +787,7 @@ function paginaViagemDetalhe(params, container) {
   var pct = resFinanceiro.pct;
   var proximas = Store.getProximasAtividades(id, 3);
   var resRotas = Store.getResumoRotas(id);
+  var nomesParticipantesViagem = _nomesParticipantesAtivos(viagem);
 
   // Bloco de prévia do roteiro
   var previewRoteiro;
@@ -741,6 +830,7 @@ function paginaViagemDetalhe(params, container) {
         '<div style="display:flex;flex-wrap:wrap;gap:var(--space-2);margin-bottom:var(--space-4)">' +
           (viagem.tags || []).map(function (t) { return '<span class="chip">' + t + '</span>'; }).join('') +
           '<span class="chip">👥 ' + _contarParticipantesAtivos(viagem) + ' pessoas</span>' +
+          (nomesParticipantesViagem.length ? '<span class="chip">' + nomesParticipantesViagem.join(', ') + '</span>' : '') +
         '</div>' +
         '<div>' +
           '<div style="display:flex;justify-content:space-between;margin-bottom:var(--space-2)">' +
@@ -885,7 +975,9 @@ function paginaFinanceiro(params, container) {
   }
 
   var res  = Store.getResumoFinanceiro(viagem.id);
+  var balancoMensal = Store.getBalancoMensal(viagem.id);
   var desp = res.despesas;
+  var nomesParticipantesFinanceiro = _nomesParticipantesAtivos(viagem);
   var loc  = viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '';
   var avisoSync = _renderAvisoSincronizacao();
 
@@ -904,6 +996,7 @@ function paginaFinanceiro(params, container) {
         '<div class="fin-trip-meta">' +
           '<span>💰 Orçamento: <strong>' + UI.formatarMoeda(res.orcamento) + '</strong></span>' +
           '<span>🧾 ' + desp.length + ' despesa' + (desp.length !== 1 ? 's' : '') + '</span>' +
+          (nomesParticipantesFinanceiro.length ? '<span>👥 ' + nomesParticipantesFinanceiro.join(', ') + '</span>' : '') +
         '</div>' +
       '</div>' +
       '<button type="button" class="btn btn-ghost btn-sm fin-trip-troca" title="Trocar viagem" onclick="TripSwitcher.abrir()">⇄ Trocar viagem</button>' +
@@ -948,6 +1041,146 @@ function paginaFinanceiro(params, container) {
     );
   }
 
+  var secBalancoMensal = '';
+  var detalhesBalanco = window._finBalancoDetalhes || {};
+  var mostrarOutrosMeses = !!window._finBalancoOutrosMeses;
+  var config = Store.getConfiguracoes() || {};
+  var nomeUsuarioPreferencial = String(config.nomeUsuario || _nomeUsuarioAuth(RB_AUTH_STATE && RB_AUTH_STATE.user) || '').trim();
+
+  function _mesAtualChave() {
+    var hoje = new Date();
+    var mes = String(hoje.getMonth() + 1).padStart(2, '0');
+    return String(hoje.getFullYear()) + '-' + mes;
+  }
+
+  function _somaAcertos(mes) {
+    return (mes.acertos || []).reduce(function (acc, a) {
+      return acc + (Number(a.valor) || 0);
+    }, 0);
+  }
+
+  function _principalAcerto(mes) {
+    if (!mes.acertos || !mes.acertos.length) return null;
+    var sorted = mes.acertos.slice().sort(function (a, b) { return (Number(b.valor) || 0) - (Number(a.valor) || 0); });
+    return sorted[0] || null;
+  }
+
+  function _normalizarNome(nome) {
+    return String(nome || '').trim().toLowerCase();
+  }
+
+  function _participanteFoco(mes) {
+    var participantes = (mes && mes.participantes) || [];
+    if (!participantes.length) return null;
+    var alvo = _normalizarNome(nomeUsuarioPreferencial);
+    if (alvo) {
+      var encontrado = participantes.find(function (p) {
+        return _normalizarNome(p.nome) === alvo;
+      });
+      if (encontrado) return encontrado;
+    }
+    return participantes[0];
+  }
+
+  function _ordenarMesesDesc(meses) {
+    return (meses || []).slice().sort(function (a, b) {
+      return String(b.chave || '').localeCompare(String(a.chave || ''));
+    });
+  }
+
+  function _renderMesCard(mes, destaqueAtual) {
+    var totalAcertar = _somaAcertos(mes);
+    var acertoPrincipal = _principalAcerto(mes);
+    var participanteFoco = _participanteFoco(mes);
+    var detalhesAbertos = !!detalhesBalanco[mes.chave];
+
+    var acertosDetalhe = mes.acertos.length
+      ? (
+        '<div class="fin-acertos-list">' +
+          mes.acertos.map(function (a) {
+            return '<div class="expense-row"><span class="text-sm text-secondary">' + a.deNome + ' → ' + a.paraNome + '</span><strong>' + UI.formatarMoeda(a.valor) + '</strong></div>';
+          }).join('') +
+        '</div>'
+      )
+      : '<div class="text-sm text-secondary">Sem acertos sugeridos neste mês.</div>';
+
+    var parcelasMes = mes.despesas.length
+      ? ('<div class="fin-acertos-list">' + mes.despesas.map(function (d) {
+          var refParcela = d.parcelaAtual + '/' + d.totalParcelas;
+          return '<div class="expense-row"><span class="text-sm text-secondary">' + d.descricao + ' · parcela ' + refParcela + '</span><strong>' + UI.formatarMoeda(d.valorParcela) + '</strong></div>';
+        }).join('') + '</div>')
+      : '<div class="text-sm text-secondary">Sem parcelas neste mês.</div>';
+
+    return (
+      '<div class="card fin-bm-card' + (destaqueAtual ? ' fin-bm-card-atual' : '') + '">' +
+        '<div class="card-body">' +
+          '<div class="fin-bm-top">' +
+            '<div class="fin-bm-title-wrap">' +
+              '<div class="fin-bm-title">' + mes.label + '</div>' +
+              (destaqueAtual ? '<div class="fin-bm-subtitle">Mês atual em destaque</div>' : '') +
+            '</div>' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-bm-toggle="' + mes.chave + '">' + (detalhesAbertos ? 'Ocultar detalhes' : 'Ver detalhes') + '</button>' +
+          '</div>' +
+          '<div class="fin-bm-kpi-grid">' +
+            '<div class="fin-bm-kpi"><span>Sua parte</span><strong>' + UI.formatarMoeda(participanteFoco ? participanteFoco.suaParte : 0) + '</strong></div>' +
+            '<div class="fin-bm-kpi"><span>Você pagou</span><strong>' + UI.formatarMoeda(participanteFoco ? participanteFoco.pagou : 0) + '</strong></div>' +
+            '<div class="fin-bm-kpi"><span>A receber</span><strong>' + UI.formatarMoeda(participanteFoco ? participanteFoco.aReceber : 0) + '</strong></div>' +
+            '<div class="fin-bm-kpi"><span>A pagar</span><strong>' + UI.formatarMoeda(participanteFoco ? participanteFoco.aPagar : 0) + '</strong></div>' +
+            '<div class="fin-bm-kpi fin-bm-kpi-highlight"><span>Acerto sugerido</span><strong>' + (acertoPrincipal ? (acertoPrincipal.deNome + ' → ' + acertoPrincipal.paraNome + ' · ' + UI.formatarMoeda(acertoPrincipal.valor)) : 'Sem acertos') + '</strong></div>' +
+          '</div>' +
+          '<div class="fin-bm-foot">Total do mês: <strong>' + UI.formatarMoeda(mes.totalMes) + '</strong> · Total a acertar: <strong>' + UI.formatarMoeda(totalAcertar) + '</strong></div>' +
+          '<div class="fin-bm-details' + (detalhesAbertos ? ' aberto' : '') + '">' +
+            '<div class="font-semibold" style="margin:var(--space-3) 0 var(--space-2)">Participantes (detalhe)</div>' +
+            '<div class="fin-acertos-list">' +
+              mes.participantes.map(function (p) {
+                return '<div class="expense-row"><span class="text-sm text-secondary">' + p.nome + '</span><strong>Sua parte ' + UI.formatarMoeda(p.suaParte) + ' · Pagou ' + UI.formatarMoeda(p.pagou) + ' · A receber ' + UI.formatarMoeda(p.aReceber) + ' · A pagar ' + UI.formatarMoeda(p.aPagar) + ' · Saldo ' + UI.formatarMoeda(p.saldo) + '</strong></div>';
+              }).join('') +
+            '</div>' +
+            '<div class="font-semibold" style="margin:var(--space-3) 0 var(--space-2)">Parcelas no mês</div>' +
+            parcelasMes +
+            '<div class="font-semibold" style="margin:var(--space-3) 0 var(--space-2)">Acertos sugeridos</div>' +
+            acertosDetalhe +
+          '</div>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  var mesesOrdenados = _ordenarMesesDesc(balancoMensal.meses);
+  var chaveMesAtual = _mesAtualChave();
+  var mesAtual = mesesOrdenados.find(function (mes) { return mes.chave === chaveMesAtual; }) || mesesOrdenados[0] || null;
+  var outrosMeses = mesesOrdenados.filter(function (mes) {
+    return mesAtual ? mes.chave !== mesAtual.chave : true;
+  });
+
+  if (!balancoMensal.meses.length) {
+    secBalancoMensal = (
+      UI.renderSectionHeader('Balanço mensal', '', '') +
+      '<div class="card" style="margin-bottom:var(--space-5)">' +
+        '<div class="card-body">' +
+          '<div class="fin-empty" style="padding:var(--space-5)">Nenhum compromisso mensal encontrado.</div>' +
+        '</div>' +
+      '</div>'
+    );
+  } else {
+    secBalancoMensal = (
+      UI.renderSectionHeader('Balanço mensal', '', '') +
+      '<div class="fin-balanco-list" style="margin-bottom:var(--space-5)">' +
+        (mesAtual ? _renderMesCard(mesAtual, true) : '<div class="card"><div class="card-body"><div class="fin-empty" style="padding:var(--space-5)">Nenhum compromisso mensal encontrado.</div></div></div>') +
+        (outrosMeses.length
+          ? (
+            '<div class="fin-bm-others">' +
+              '<button type="button" class="btn btn-ghost btn-sm" data-bm-toggle-outros="1">' + (mostrarOutrosMeses ? 'Ocultar outros meses' : 'Ver outros meses') + '</button>' +
+              '<div class="fin-bm-others-list' + (mostrarOutrosMeses ? ' aberto' : '') + '">' +
+                outrosMeses.map(function (mes) { return _renderMesCard(mes, false); }).join('') +
+              '</div>' +
+            '</div>'
+          )
+          : '') +
+      '</div>'
+    );
+  }
+
   var listaDesp;
   if (desp.length === 0) {
     listaDesp = (
@@ -977,12 +1210,29 @@ function paginaFinanceiro(params, container) {
       kpis +
       barraGlobal +
       secCategorias +
+      secBalancoMensal +
       UI.renderSectionHeader('Despesas', '', '') +
       listaDesp +
     '</div>'
   );
 
   container.innerHTML = html;
+
+  container.querySelectorAll('[data-bm-toggle]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var chave = btn.getAttribute('data-bm-toggle');
+      if (!window._finBalancoDetalhes) window._finBalancoDetalhes = {};
+      window._finBalancoDetalhes[chave] = !window._finBalancoDetalhes[chave];
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+  });
+
+  container.querySelectorAll('[data-bm-toggle-outros]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      window._finBalancoOutrosMeses = !window._finBalancoOutrosMeses;
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+  });
 }
 
 // ==== PÁGINA: Rotas ====
@@ -1077,6 +1327,8 @@ function paginaRotas(params, container) {
 function paginaConfiguracoes(params, container) {
   var sync = SyncService.getSyncStatus();
   var prefs = _lerPreferencias();
+  var mapsKey = (window.Store && typeof Store.getGoogleMapsApiKey === 'function') ? Store.getGoogleMapsApiKey() : '';
+  var mapsConfigurado = !!String(mapsKey || '').trim();
   var avisoSync = _renderAvisoSincronizacao();
 
   function _esc(str) {
@@ -1150,6 +1402,20 @@ function paginaConfiguracoes(params, container) {
           '</div>' +
           '<input id="cfg-backup-input" type="file" accept="application/json" style="display:none" onchange="ConfigActions.processarArquivoBackup(event)">' +
           '<div id="cfg-backup-status" class="text-xs text-muted" style="margin-top:var(--space-3)"></div>' +
+        '</div>' +
+      '</div>' +
+
+      // Integrações
+      '<div class="card" style="margin-bottom:var(--space-5)">' +
+        '<div class="card-header"><span class="font-semibold">🗺️ Integrações</span></div>' +
+        '<div class="card-body">' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="cfg-google-maps-key">Chave Google Maps</label>' +
+            '<input id="cfg-google-maps-key" class="form-input" type="password" autocomplete="off" placeholder="Cole sua chave aqui" value="' + _esc(mapsKey) + '">' +
+            '<div class="text-xs text-muted" style="margin-top:var(--space-2)">' + (mapsConfigurado ? 'Google Maps configurado' : 'Google Maps não configurado') + '</div>' +
+          '</div>' +
+          '<button class="btn btn-primary btn-sm" onclick="ConfigActions.salvarGoogleMapsKey()">Salvar Google Maps</button>' +
+          '<div id="cfg-maps-status" class="text-xs text-muted" style="margin-top:var(--space-3)"></div>' +
         '</div>' +
       '</div>' +
 
@@ -1245,6 +1511,13 @@ var ConfigActions = {
 
   _statusPrefs: function (msg, erro) {
     var el = document.getElementById('cfg-pref-status');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.color = erro ? 'var(--color-danger)' : 'var(--color-text-muted)';
+  },
+
+  _statusMaps: function (msg, erro) {
+    var el = document.getElementById('cfg-maps-status');
     if (!el) return;
     el.textContent = msg || '';
     el.style.color = erro ? 'var(--color-danger)' : 'var(--color-text-muted)';
@@ -1369,6 +1642,24 @@ var ConfigActions = {
 
     this._statusPrefs('Preferências salvas neste dispositivo.', false);
     _mostrarToast('Preferências salvas.');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  },
+
+  salvarGoogleMapsKey: function () {
+    var input = document.getElementById('cfg-google-maps-key');
+    var key = input ? String(input.value || '').trim() : '';
+    if (window.Store && typeof Store.setGoogleMapsApiKey === 'function') {
+      Store.setGoogleMapsApiKey(key);
+    } else {
+      localStorage.setItem('rotaboa.googleMapsApiKey.v1', key);
+    }
+
+    if (window.MapsService && typeof MapsService.init === 'function') {
+      MapsService.init().catch(function () {});
+    }
+
+    this._statusMaps(key ? 'Google Maps configurado.' : 'Google Maps não configurado.', false);
+    _mostrarToast(key ? 'Google Maps configurado.' : 'Google Maps desativado.');
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   },
 
@@ -1576,15 +1867,15 @@ var TripModal = (function () {
         '</select>' +
       '</div>' +
 
-      '<div class="form-row">' +
+      '<div class="form-row form-row-datas">' +
         '<div class="form-group">' +
-          '<label class="form-label form-label-required" for="f-inicio">Data de início</label>' +
-          '<input id="f-inicio" class="form-input" type="date" value="' + _esc(val('dataInicio')) + '">' +
+          '<label class="form-label form-label-required">Data de início</label>' +
+          _DTWidget.renderData('f-inicio', val('dataInicio')) +
           '<span class="form-error" id="e-inicio">Data de início obrigatória.</span>' +
         '</div>' +
         '<div class="form-group">' +
-          '<label class="form-label form-label-required" for="f-fim">Data de fim</label>' +
-          '<input id="f-fim" class="form-input" type="date" value="' + _esc(val('dataFim')) + '">' +
+          '<label class="form-label form-label-required">Data de fim</label>' +
+          _DTWidget.renderData('f-fim', val('dataFim')) +
           '<span class="form-error" id="e-fim">Data de fim obrigatória.</span>' +
         '</div>' +
       '</div>' +
@@ -1599,10 +1890,11 @@ var TripModal = (function () {
 
       '<div class="form-group">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-2)">' +
-          '<label class="form-label">Participantes</label>' +
-          '<button type="button" class="btn btn-ghost btn-sm" onclick="TripModal.adicionarParticipante()">+ Adicionar</button>' +
+          '<label class="form-label">Participantes da viagem</label>' +
+          '<button type="button" class="btn btn-ghost btn-sm" onclick="TripModal.adicionarParticipante()">+ Adicionar participante</button>' +
         '</div>' +
         '<div id="trip-partic-list" style="display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-2)"></div>' +
+        '<span class="text-xs text-muted" style="margin-top:4px;display:block">Esses nomes serão usados no financeiro e no rateio.</span>' +
         '<span class="form-error" id="e-partic">Inclua participantes válidos.</span>' +
       '</div>' +
 
@@ -1704,13 +1996,13 @@ var TripModal = (function () {
     var locCurta = document.getElementById('f-loc-curta');
     if (!locCurta || !locCurta.value.trim()) { _erro('loc-curta', true); ok = false; }
 
-    var inicio = document.getElementById('f-inicio');
-    if (!inicio || !inicio.value) { _erro('inicio', true); ok = false; }
+    var inicioVal = _DTWidget.lerData('f-inicio');
+    if (!inicioVal) { _erro('inicio', true); ok = false; }
 
-    var fim = document.getElementById('f-fim');
-    if (!fim || !fim.value) { _erro('fim', true); ok = false; }
+    var fimVal = _DTWidget.lerData('f-fim');
+    if (!fimVal) { _erro('fim', true); ok = false; }
 
-    if (inicio && inicio.value && fim && fim.value && fim.value < inicio.value) {
+    if (inicioVal && fimVal && fimVal < inicioVal) {
       var errFim = document.getElementById('e-fim');
       if (errFim) errFim.textContent = 'A data de fim não pode ser antes da data de início.';
       _erro('fim', true);
@@ -1720,24 +2012,24 @@ var TripModal = (function () {
     var orc = document.getElementById('f-orc');
     if (!orc || !orc.value || Number(orc.value) <= 0) { _erro('orc', true); ok = false; }
 
-    var nomes = _participantesDraft.map(function (p) {
+    var ativosLista = _participantesDraft.filter(function (p) { return p && p.ativo !== false; });
+    var nomesAtivos = ativosLista.map(function (p) {
       return String((p && p.nome) || '').trim();
     });
-    if (!nomes.length || nomes.some(function (n) { return !n; })) {
-      _erroParticipantes(true, 'Preencha o nome de todos os participantes.');
+    if (!nomesAtivos.length) {
+      _erroParticipantes(true, 'Mantenha ao menos 1 participante ativo.');
       ok = false;
     }
 
-    var nomesNorm = nomes.map(function (n) { return n.toLowerCase(); });
+    if (nomesAtivos.some(function (n) { return !n; })) {
+      _erroParticipantes(true, 'Preencha o nome de todos os participantes ativos.');
+      ok = false;
+    }
+
+    var nomesNorm = nomesAtivos.map(function (n) { return n.toLowerCase(); });
     var unico = nomesNorm.every(function (n, idx) { return nomesNorm.indexOf(n) === idx; });
     if (!unico) {
-      _erroParticipantes(true, 'Não repita nomes de participantes.');
-      ok = false;
-    }
-
-    var ativos = _participantesDraft.filter(function (p) { return p && p.ativo !== false; }).length;
-    if (ativos === 0) {
-      _erroParticipantes(true, 'Mantenha ao menos um participante ativo.');
+      _erroParticipantes(true, 'Não repita nomes entre participantes ativos.');
       ok = false;
     }
 
@@ -1815,8 +2107,8 @@ var TripModal = (function () {
         localizacaoCurta:  locCurta,
         destino:           locCurta || destPrincipal, // compatibilidade retroativa
         status:            document.getElementById('f-status').value,
-        dataInicio:    document.getElementById('f-inicio').value,
-        dataFim:       document.getElementById('f-fim').value,
+        dataInicio:    _DTWidget.lerData('f-inicio'),
+        dataFim:       _DTWidget.lerData('f-fim'),
         orcamento:     Number(document.getElementById('f-orc').value),
         participantes: _participantesDraft.map(function (p) {
           return {
@@ -1841,9 +2133,6 @@ var TripModal = (function () {
       var hash = window.location.hash || '#/viagens';
       // Força re-renderização mesmo que o hash não mude
       window.dispatchEvent(new HashChangeEvent('hashchange'));
-      if (!hash.includes('/viagens') && !hash.includes('/inicio')) {
-        Router.navegar('#/viagens');
-      }
     },
   };
 })();
@@ -2140,8 +2429,8 @@ var AtividadeModal = (function () {
       '<div class="form-row">' +
         // Horário
         '<div class="form-group">' +
-          '<label class="form-label form-label-required" for="af-hora">Horário</label>' +
-          '<input id="af-hora" class="form-input" type="time" value="' + _esc(ativ.hora) + '">' +
+          '<label class="form-label form-label-required">Horário</label>' +
+          _DTWidget.renderHora('af-hora', ativ.hora) +
           '<span class="form-error" id="ae-hora">Informe o horário.</span>' +
         '</div>' +
         // Status
@@ -2218,8 +2507,7 @@ var AtividadeModal = (function () {
     var dia = document.getElementById('af-dia');
     if (!dia || !dia.value) { _erro('dia', true); ok = false; }
 
-    var hora = document.getElementById('af-hora');
-    if (!hora || !hora.value) { _erro('hora', true); ok = false; }
+    if (!_DTWidget.lerHora('af-hora')) { _erro('hora', true); ok = false; }
 
     var nome = document.getElementById('af-nome');
     if (!nome || !nome.value.trim()) { _erro('nome', true); ok = false; }
@@ -2293,7 +2581,7 @@ var AtividadeModal = (function () {
 
       var dados = {
         data:           document.getElementById('af-dia').value,
-        hora:           document.getElementById('af-hora').value,
+        hora:           _DTWidget.lerHora('af-hora'),
         nome:           document.getElementById('af-nome').value.trim(),
         categoria:      document.getElementById('af-cat').value,
         local:          document.getElementById('af-local').value.trim(),
@@ -2412,22 +2700,27 @@ var DespesaModal = (function () {
     if (Array.isArray(viagem.participantes)) {
       return viagem.participantes
         .filter(function (p) { return p && p.ativo !== false; })
-        .map(function (p) { return String(p.nome || '').trim(); })
-        .filter(Boolean);
+        .map(function (p) {
+          return {
+            id: String(p.id || ''),
+            nome: String(p.nome || '').trim(),
+          };
+        })
+        .filter(function (p) { return p.id && p.nome; });
     }
     var qtd = Math.max(1, Number(viagem.participantes) || 1);
     var lista = [];
-    for (var i = 1; i <= qtd; i++) lista.push('Pessoa ' + i);
+    for (var i = 1; i <= qtd; i++) lista.push({ id: 'legacy-' + i, nome: 'Pessoa ' + i });
     return lista;
   }
 
   function _checkboxesPartic(participantesAtivos, selecionados) {
     var checks = '';
-    participantesAtivos.forEach(function (nome) {
-      var checked = (!selecionados || selecionados.length === 0 || selecionados.indexOf(nome) !== -1) ? ' checked' : '';
+    participantesAtivos.forEach(function (participante) {
+      var checked = (!selecionados || selecionados.length === 0 || selecionados.indexOf(participante.id) !== -1) ? ' checked' : '';
       checks += (
         '<label class="desp-check-label">' +
-          '<input type="checkbox" name="df-partic" value="' + _esc(nome) + '"' + checked + '> ' + _esc(nome) +
+          '<input type="checkbox" name="df-partic" value="' + _esc(participante.id) + '"' + checked + '> ' + _esc(participante.nome) +
         '</label>'
       );
     });
@@ -2435,11 +2728,12 @@ var DespesaModal = (function () {
   }
 
   function _selectPagante(participantesAtivos, atual) {
-    var opcoes = participantesAtivos.map(function (nome) {
-      return '<option value="' + _esc(nome) + '"' + (nome === atual ? ' selected' : '') + '>' + _esc(nome) + '</option>';
+    var opcoes = participantesAtivos.map(function (participante) {
+      return '<option value="' + _esc(participante.id) + '"' + (participante.id === atual ? ' selected' : '') + '>' + _esc(participante.nome) + '</option>';
     }).join('');
-    if (atual && participantesAtivos.indexOf(atual) === -1) {
-      opcoes += '<option value="' + _esc(atual) + '" selected>' + _esc(atual) + ' (participante removido)</option>';
+    var existe = participantesAtivos.some(function (participante) { return participante.id === atual; });
+    if (atual && !existe) {
+      opcoes += '<option value="' + _esc(atual) + '" selected>Participante não encontrado</option>';
     }
     return opcoes;
   }
@@ -2461,21 +2755,13 @@ var DespesaModal = (function () {
     return (
       '<div class="form-row">' +
         '<div class="form-group">' +
-          '<label class="form-label form-label-required" for="df-data">Data</label>' +
-          '<input id="df-data" class="form-input" type="date" value="' + _esc(desp.data || '') + '">' +
+          '<label class="form-label form-label-required">Data</label>' +
+          _DTWidget.renderData('df-data', desp.data || '') +
           '<span class="form-error" id="de-data">Informe a data.</span>' +
         '</div>' +
         '<div class="form-group">' +
           '<label class="form-label form-label-required" for="df-cat">Categoria</label>' +
-          '<select id="df-cat" class="form-select">' +
-            '<option value="">Selecione...</option>' +
-            _cats.map(function (c) { return _opt(c[0], c[1], desp.categoria); }).join('') +
-          '</select>' +
-          '<span class="form-error" id="de-cat">Selecione uma categoria.</span>' +
-        '</div>' +
-      '</div>' +
-
-      '<div class="form-group">' +
+          '<select id="df-cat" class="form-select" onchange="DespesaModal._onCatChange()">' +
         '<label class="form-label form-label-required" for="df-desc">Descrição</label>' +
         '<input id="df-desc" class="form-input" type="text" maxlength="120" placeholder="Ex: Almoço no restaurante" value="' + _esc(desp.descricao) + '">' +
         '<span class="form-error" id="de-desc">Descrição é obrigatória.</span>' +
@@ -2491,7 +2777,7 @@ var DespesaModal = (function () {
           '<label class="form-label form-label-required" for="df-pagante">Quem pagou</label>' +
           '<select id="df-pagante" class="form-select">' +
             '<option value="">Selecione...</option>' +
-            _selectPagante(participantesAtivos, desp.quemPagou) +
+            _selectPagante(participantesAtivos, desp.quemPagouId) +
           '</select>' +
           '<span class="form-error" id="de-pagante">Informe quem pagou.</span>' +
         '</div>' +
@@ -2514,14 +2800,53 @@ var DespesaModal = (function () {
 
       '<div class="form-group">' +
         '<label class="form-label">Participantes no rateio</label>' +
-        '<div class="desp-check-grid">' + _checkboxesPartic(participantesAtivos, desp.participantes) + '</div>' +
+        '<div class="desp-check-grid">' + _checkboxesPartic(participantesAtivos, desp.participantesRateioIds) + '</div>' +
         '<span class="text-xs text-muted" style="margin-top:4px;display:block">Padrão: todos selecionados.</span>' +
       '</div>' +
 
       '<div class="form-group">' +
         '<label class="form-label" for="df-obs">Observações</label>' +
         '<textarea id="df-obs" class="form-textarea" maxlength="300" placeholder="Detalhes ou observações...">' + _esc(desp.observacoes) + '</textarea>' +
-      '</div>'
+      '</div>' +
+
+      // Bloco de Hospedagem — visível somente quando categoria = hospedagem
+      (function () {
+        var h = desp.hospedagem || {};
+        var isHosp = desp.categoria === 'hospedagem';
+        return (
+          '<div id="df-hosp-extra" style="display:' + (isHosp ? '' : 'none') + ';border-top:1px solid var(--color-border);margin-top:var(--space-3);padding-top:var(--space-3)">' +
+            '<div class="form-group">' +
+              '<label class="form-label" for="df-hosp-nome">Nome/local da hospedagem</label>' +
+              '<input id="df-hosp-nome" class="form-input" type="text" maxlength="120" placeholder="Ex: Pousada Serra Verde" value="' + _esc(h.nome || desp.descricao) + '">' +
+            '</div>' +
+            '<div class="form-row">' +
+              '<div class="form-group">' +
+                '<label class="form-label form-label-required">Check-in (data)</label>' +
+                _DTWidget.renderData('df-ci-data', h.checkInDate || '') +
+                '<span class="form-error" id="de-ci-data">Informe a data do check-in.</span>' +
+              '</div>' +
+              '<div class="form-group">' +
+                '<label class="form-label form-label-required">Check-in (hora)</label>' +
+                _DTWidget.renderHora('df-ci-hora', h.checkInTime || '14:00') +
+                '<span class="form-error" id="de-ci-hora">Informe o horário do check-in.</span>' +
+              '</div>' +
+            '</div>' +
+            '<div class="form-row">' +
+              '<div class="form-group">' +
+                '<label class="form-label form-label-required">Check-out (data)</label>' +
+                _DTWidget.renderData('df-co-data', h.checkOutDate || '') +
+                '<span class="form-error" id="de-co-data">Informe a data do check-out.</span>' +
+              '</div>' +
+              '<div class="form-group">' +
+                '<label class="form-label form-label-required">Check-out (hora)</label>' +
+                _DTWidget.renderHora('df-co-hora', h.checkOutTime || '11:00') +
+                '<span class="form-error" id="de-co-hora">Informe o horário do check-out.</span>' +
+              '</div>' +
+            '</div>' +
+            '<span class="form-error" id="de-hosp-order">O check-out deve ser após o check-in.</span>' +
+          '</div>'
+        );
+      })()
     );
   }
 
@@ -2540,13 +2865,18 @@ var DespesaModal = (function () {
   }
 
   function _limparErros() {
-    ['data', 'cat', 'desc', 'valor', 'pagante'].forEach(function (k) { _erro(k, false); });
+    ['data', 'cat', 'desc', 'valor', 'pagante', 'ci-data', 'ci-hora', 'co-data', 'co-hora', 'hosp-order'].forEach(function (k) { _erro(k, false); });
+  }
+
+  function _isHospedagem() {
+    var cat = document.getElementById('df-cat');
+    return cat && cat.value === 'hospedagem';
   }
 
   function _validar() {
     _limparErros();
     var ok = true;
-    if (!document.getElementById('df-data').value) { _erro('data', true); ok = false; }
+    if (!_DTWidget.lerData('df-data')) { _erro('data', true); ok = false; }
     if (!document.getElementById('df-cat').value)  { _erro('cat', true);  ok = false; }
     var desc = document.getElementById('df-desc');
     if (!desc || !desc.value.trim()) { _erro('desc', true); ok = false; }
@@ -2569,6 +2899,27 @@ var DespesaModal = (function () {
       _erro('pagante', true, 'Selecione ao menos 1 participante no rateio.');
       ok = false;
     }
+
+    // Validação extra para Hospedagem
+    if (_isHospedagem()) {
+      var ciData = _DTWidget.lerData('df-ci-data');
+      var ciHora = _DTWidget.lerHora('df-ci-hora');
+      var coData = _DTWidget.lerData('df-co-data');
+      var coHora = _DTWidget.lerHora('df-co-hora');
+      if (!ciData) { _erro('ci-data', true); ok = false; }
+      if (!ciHora) { _erro('ci-hora', true); ok = false; }
+      if (!coData) { _erro('co-data', true); ok = false; }
+      if (!coHora) { _erro('co-hora', true); ok = false; }
+      if (ciData && coData && ciHora && coHora) {
+        var ciStamp = ciData + 'T' + ciHora;
+        var coStamp = coData + 'T' + coHora;
+        if (coStamp <= ciStamp) {
+          _erro('hosp-order', true, 'O check-out deve ser após o check-in.');
+          ok = false;
+        }
+      }
+    }
+
     return ok;
   }
 
@@ -2615,6 +2966,7 @@ var DespesaModal = (function () {
       document.getElementById('desp-modal-save').textContent  = despesaId ? 'Salvar alterações' : 'Salvar despesa';
       document.getElementById('desp-modal-body').innerHTML    = _renderForm(viagem, desp || {});
       this.alterarPagamento();
+      this._onCatChange();
       _overlay.classList.add('aberto');
       document.body.style.overflow = 'hidden';
       var f = document.getElementById('df-desc');
@@ -2634,16 +2986,34 @@ var DespesaModal = (function () {
         ? Math.max(2, Math.floor(Number(document.getElementById('df-parcelas').value) || 2))
         : 1;
       var dados = {
-        data:         document.getElementById('df-data').value,
+        data:         _DTWidget.lerData('df-data'),
         categoria:    document.getElementById('df-cat').value,
         descricao:    document.getElementById('df-desc').value.trim(),
         valor:        Number(document.getElementById('df-valor').value),
-        quemPagou:    document.getElementById('df-pagante').value.trim(),
-        participantes: _coletarPartic(),
+        quemPagouId:  document.getElementById('df-pagante').value.trim(),
+        participantesRateioIds: _coletarPartic(),
         observacoes:  document.getElementById('df-obs').value.trim(),
         tipoPagamento: modo,
         totalParcelas: totalParcelas,
       };
+      // Coleta dados de hospedagem se aplicável
+      if (dados.categoria === 'hospedagem') {
+        var hospNome  = document.getElementById('df-hosp-nome');
+        var ciData   = _DTWidget.lerData('df-ci-data');
+        var ciHora   = _DTWidget.lerHora('df-ci-hora');
+        var coData   = _DTWidget.lerData('df-co-data');
+        var coHora   = _DTWidget.lerHora('df-co-hora');
+        dados.hospedagem = {
+          nome:        (hospNome ? hospNome.value.trim() : '') || dados.descricao,
+          checkInDate: ciData  || '',
+          checkInTime: ciHora  || '',
+          checkOutDate: coData || '',
+          checkOutTime: coHora || '',
+        };
+      } else {
+        dados.hospedagem = null;
+      }
+
       if (_despesaId) {
         Store.editarDespesa(_tripId, _despesaId, dados);
       } else {
@@ -2651,6 +3021,12 @@ var DespesaModal = (function () {
       }
       DespesaModal.fechar();
       window.dispatchEvent(new HashChangeEvent('hashchange'));
+    },
+
+    _onCatChange: function () {
+      var extra = document.getElementById('df-hosp-extra');
+      if (!extra) return;
+      extra.style.display = _isHospedagem() ? '' : 'none';
     },
   };
 })();
@@ -2731,6 +3107,10 @@ var TrechoModal = (function () {
   var _overlay = null;
   var _tripId = null;
   var _trechoId = null;
+  var _routeSourceAtual = 'manual';
+  var _origemPlace = null;
+  var _destinoPlace = null;
+  var _smController = null;
 
   var _tipos = [
     ['aereo', 'Aéreo ✈️'],
@@ -2779,9 +3159,49 @@ var TrechoModal = (function () {
     return '<option value="' + val + '"' + (val === atual ? ' selected' : '') + '>' + label + '</option>';
   }
 
-  function _renderForm(t) {
+  function _diasViagem(tripId) {
+    var viagem = Store.getViagemSelecionada ? Store.getViagemSelecionada() : null;
+    // Garante que seja a viagem correta
+    if (!viagem || viagem.id !== tripId) {
+      var lista = Store.getViagens ? Store.getViagens() : [];
+      viagem = lista.find(function (v) { return v.id === tripId; }) || null;
+    }
+    if (!viagem || !viagem.dataInicio || !viagem.dataFim) return [];
+    var dias = [];
+    var atual = new Date(viagem.dataInicio + 'T12:00:00');
+    var fim   = new Date(viagem.dataFim   + 'T12:00:00');
+    var meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    while (atual <= fim) {
+      var iso = atual.toISOString().slice(0, 10);
+      var partes = iso.split('-');
+      var label = partes[2] + ' ' + meses[Number(partes[1]) - 1] + ' ' + partes[0];
+      dias.push({ iso: iso, label: label });
+      atual.setDate(atual.getDate() + 1);
+    }
+    return dias;
+  }
+
+  function _renderForm(t, tripId) {
     t = t || {};
+    var dias = _diasViagem(tripId || _tripId);
+    var dataAtual = t.data || '';
+    var dataSel = dias.length
+      ? ('<div class="form-group" style="margin-bottom:var(--space-4)">' +
+          '<label class="form-label" for="rf-data">Data do trecho <span style="font-size:var(--text-xs);color:var(--color-text-muted);font-weight:400">(aparece no Roteiro)</span></label>' +
+          '<select id="rf-data" class="form-select">' +
+            '<option value="">— Sem data —</option>' +
+            dias.map(function (d) {
+              return '<option value="' + d.iso + '"' + (d.iso === dataAtual ? ' selected' : '') + '>' + d.label + '</option>';
+            }).join('') +
+          '</select>' +
+        '</div>')
+      : ('<div class="form-group" style="margin-bottom:var(--space-4)">' +
+          '<label class="form-label" for="rf-data">Data do trecho</label>' +
+          _DTWidget.renderData('rf-data', dataAtual) +
+          '<span class="form-hint" style="font-size:var(--text-xs);color:var(--color-text-muted)">Defina datas de início e fim na viagem para ver os dias disponíveis.</span>' +
+        '</div>');
     return (
+      dataSel +
       '<div class="form-row">' +
         '<div class="form-group">' +
           '<label class="form-label form-label-required" for="rf-origem">Origem</label>' +
@@ -2839,7 +3259,30 @@ var TrechoModal = (function () {
       '<div class="form-group">' +
         '<label class="form-label" for="rf-obs">Observações</label>' +
         '<textarea id="rf-obs" class="form-textarea" maxlength="300" placeholder="Observações do trecho...">' + _esc(t.observacoes) + '</textarea>' +
-      '</div>'
+      '</div>' +
+
+      // "Adicionar volta" — única em criação
+      (!_trechoId
+        ? ('<hr style="border:none;border-top:1px solid var(--color-border);margin:var(--space-4) 0">' +
+           '<div class="form-group">' +
+             '<label class="form-label" style="display:flex;align-items:center;gap:var(--space-2);cursor:pointer">' +
+               '<input type="checkbox" id="rf-volta-check" onchange="TrechoModal._onVoltaToggle()" style="width:16px;height:16px;cursor:pointer"> ' +
+               'Adicionar segmento de volta (Destino → Origem)' +
+             '</label>' +
+             '<div id="rf-volta-extra" style="display:none;margin-top:var(--space-3)">' +
+               '<div class="form-group" style="margin-bottom:var(--space-3)">' +
+                 '<label class="form-label" for="rf-volta-data">Data da volta</label>' +
+                 (dias.length
+                   ? ('<select id="rf-volta-data" class="form-select">' +
+                      '<option value="">— Sem data —</option>' +
+                      dias.map(function (d) { return '<option value="' + d.iso + '">' + d.label + '</option>'; }).join('') +
+                      '</select>')
+                   : _DTWidget.renderData('rf-volta-data', '')) +
+               '</div>' +
+               '<div class="rota-volta-preview" id="rf-volta-preview" style="display:none"></div>' +
+             '</div>' +
+           '</div>')
+        : '')
     );
   }
 
@@ -2858,7 +3301,7 @@ var TrechoModal = (function () {
   }
 
   function _limparErros() {
-    ['origem', 'destino', 'tipo', 'dist', 'consumo', 'preco', 'fixo'].forEach(function (k) { _erro(k, false); });
+    ['origem', 'destino', 'tipo', 'dist', 'consumo', 'preco', 'fixo', 'data'].forEach(function (k) { _erro(k, false); });
   }
 
   function _validar() {
@@ -2895,9 +3338,86 @@ var TrechoModal = (function () {
           if (t.id === _trechoId) trecho = t;
         });
       }
+      _routeSourceAtual = (trecho && trecho.routeSource) ? trecho.routeSource : 'manual';
+      _origemPlace = trecho && trecho.origemPlaceId
+        ? { label: trecho.origem || '', placeId: trecho.origemPlaceId }
+        : null;
+      _destinoPlace = trecho && trecho.destinoPlaceId
+        ? { label: trecho.destino || '', placeId: trecho.destinoPlaceId }
+        : null;
       document.getElementById('trecho-modal-title').textContent = trechoId ? 'Editar trecho' : 'Novo trecho';
       document.getElementById('trecho-modal-save').textContent = trechoId ? 'Salvar alterações' : 'Salvar trecho';
-      document.getElementById('trecho-modal-body').innerHTML = _renderForm(trecho || {});
+      document.getElementById('trecho-modal-body').innerHTML = _renderForm(trecho || {}, tripId);
+
+      _smController = null;
+
+      function _setSaveDisabled(dis) {
+        var btn = document.getElementById('trecho-modal-save');
+        if (btn) btn.disabled = !!dis;
+      }
+
+      function _setStatus(tipo) {
+        if (tipo === 'calculando') {
+          _setSaveDisabled(true);
+        } else {
+          _setSaveDisabled(false);
+        }
+      }
+
+      if (window.MapsService && typeof MapsService.bindSmartRouteInputs === 'function' && MapsService.hasApiKey()) {
+        var origemInput = document.getElementById('rf-origem');
+        var destinoInput = document.getElementById('rf-destino');
+        var tipoSelect = document.getElementById('rf-tipo');
+
+        // Atualizar preview de volta quando origem/destino mudarem
+        function _onTrajetoChange() { TrechoModal._updateVoltaPreview(); }
+        if (origemInput) origemInput.addEventListener('input', _onTrajetoChange);
+        if (destinoInput) destinoInput.addEventListener('input', _onTrajetoChange);
+
+        _smController = MapsService.bindSmartRouteInputs({
+          originInput:      origemInput,
+          destinationInput: destinoInput,
+          getTipo: function () {
+            return tipoSelect ? tipoSelect.value : '';
+          },
+          onCalculating: function () {
+            _routeSourceAtual = 'google';
+            _setStatus('calculando');
+          },
+          onRouteComputed: function (res) {
+            _routeSourceAtual = 'google';
+            _origemPlace  = _smController ? _smController.getOriginPlace()      : null;
+            _destinoPlace = _smController ? _smController.getDestinationPlace() : null;
+            var dist = document.getElementById('rf-dist');
+            var dur  = document.getElementById('rf-dur');
+            if (dist) dist.value = String(res.distanceKm  || '');
+            if (dur)  dur.value  = String(res.durationText || '');
+            _setStatus('ok');
+          },
+          onError: function (msg) {
+            _routeSourceAtual = 'manual';
+            _origemPlace  = _smController ? _smController.getOriginPlace()      : null;
+            _destinoPlace = _smController ? _smController.getDestinationPlace() : null;
+            _setStatus('erro', msg);
+          },
+          onManual: function () {
+            _routeSourceAtual = 'manual';
+            _origemPlace  = null;
+            _destinoPlace = null;
+            var tipo = tipoSelect ? tipoSelect.value : '';
+            var supported = tipo && window.MapsService && MapsService.travelModeForTipo(tipo);
+            _setStatus(tipo && !supported ? 'manual' : 'hint');
+          },
+        });
+
+        // Tipo change → retrigger
+        if (tipoSelect) {
+          tipoSelect.addEventListener('change', function () {
+            if (_smController) _smController.retrigger();
+          });
+        }
+      }
+
       _overlay.classList.add('aberto');
       document.body.style.overflow = 'hidden';
       var f = document.getElementById('rf-origem');
@@ -2908,38 +3428,181 @@ var TrechoModal = (function () {
       _overlay.classList.remove('aberto');
       document.body.style.overflow = '';
       _tripId = _trechoId = null;
+      _routeSourceAtual = 'manual';
+      _origemPlace = null;
+      _destinoPlace = null;
+      if (_smController) { _smController.reset(); _smController = null; }
+      var btn = document.getElementById('trecho-modal-save');
+      if (btn) btn.disabled = false;
     },
 
     salvar: function () {
       if (!_validar()) return;
+      var saveBtn = document.getElementById('trecho-modal-save');
+      if (saveBtn && saveBtn.disabled) return; // cálculo em andamento
+
+      // Capture local copies before fechar() nullifies the module state
+      var tripId   = _tripId;
+      var trechoId = _trechoId;
+      var routeSource  = _routeSourceAtual || 'manual';
+      var origemPlace  = _origemPlace;
+      var destinoPlace = _destinoPlace;
 
       var dados = {
         origem: document.getElementById('rf-origem').value.trim(),
         destino: document.getElementById('rf-destino').value.trim(),
         tipo: document.getElementById('rf-tipo').value,
+        data: (function() { var el = document.getElementById('rf-data'); return el ? el.value : _DTWidget.lerData('rf-data'); })(),
         distanciaKm: Number(document.getElementById('rf-dist').value) || 0,
         duracaoEstimada: document.getElementById('rf-dur').value.trim(),
         consumoKmL: Number(document.getElementById('rf-consumo').value) || 0,
         precoCombustivelLitro: Number(document.getElementById('rf-preco').value) || 0,
         custoFixo: Number(document.getElementById('rf-fixo').value) || 0,
         observacoes: document.getElementById('rf-obs').value.trim(),
+        routeSource: routeSource,
+        calculoModo: (routeSource === 'google' ? 'google' : 'manual'),
+        origemPlaceId:  origemPlace  && origemPlace.placeId  ? origemPlace.placeId  : '',
+        destinoPlaceId: destinoPlace && destinoPlace.placeId ? destinoPlace.placeId : '',
       };
 
-      if (_trechoId) {
-        Store.editarTrechoRota(_tripId, _trechoId, dados);
-      } else {
-        Store.adicionarTrechoRota(_tripId, dados);
+      // Read return-trip fields before closing modal
+      var voltaCheck  = document.getElementById('rf-volta-check');
+      var comVolta    = !trechoId && voltaCheck && voltaCheck.checked;
+      var voltaDataEl = document.getElementById('rf-volta-data');
+      var voltaData   = voltaDataEl ? voltaDataEl.value : (_DTWidget ? _DTWidget.lerData('rf-volta-data') : '');
+
+      // Close modal immediately — UI state cleared after this line
+      TrechoModal.fechar();
+
+      if (trechoId) {
+        Store.editarTrechoRota(tripId, trechoId, dados);
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+        return;
       }
 
-      TrechoModal.fechar();
+      if (comVolta) {
+        // Shared group id for ida + volta
+        var groupId = 'rtg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        var dadosIda = Object.assign({}, dados, { direction: 'ida', roundTripGroupId: groupId });
+
+        // Return segment base data (reversed origin/destination)
+        var dadosVolta = {
+          origem:              dados.destino,
+          destino:             dados.origem,
+          tipo:                dados.tipo,
+          data:                voltaData || '',
+          distanciaKm:         dados.distanciaKm,
+          duracaoEstimada:     dados.duracaoEstimada,
+          consumoKmL:          dados.consumoKmL,
+          precoCombustivelLitro: dados.precoCombustivelLitro,
+          custoFixo:           dados.custoFixo,
+          observacoes:         dados.observacoes,
+          routeSource:         'manualFallback',
+          calculoModo:         'manual',
+          origemPlaceId:       dados.destinoPlaceId || '',
+          destinoPlaceId:      dados.origemPlaceId  || '',
+          direction:           'volta',
+          roundTripGroupId:    groupId,
+        };
+
+        // Save outbound first (synchronous)
+        Store.adicionarTrechoRota(tripId, dadosIda);
+
+        // Try to auto-compute reverse route via Google Maps
+        var canComputeReverse = routeSource === 'google' &&
+          destinoPlace && destinoPlace.placeId &&
+          origemPlace  && origemPlace.placeId  &&
+          window.MapsService && typeof MapsService.computeRoute === 'function' &&
+          MapsService.travelModeForTipo(dados.tipo);
+
+        if (canComputeReverse) {
+          MapsService.computeRoute({
+            origin:               destinoPlace.label,
+            destination:          origemPlace.label,
+            originPlaceId:        destinoPlace.placeId,
+            destinationPlaceId:   origemPlace.placeId,
+            travelMode:           MapsService.travelModeForTipo(dados.tipo),
+          }).then(function (res) {
+            if (res && res.distanceKm != null) {
+              dadosVolta.distanciaKm     = res.distanceKm;
+              dadosVolta.duracaoEstimada = res.durationText || '';
+              dadosVolta.routeSource     = 'google';
+              dadosVolta.calculoModo     = 'google';
+            }
+            Store.adicionarTrechoRota(tripId, dadosVolta);
+            window.dispatchEvent(new HashChangeEvent('hashchange'));
+          }).catch(function () {
+            // Fallback: copy outbound values, mark as manualFallback
+            Store.adicionarTrechoRota(tripId, dadosVolta);
+            window.dispatchEvent(new HashChangeEvent('hashchange'));
+          });
+          // Dispatch for outbound card to appear immediately; volta will re-render on resolve
+          window.dispatchEvent(new HashChangeEvent('hashchange'));
+          return;
+        }
+
+        // No Google Maps available — save both synchronously
+        Store.adicionarTrechoRota(tripId, dadosVolta);
+      } else {
+        Store.adicionarTrechoRota(tripId, dados);
+      }
+
       window.dispatchEvent(new HashChangeEvent('hashchange'));
+    },
+
+    _onVoltaToggle: function () {
+      var chk = document.getElementById('rf-volta-check');
+      var extra = document.getElementById('rf-volta-extra');
+      if (!chk || !extra) return;
+      extra.style.display = chk.checked ? '' : 'none';
+      TrechoModal._updateVoltaPreview();
+    },
+
+    _updateVoltaPreview: function () {
+      var previewDiv = document.getElementById('rf-volta-preview');
+      if (!previewDiv) return;
+      var origemEl = document.getElementById('rf-origem');
+      var destinoEl = document.getElementById('rf-destino');
+      var origem = origemEl ? origemEl.value.trim() : '';
+      var destino = destinoEl ? destinoEl.value.trim() : '';
+      if (!destino || !origem) { previewDiv.style.display = 'none'; return; }
+      previewDiv.style.display = '';
+      previewDiv.textContent = '↩ Volta: ' + destino + ' → ' + origem;
     },
   };
 })();
 
 // ================================================================
+// ================================================================
 // TrechoActions — Ações nos cards de trecho
 // ================================================================
+
+// Mini-dialog de escolha para round-trip (ida e volta)
+function _abrirRoundTripDialog(titulo, desc, labelSo, labelTodos, cbSo, cbTodos) {
+  var existente = document.getElementById('_rt-dialog-overlay');
+  if (existente) existente.remove();
+  var ov = document.createElement('div');
+  ov.id = '_rt-dialog-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  ov.innerHTML = (
+    '<div style="background:var(--color-surface);border-radius:var(--radius-xl) var(--radius-xl) 0 0;padding:var(--space-5) var(--space-4) var(--space-6);width:100%;max-width:480px;box-shadow:0 -4px 24px rgba(0,0,0,.18)">' +
+      '<div style="font-size:var(--text-base);font-weight:700;margin-bottom:var(--space-2)">' + titulo + '</div>' +
+      '<div style="font-size:var(--text-sm);color:var(--color-text-secondary);margin-bottom:var(--space-4)">' + desc + '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:var(--space-2)">' +
+        '<button id="_rt-btn-so" class="btn btn-danger" style="width:100%">' + labelSo + '</button>' +
+        '<button id="_rt-btn-todos" class="btn btn-danger btn-outline" style="width:100%">' + labelTodos + '</button>' +
+        '<button id="_rt-btn-cancel" class="btn btn-ghost" style="width:100%">Cancelar</button>' +
+      '</div>' +
+    '</div>'
+  );
+  document.body.appendChild(ov);
+  function _fechar() { ov.remove(); }
+  document.getElementById('_rt-btn-so').onclick = function () { _fechar(); cbSo(); };
+  document.getElementById('_rt-btn-todos').onclick = function () { _fechar(); cbTodos(); };
+  document.getElementById('_rt-btn-cancel').onclick = _fechar;
+  ov.addEventListener('click', function (e) { if (e.target === ov) _fechar(); });
+}
+
 var TrechoActions = {
   editar: function (tripId, trechoId) {
     TrechoModal.abrir(tripId, trechoId);
@@ -2947,23 +3610,67 @@ var TrechoActions = {
 
   excluir: function (tripId, trechoId) {
     var lista = Store.getTrechosRota(tripId);
+    var trecho = null;
     var nome = 'este trecho';
     lista.forEach(function (t) {
-      if (t.id === trechoId) nome = '"' + t.origem + ' → ' + t.destino + '"';
+      if (t.id === trechoId) { trecho = t; nome = '"' + t.origem + ' → ' + t.destino + '"'; }
     });
-    if (!_confirmarExclusoesAtivo()) {
+
+    var groupId = trecho && trecho.roundTripGroupId;
+
+    function _excluirSo() {
       Store.excluirTrechoRota(tripId, trechoId);
       window.dispatchEvent(new HashChangeEvent('hashchange'));
+    }
+    function _excluirGrupo() {
+      Store.excluirTrechosPorGrupo(tripId, groupId);
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    }
+
+    if (!_confirmarExclusoesAtivo()) {
+      if (groupId) {
+        _abrirRoundTripDialog(
+          'Excluir trecho?',
+          nome + ' faz parte de um grupo ida/volta.',
+          'Excluir só ' + (trecho.direction === 'volta' ? 'a volta' : 'a ida'),
+          'Excluir ida e volta',
+          _excluirSo,
+          _excluirGrupo
+        );
+      } else {
+        _excluirSo();
+      }
       return;
     }
-    ConfirmModal.abrirComCallback(
-      'Excluir trecho?',
-      'Excluir ' + nome + '? Esta ação não pode ser desfeita.',
-      function () {
-        Store.excluirTrechoRota(tripId, trechoId);
-        window.dispatchEvent(new HashChangeEvent('hashchange'));
-      }
-    );
+
+    if (groupId) {
+      _abrirRoundTripDialog(
+        'Excluir trecho?',
+        nome + ' faz parte de um grupo ida/volta. O que deseja excluir?',
+        'Excluir só ' + (trecho.direction === 'volta' ? 'a volta' : 'a ida'),
+        'Excluir ida e volta',
+        function () {
+          ConfirmModal.abrirComCallback(
+            'Excluir trecho?',
+            'Excluir ' + nome + '? Esta ação não pode ser desfeita.',
+            _excluirSo
+          );
+        },
+        function () {
+          ConfirmModal.abrirComCallback(
+            'Excluir ida e volta?',
+            'Excluir grupo de ida e volta? Esta ação não pode ser desfeita.',
+            _excluirGrupo
+          );
+        }
+      );
+    } else {
+      ConfirmModal.abrirComCallback(
+        'Excluir trecho?',
+        'Excluir ' + nome + '? Esta ação não pode ser desfeita.',
+        _excluirSo
+      );
+    }
   },
 };
 
@@ -2981,6 +3688,10 @@ var TrechoActions = {
   await iniciarAuthStateListener();
   atualizarHeaderAuthUI();
   atualizarBadgeModoDadosHeader();
+
+  if (window.MapsService && typeof MapsService.init === 'function') {
+    MapsService.init().catch(function () {});
+  }
 
   Router.setGuard(_guardAcessoRotas);
 

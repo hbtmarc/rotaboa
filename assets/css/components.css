@@ -129,15 +129,36 @@
 /* ---- Card de viagem ---- */
 .trip-card {
   position: relative;
+  overflow: hidden;
+}
+
+.trip-card-selecionada {
+  box-shadow: 0 0 0 2px var(--color-primary), var(--shadow-md);
 }
 
 .trip-card-cover {
-  /* Altura reduzida em mobile para não dominar a tela */
-  height: 100px;
+  height: 110px;
   background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
   display: flex;
-  align-items: flex-end;
-  padding: var(--space-3) var(--space-4);
+  flex-direction: column;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-4) var(--space-3);
+}
+
+.trip-card-cover-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.trip-card-sel-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: white;
+  background: rgba(255 255 255 / 0.25);
+  border-radius: var(--radius-full);
+  padding: 2px 8px;
+  letter-spacing: 0.03em;
 }
 
 .trip-card-cover-alt-1 {
@@ -155,10 +176,48 @@
   font-size: var(--text-lg);
   font-weight: 700;
   text-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .trip-card-body {
   padding: var(--space-4);
+}
+
+.trip-card-meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.trip-card-meta-item {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.trip-card-budget {
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.trip-card-budget-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-1);
+}
+
+.trip-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
 .trip-card-meta {
@@ -166,6 +225,65 @@
   flex-wrap: wrap;
   gap: var(--space-2);
   margin-top: var(--space-3);
+}
+
+.chip-sm {
+  font-size: 0.65rem;
+  padding: 2px var(--space-2);
+}
+
+.text-danger { color: var(--color-danger); }
+.text-warn   { color: var(--color-warning, #d97706); }
+.text-ok     { color: var(--color-success, #059669); }
+
+/* ---- Entradas de hospedagem no roteiro ---- */
+.itin-hosp-section {
+  border-left: 3px solid #8b5cf6;
+  padding-left: var(--space-3);
+  margin-bottom: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.itin-hosp-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: rgba(139 92 246 / 0.07);
+  border-radius: var(--radius-lg);
+}
+
+.itin-hosp-chip {
+  font-size: 0.65rem;
+  font-weight: 700;
+  border-radius: var(--radius-full);
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.itin-hosp-chip-in {
+  background: rgba(16 185 129 / 0.15);
+  color: #059669;
+}
+
+.itin-hosp-chip-out {
+  background: rgba(239 68 68 / 0.12);
+  color: #dc2626;
+}
+
+.itin-hosp-chip-auto {
+  background: rgba(139 92 246 / 0.15);
+  color: #7c3aed;
+}
+
+.itin-hosp-nome {
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+  font-weight: 500;
+  flex: 1 1 100%;
 }
 
 /* ---- Stat Card ---- */
@@ -861,11 +979,70 @@
   display: block;
 }
 
+/* ================================================================
+   Widgets de data e hora cross-platform (_DTWidget)
+   ================================================================ */
+.dt-date-widget,
+.dt-time-widget {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+}
+
+/* Selects dentro dos widgets — compactos e sem overflow */
+.dt-date-widget .form-select,
+.dt-time-widget .form-select {
+  width: 0;             /* reseta width:100% */
+  flex: 1;
+  min-width: 0;
+  padding: 10px 22px 10px 10px;   /* compacto; espaço para a seta */
+  background-position: right 8px center;
+  background-size: 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Dia — menor */
+.dt-date-widget .dt-sel-dia  { flex: 0.9; }
+/* Mês — médio  */
+.dt-date-widget .dt-sel-mes  { flex: 1.5; }
+/* Ano — médio  */
+.dt-date-widget .dt-sel-ano  { flex: 1.2; }
+
+/* Hora/Min */
+.dt-time-widget .dt-sel      { flex: 1; }
+
+/* Separador HH:MM */
+.dt-time-sep {
+  font-size: var(--text-lg);
+  font-weight: 800;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  align-self: center;
+  line-height: 1;
+}
+
 /* ---- Grade de 2 colunas no form ---- */
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-3);
+}
+
+/* Evita overflow de filhos dentro do grid */
+.form-row > .form-group {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Linha de datas empilha em telas pequenas */
+@media (max-width: 559px) {
+  .form-row-datas {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ---- Caixa de confirmação de exclusão ---- */
@@ -1037,7 +1214,84 @@
   flex-shrink: 0;
 }
 
-/* ---- Cartão de atividade ---- */
+/* ---- Seção de rotas dentro de cada dia do roteiro ---- */
+.itin-rotas-section {
+  margin: 0 0 var(--space-3) 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-alt);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid #6366f1;
+  border-radius: var(--radius-xl);
+}
+
+.itin-rotas-label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: #6366f1;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-2);
+}
+
+.itin-rota-trecho {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.itin-rota-trecho:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.itin-rota-ico {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+  width: 28px;
+  text-align: center;
+}
+
+.itin-rota-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.itin-rota-nome {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.itin-rota-meta {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.itin-rota-link {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: #6366f1;
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border: 1px solid #c7d2fe;
+  border-radius: var(--radius-full);
+  background: #eef2ff;
+  transition: background 0.15s;
+}
+
+.itin-rota-link:hover {
+  background: #e0e7ff;
+}
+
+
 .itin-activity {
   display: flex;
   flex-direction: column;
@@ -1620,6 +1874,146 @@
   white-space: nowrap;
 }
 
+.fin-balanco-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.fin-bm-card {
+  overflow: hidden;
+}
+
+.fin-bm-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+
+.fin-bm-title-wrap {
+  min-width: 0;
+}
+
+.fin-bm-title {
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+.fin-bm-subtitle {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  margin-top: 2px;
+}
+
+.fin-bm-card-atual {
+  border-width: 2px;
+}
+
+.fin-bm-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.fin-bm-headline {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.fin-bm-kpi {
+  background: var(--color-bg-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+
+.fin-bm-kpi strong {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  line-height: 1.35;
+}
+
+.fin-bm-kpi-highlight {
+  grid-column: 1 / -1;
+}
+
+.fin-bm-foot {
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.fin-bm-summary {
+  margin-top: var(--space-3);
+  display: grid;
+  gap: var(--space-2);
+}
+
+.fin-bm-part-row {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  background: var(--color-surface);
+}
+
+.fin-bm-part-name {
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: 2px;
+}
+
+.fin-bm-part-meta {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.fin-bm-details {
+  display: none;
+  margin-top: var(--space-2);
+}
+
+.fin-bm-details.aberto {
+  display: block;
+}
+
+.fin-acertos-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.fin-bm-others {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.fin-bm-others-list {
+  display: none;
+  gap: var(--space-3);
+}
+
+.fin-bm-others-list.aberto {
+  display: grid;
+}
+
+@media (max-width: 900px) {
+  .fin-bm-headline,
+  .fin-bm-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ================================================================
    Rotas — Trechos funcionais (Step 5)
    ================================================================ */
@@ -1658,6 +2052,36 @@
   border-radius: var(--radius-full);
   background: var(--color-primary-light);
   color: var(--color-primary);
+}
+
+/* Chips de direção ida/volta */
+.trecho-chip-dir {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  letter-spacing: 0.02em;
+}
+.trecho-chip-ida {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+.trecho-chip-volta {
+  background: #fce7f3;
+  color: #9d174d;
+}
+
+/* Preview da rota de volta no modal */
+.rota-volta-preview {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3);
+  margin-top: var(--space-2);
 }
 
 .rota-distance {

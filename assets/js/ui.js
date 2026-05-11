@@ -64,49 +64,67 @@ var UI = (function () {
     return Math.max(1, Number(viagem.participantes) || 1);
   }
 
-  // ---- Renderiza um card de viagem ----
+  // ---- Formata data ISO curta → "22/05/26" ----
+  function _fmtDataCurta(iso) {
+    if (!iso) return '';
+    var p = iso.split('-');
+    return p[2] + '/' + p[1] + '/' + p[0].slice(2);
+  }
+
+  // ---- Renderiza um card de viagem (redesenhado) ----
   function renderTripCard(viagem, idSelecionado) {
-    var pct = calcularPorcentagem(viagem.gastoAtual, viagem.orcamento);
+    var gastoAtual = Number(viagem.gastoAtualCalculado !== undefined ? viagem.gastoAtualCalculado : viagem.gastoAtual) || 0;
+    var pct = calcularPorcentagem(gastoAtual, viagem.orcamento);
     var cor = corBarra(pct);
-    var tags = (viagem.tags || []).map(function (t) {
-      return '<span class="chip">' + t + '</span>';
-    }).join('');
     var totalParticipantes = contarParticipantesAtivos(viagem);
+    var nomesParticipantes = Array.isArray(viagem.participantes)
+      ? viagem.participantes
+          .filter(function (p) { return p && p.ativo !== false; })
+          .map(function (p) { return String(p.nome || '').trim(); })
+          .filter(Boolean)
+      : [];
+    var nomesPreview = nomesParticipantes.length <= 2
+      ? nomesParticipantes.join(', ')
+      : nomesParticipantes.slice(0, 2).join(', ') + ' e mais ' + (nomesParticipantes.length - 2);
+    var tags = (viagem.tags || []).slice(0, 3).map(function (t) {
+      return '<span class="chip chip-sm">' + t + '</span>';
+    }).join('');
     var eSelecionada = viagem.id === idSelecionado;
+    var loc   = viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '';
+    var datas = viagem.dataInicio ? _fmtDataCurta(viagem.dataInicio) + ' → ' + _fmtDataCurta(viagem.dataFim) : '';
 
     return (
-      '<div class="card trip-card card-clickable" data-viagem-id="' + viagem.id + '">' +
-        /* Barra azul indica a viagem atualmente selecionada */
-        (eSelecionada ? '<div class="trip-card-selected-bar"></div>' : '') +
+      '<div class="card trip-card card-clickable' + (eSelecionada ? ' trip-card-selecionada' : '') + '" data-viagem-id="' + viagem.id + '">' +
         '<div class="trip-card-cover trip-card-cover-' + viagem.capa + '">' +
+          '<div class="trip-card-cover-top">' +
+            (eSelecionada ? '<span class="trip-card-sel-badge">✓ Selecionada</span>' : '<span></span>') +
+            '<span class="badge ' + badgeStatus(viagem.status) + '">' + textoStatus(viagem.status) + '</span>' +
+          '</div>' +
           '<div class="trip-card-title">' + viagem.nome + '</div>' +
         '</div>' +
         '<div class="trip-card-body">' +
-          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-2)">' +
-            '<span class="text-sm text-secondary">📍 ' + (viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '') + '</span>' +
-            '<span class="badge ' + badgeStatus(viagem.status) + '">' + textoStatus(viagem.status) + '</span>' +
+          '<div class="trip-card-meta-line">' +
+            (loc  ? '<span class="trip-card-meta-item">📍 ' + loc  + '</span>' : '') +
+            (datas ? '<span class="trip-card-meta-item">📅 ' + datas + '</span>' : '') +
           '</div>' +
-          '<p class="text-xs text-muted" style="margin-bottom:var(--space-3)">📅 ' + viagem.dataInicio + ' → ' + viagem.dataFim + '</p>' +
-          '<div style="margin-bottom:var(--space-2)">' +
-            '<div style="display:flex;justify-content:space-between;margin-bottom:var(--space-1)">' +
-              '<span class="text-xs text-secondary">Orçamento usado</span>' +
-              '<span class="text-xs font-semibold">' + pct + '%</span>' +
+          '<div class="trip-card-meta-line" style="margin-top:var(--space-1)">' +
+            '<span class="trip-card-meta-item">👥 ' + totalParticipantes + ' pessoa' + (totalParticipantes !== 1 ? 's' : '') +
+              (nomesPreview ? ' (' + nomesPreview + ')' : '') +
+            '</span>' +
+          '</div>' +
+          '<div class="trip-card-budget">' +
+            '<div class="trip-card-budget-row">' +
+              '<span class="text-xs text-secondary">💸 ' + formatarMoeda(gastoAtual) + ' de ' + formatarMoeda(viagem.orcamento) + '</span>' +
+              '<span class="text-xs font-bold ' + (pct >= 90 ? 'text-danger' : pct >= 70 ? 'text-warn' : 'text-ok') + '">' + pct + '%</span>' +
             '</div>' +
             progressBar(pct, cor) +
           '</div>' +
-          '<div style="display:flex;justify-content:space-between;margin-top:var(--space-2)">' +
-            '<span class="text-xs text-muted">' + formatarMoeda(viagem.gastoAtual) + ' gastos</span>' +
-            '<span class="text-xs text-secondary">de ' + formatarMoeda(viagem.orcamento) + '</span>' +
-          '</div>' +
-          '<div class="trip-card-meta" style="margin-top:var(--space-3)">' +
-            tags +
-            '<span class="chip">👥 ' + totalParticipantes + ' pessoas</span>' +
-          '</div>' +
+          (tags ? '<div class="trip-card-tags">' + tags + '</div>' : '') +
         '</div>' +
-        '<div class="card-footer" style="flex-wrap:wrap;gap:var(--space-2)">' +
+        '<div class="card-footer">' +
           '<a href="#/viagem/' + viagem.id + '" class="btn btn-primary btn-sm" onclick="TripActions.abrirDetalhes(\'' + viagem.id + '\');return false;">Detalhes</a>' +
-          '<button class="btn btn-ghost btn-sm" onclick="TripActions.editar(\'' + viagem.id + '\')">Editar</button>' +
-          '<button class="btn btn-ghost btn-sm" style="color:var(--color-danger)" onclick="TripActions.excluir(\'' + viagem.id + '\')">Excluir</button>' +
+          '<button class="btn btn-ghost btn-sm" onclick="TripActions.editar(\'' + viagem.id + '\');event.stopPropagation()">Editar</button>' +
+          '<button class="btn btn-ghost btn-sm" style="color:var(--color-danger)" onclick="TripActions.excluir(\'' + viagem.id + '\');event.stopPropagation()">Excluir</button>' +
         '</div>' +
       '</div>'
     );
@@ -175,8 +193,11 @@ var UI = (function () {
       var p = desp.data.split('-');
       data = p[2] + '/' + p[1] + '/' + p[0];
     }
-    var partic = (desp.participantes && desp.participantes.length)
-      ? desp.participantes.length
+    var rateioNomes = (desp.participantesRateioNomes && desp.participantesRateioNomes.length)
+      ? desp.participantesRateioNomes
+      : [];
+    var partic = rateioNomes.length
+      ? rateioNomes.length
       : 1;
     var porPessoa = partic > 0 ? (Number(desp.valor) / partic) : Number(desp.valor);
     var splitLabel = partic > 1
@@ -210,7 +231,7 @@ var UI = (function () {
           '<div class="desp-valor">' + formatarMoeda(Number(desp.valor)) + '</div>' +
         '</div>' +
         '<div class="desp-card-sub">' +
-          '<span class="desp-pagante">💳 ' + (desp.quemPagou || '—') + '</span>' +
+          '<span class="desp-pagante">💳 ' + (desp.quemPagouNome || '—') + '</span>' +
           splitLabel +
         '</div>' +
         detalheParcelas +
@@ -285,11 +306,24 @@ var UI = (function () {
     var meta = _tipoMetaRota[trecho.tipo] || _tipoMetaRota.outro;
     var distanciaTxt = (Number(trecho.distanciaKm) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
     var litrosTxt = (Number(trecho.litrosEstimados) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+    var fonte = String(trecho.routeSource || trecho.calculoModo || 'manual').toLowerCase();
+    var badgeFonte = fonte === 'google'
+      ? '<span class="badge badge-info">Google Maps</span>'
+      : '<span class="badge badge-neutral">Manual</span>';
+    var directionChip = trecho.direction === 'ida'
+      ? '<span class="trecho-chip-dir trecho-chip-ida">Ida ➡</span>'
+      : trecho.direction === 'volta'
+      ? '<span class="trecho-chip-dir trecho-chip-volta">↩ Volta</span>'
+      : '';
 
     return (
       '<div class="rota-card" data-trecho-id="' + trecho.id + '">' +
         '<div class="rota-card-top">' +
-          '<span class="rota-type-chip">' + meta.emoji + ' ' + meta.nome + '</span>' +
+          '<div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">' +
+            '<span class="rota-type-chip">' + meta.emoji + ' ' + meta.nome + '</span>' +
+            badgeFonte +
+            directionChip +
+          '</div>' +
           '<span class="rota-distance">' + distanciaTxt + ' km</span>' +
         '</div>' +
         '<div class="rota-main">' +
@@ -453,17 +487,72 @@ var UI = (function () {
     );
   }
 
+  // ---- Renderiza um trecho de rota no contexto do roteiro ----
+  function renderTrechoNoRoteiro(trecho, tripId) {
+    var origem  = String(trecho.origem  || '?');
+    var destino = String(trecho.destino || '?');
+    var icones  = { carro: '🚗', moto: '🏍️', aviao: '✈️', onibus: '🚌', trem: '🚆', barco: '⛵', bicicleta: '🚲', caminhando: '🚶' };
+    var ico     = icones[trecho.tipo] || '🚗';
+    var distStr = trecho.distanciaKm  ? (Number(trecho.distanciaKm).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' km') : '';
+    var durStr  = trecho.duracaoEstimada  ? trecho.duracaoEstimada : '';
+    var meta    = [distStr, durStr].filter(Boolean).join(' · ');
+    return (
+      '<div class="itin-rota-trecho">' +
+        '<div class="itin-rota-ico">' + ico + '</div>' +
+        '<div class="itin-rota-info">' +
+          '<div class="itin-rota-nome">' + origem + ' → ' + destino + '</div>' +
+          (meta ? '<div class="itin-rota-meta">' + meta + '</div>' : '') +
+        '</div>' +
+        '<a href="#/rotas" class="itin-rota-link" title="Ver rota">Ver rota</a>' +
+      '</div>'
+    );
+  }
+
+  // ---- Renderiza entrada de hospedagem (check-in/check-out) no roteiro ----
+  function renderHospedagemEntry(entry) {
+    var isIn  = entry.tipo === 'check-in';
+    var emoji = isIn ? '🏨' : '🚪';
+    var label = isIn ? 'Check-in' : 'Check-out';
+    var chipCls = isIn ? 'itin-hosp-chip-in' : 'itin-hosp-chip-out';
+    return (
+      '<div class="itin-hosp-entry">' +
+        '<span class="itin-activity-time">' + (entry.hora || '--:--') + '</span>' +
+        '<span class="itin-hosp-chip ' + chipCls + '">' + emoji + ' Hospedagem</span>' +
+        '<span class="itin-hosp-chip itin-hosp-chip-auto">Automático</span>' +
+        '<span class="itin-hosp-chip ' + chipCls + '">' + label + '</span>' +
+        '<div class="itin-hosp-nome">' + (entry.nome || '') + '</div>' +
+      '</div>'
+    );
+  }
+
   // ---- Renderiza um dia do itinerário ----
   function renderDiaItinerario(dia, numDia, tripId) {
     var lista = dia.atividades || [];
+    var trechos = dia.trechos || [];
+    var hospEntradas = (dia.hospedagem || []).slice().sort(function (a, b) {
+      return (a.hora || '').localeCompare(b.hora || '');
+    });
     var n = lista.length;
     var atividades = lista.map(function (a) {
       return renderAtividade(a, tripId);
     }).join('');
 
     var countText = n === 0 ? 'Nenhuma' : n + ' atividade' + (n !== 1 ? 's' : '');
-    var vazio = n === 0
+    var vazio = n === 0 && trechos.length === 0 && hospEntradas.length === 0
       ? '<div class="itin-empty-day">📭 Nenhuma atividade planejada para este dia.</div>'
+      : '';
+
+    var hospHtml = hospEntradas.length
+      ? '<div class="itin-hosp-section">' +
+          hospEntradas.map(renderHospedagemEntry).join('') +
+        '</div>'
+      : '';
+
+    var trechosHtml = trechos.length
+      ? '<div class="itin-rotas-section">' +
+          '<div class="itin-rotas-label">🛣️ Rotas do dia</div>' +
+          trechos.map(function (t) { return renderTrechoNoRoteiro(t, tripId); }).join('') +
+        '</div>'
       : '';
 
     return (
@@ -475,7 +564,7 @@ var UI = (function () {
             (dia.titulo ? '<div class="itin-day-titulo">' + dia.titulo + '</div>' : '') +
           '</div>' +
           '<span class="itin-day-count">' + countText + '</span>' +
-        '</div>' +
+        '</div>' +        hospHtml +        trechosHtml +
         vazio + atividades +
         '<button class="itin-add-btn" onclick="AtividadeModal.abrir(\'' + tripId + '\',\'' + dia.data + '\')">' +
           '＋ Adicionar atividade' +

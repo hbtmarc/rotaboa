@@ -299,6 +299,29 @@ Acesse `http://192.168.1.100:8000` pelo celular (mesmo Wi-Fi).
 
 ---
 
+## Validação — Cálculo automático de rota (carro)
+
+Checklist manual após habilitar a chave Google Maps em Configurações:
+
+- [ ] Abrir modal de novo trecho.
+- [ ] No campo **Origem**, digitar "Belo Horizonte" e selecionar a sugestão "Belo Horizonte, MG, Brasil".
+- [ ] No campo **Destino**, digitar "São Thomé" e selecionar a sugestão "São Thomé das Letras, MG, Brasil".
+- [ ] Selecionar tipo **Carro 🚗**.
+- [ ] Status exibe "⏳ Calculando rota…" e botão Salvar fica desativado.
+- [ ] Após resposta da API, status exibe "✅ Distância e tempo calculados automaticamente."
+- [ ] Campo **Distância (km)** preenchido automaticamente (aprox. 320 km).
+- [ ] Campo **Duração estimada** preenchido automaticamente (aprox. 4h 20min).
+- [ ] Botão Salvar reativado; clicar salva o trecho.
+- [ ] Card do trecho exibe badge "Google Maps" na origem/destino.
+- [ ] KPIs de rota (distância total, custo estimado) refletem o novo trecho.
+- [ ] Despesa vinculada ao trecho exibe custo correto no Financeiro.
+- [ ] Trocar tipo para **Aéreo ✈️**: status muda para "📝 Tipo sem suporte a cálculo automático — preencha manualmente." e campos ficam editáveis.
+- [ ] Apagar texto da Origem: status volta para dica padrão.
+- [ ] Sem chave configurada: status mostra aviso de modo manual (sem crash).
+- [ ] `node --check` limpo em todos os arquivos JS.
+
+---
+
 ## Roadmap
 
 - [ ] Prompt 2: Autenticação e persistência (Supabase/Firebase)
