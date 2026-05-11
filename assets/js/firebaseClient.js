@@ -8,6 +8,18 @@ var FirebaseClient = (function () {
   var _LS_FIREBASE_STATUS = 'rotaboa.firebase.status.v1';
   var _APP_NAME = 'rotaboa-main';
 
+  // Config padrão embutida — sobrescrita pelo localStorage se existir
+  var _CONFIG_PADRAO = {
+    apiKey: 'AIzaSyDZIzsgrB816gBs7U73tukJx3_3oCoYPw0',
+    authDomain: 'rotaboa-marc35.firebaseapp.com',
+    databaseURL: 'https://rotaboa-marc35-default-rtdb.firebaseio.com',
+    projectId: 'rotaboa-marc35',
+    storageBucket: 'rotaboa-marc35.firebasestorage.app',
+    messagingSenderId: '39090175128',
+    appId: '1:39090175128:web:14edd6bb4a61011a9a64ed',
+    measurementId: 'G-DX34KS1B8R',
+  };
+
   var _sdkApp = null;
   var _sdkAuth = null;
   var _sdkFirestore = null;
@@ -220,9 +232,10 @@ var FirebaseClient = (function () {
 
   function getFirebaseConfig() {
     var config = _lerJSON(_LS_FIREBASE_CONFIG, null);
-    if (!config) return null;
-    config = _normalizarConfig(config);
-    return config;
+    if (!config || !_temConfigMinima(_normalizarConfig(config))) {
+      return _normalizarConfig(_CONFIG_PADRAO);
+    }
+    return _normalizarConfig(config);
   }
 
   function saveFirebaseConfig(config) {

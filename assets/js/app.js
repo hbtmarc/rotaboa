@@ -1389,7 +1389,6 @@ function paginaRotas(params, container) {
 
 // ==== PÁGINA: Configurações ====
 function paginaConfiguracoes(params, container) {
-  var sync = SyncService.getSyncStatus();
   var prefs = _lerPreferencias();
   var mapsKey = (window.Store && typeof Store.getGoogleMapsApiKey === 'function') ? Store.getGoogleMapsApiKey() : '';
   var mapsConfigurado = !!String(mapsKey || '').trim();
@@ -1397,22 +1396,6 @@ function paginaConfiguracoes(params, container) {
 
   function _esc(str) {
     return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
-  function _txtStatusSync() {
-    if (RB_AUTH_STATE.offlineMode) return 'Somente neste dispositivo';
-    if (sync.syncing) return 'Sincronizando';
-    if (sync.pending) return 'Pendente';
-    return 'Sincronizado';
-  }
-
-  function _txtUltimaSync() {
-    if (!sync.lastSyncAt) return 'Ainda não sincronizado';
-    try {
-      return new Date(sync.lastSyncAt).toLocaleString('pt-BR');
-    } catch (e) {
-      return sync.lastSyncAt;
-    }
   }
 
   function _opt(val, label, atual) {
@@ -1430,7 +1413,7 @@ function paginaConfiguracoes(params, container) {
 
       '<div class="cfg-hero">' +
         '<h2 class="section-title" style="margin-bottom:var(--space-1)">Configurações</h2>' +
-        '<p class="text-sm text-secondary">Ajuste preferências, sincronização, integrações e dados locais.</p>' +
+        '<p class="text-sm text-secondary">Ajuste preferências, Google Maps e dados locais.</p>' +
       '</div>' +
 
       avisoSync +
@@ -1521,47 +1504,11 @@ function paginaConfiguracoes(params, container) {
         '</div>' +
       '</div>' +
 
-      '<div class="cfg-section-title">🔄 Sincronização</div>' +
-      '<div class="card" style="margin-bottom:var(--space-5)">' +
-        '<div class="card-body">' +
-          '<div class="expense-row">' +
-            '<span class="text-sm text-secondary">Status</span>' +
-            '<span class="badge ' + ((sync.pending || sync.syncing) ? 'badge-info' : 'badge-ok') + '">' + _esc(_txtStatusSync()) + '</span>' +
-          '</div>' +
-          '<div class="expense-row">' +
-            '<span class="text-sm text-secondary">Última sincronização</span>' +
-            '<span class="text-sm">' + _esc(_txtUltimaSync()) + '</span>' +
-          '</div>' +
-          (sync.lastError ? '<p class="text-xs" style="margin-top:var(--space-2);color:var(--color-danger)">Não foi possível sincronizar.</p>' : '') +
-          '<div class="cfg-grid" style="margin-top:var(--space-4)">' +
-            '<div class="form-group">' +
-              '<label class="form-label" for="pref-sync-auto">Sincronização periódica</label>' +
-              '<select id="pref-sync-auto" class="form-select" onchange="ConfigActions.salvarPreferencias(true)">' +
-                '<option value="sim"' + (prefs.syncAuto !== false ? ' selected' : '') + '>Ativa</option>' +
-                '<option value="nao"' + (prefs.syncAuto === false ? ' selected' : '') + '>Inativa</option>' +
-              '</select>' +
-            '</div>' +
-            '<div class="form-group">' +
-              '<label class="form-label" for="pref-sync-intervalo">Intervalo</label>' +
-              '<select id="pref-sync-intervalo" class="form-select" onchange="ConfigActions.salvarPreferencias(true)">' +
-                _opt(1, '1 minuto', prefs.syncIntervalo) +
-                _opt(5, '5 minutos', prefs.syncIntervalo) +
-                _opt(15, '15 minutos', prefs.syncIntervalo) +
-              '</select>' +
-            '</div>' +
-          '</div>' +
-          ((!RB_AUTH_STATE.offlineMode && RB_AUTH_STATE.user)
-            ? '<div style="margin-top:var(--space-3)"><button class="btn btn-secondary btn-sm" onclick="ConfigActions.sincronizarAgora()"' + (navigator.onLine ? '' : ' disabled') + '>Sincronizar agora</button></div>'
-            : '') +
-          '<div id="cfg-sync-status" class="text-xs text-muted" style="margin-top:var(--space-3)"></div>' +
-        '</div>' +
-      '</div>' +
-
-      '<div class="cfg-section-title">🗺️ Integrações</div>' +
+      '<div class="cfg-section-title">�️ Google Maps</div>' +
       '<div class="card" style="margin-bottom:var(--space-5)">' +
         '<div class="card-body">' +
           '<div class="form-group">' +
-            '<label class="form-label" for="cfg-google-maps-key">Google Maps — chave de acesso</label>' +
+            '<label class="form-label" for="cfg-google-maps-key">Chave de acesso</label>' +
             '<div style="display:flex;gap:var(--space-2)">' +
               '<input id="cfg-google-maps-key" class="form-input" type="password" autocomplete="off" placeholder="Cole sua chave aqui" value="' + _esc(mapsKey) + '" style="flex:1">' +
               '<button class="btn btn-primary btn-sm" onclick="ConfigActions.salvarGoogleMapsKey()">Salvar</button>' +
@@ -1799,6 +1746,47 @@ var ConfigActions = {
       this._statusPrefs('Preferências salvas.', false);
       _mostrarToast('Preferências salvas.');
     }
+  },
+
+  _statusFirebase: function (msg, erro) {
+    var el = document.getElementById('cfg-firebase-status');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.color = erro ? 'var(--color-danger)' : 'var(--color-text-muted)';
+  },
+
+  salvarFirebaseConfig: function () {
+    var apiKey        = document.getElementById('cfg-fb-api-key');
+    var authDomain    = document.getElementById('cfg-fb-auth-domain');
+    var projectId     = document.getElementById('cfg-fb-project-id');
+    var appId         = document.getElementById('cfg-fb-app-id');
+    var storageBucket = document.getElementById('cfg-fb-storage-bucket');
+    var dbUrl         = document.getElementById('cfg-fb-db-url');
+
+    var cfg = {
+      apiKey:            apiKey        ? String(apiKey.value        || '').trim() : '',
+      authDomain:        authDomain    ? String(authDomain.value    || '').trim() : '',
+      projectId:         projectId     ? String(projectId.value     || '').trim() : '',
+      appId:             appId         ? String(appId.value         || '').trim() : '',
+      storageBucket:     storageBucket ? String(storageBucket.value || '').trim() : '',
+      databaseURL:       dbUrl         ? String(dbUrl.value         || '').trim() : '',
+    };
+
+    if (!cfg.apiKey || !cfg.authDomain || !cfg.projectId || !cfg.appId) {
+      this._statusFirebase('Preencha pelo menos API Key, Auth Domain, Project ID e App ID.', true);
+      return;
+    }
+
+    if (window.FirebaseClient && typeof FirebaseClient.saveFirebaseConfig === 'function') {
+      FirebaseClient.saveFirebaseConfig(cfg);
+    } else {
+      localStorage.setItem('rotaboa.firebase.config.v1', JSON.stringify(cfg));
+    }
+
+    this._statusFirebase('✅ Configuração Firebase salva. Você já pode fazer login.', false);
+    _mostrarToast('Configuração Firebase salva.');
+    // Rerender page so badge atualiza
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
   },
 
   salvarGoogleMapsKey: function () {
