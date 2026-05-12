@@ -14,6 +14,7 @@ var Store = (function () {
   var _LS_EXPENSES = 'rotaboa.expenses.v1';
   var _LS_ROUTES   = 'rotaboa.routes.v1';
   var _LS_GOOGLE_MAPS_API_KEY = 'rotaboa.googleMapsApiKey.v1';
+  var _LS_BAG_TEMPLATES = 'rotaboa.bagagem.templates.v1';
   var _rotasLegacySemTripIdLogado = false;
 
   var _MOCK_TRIP_IDS = {
@@ -28,6 +29,43 @@ var Store = (function () {
 
   function _normalizarNomeParticipante(nome) {
     return String(nome || '').trim().replace(/\s+/g, ' ');
+  }
+
+  // ---- Duration string → minutes (shared helper) ----
+  function _parseDurMinutes(str) {
+    if (!str) return null;
+    var s = String(str).trim().toLowerCase();
+    var hm = s.match(/^(\d+)\s*h\s*(\d+)\s*(?:min|m)?$/);
+    if (hm) return parseInt(hm[1], 10) * 60 + parseInt(hm[2], 10);
+    var ho = s.match(/^(\d+)\s*h$/);
+    if (ho) return parseInt(ho[1], 10) * 60;
+    var mi = s.match(/^(\d+)\s*(?:min|m)$/);
+    if (mi) return parseInt(mi[1], 10);
+    var col = s.match(/^(\d+):(\d{2})$/);
+    if (col) return parseInt(col[1], 10) * 60 + parseInt(col[2], 10);
+    var n = parseInt(s, 10);
+    return (!isNaN(n) && n > 0) ? n : null;
+  }
+
+  // ---- Computes arrival date/time from departure + duration ----
+  function _calcArrival(dateISO, timeHHMM, durationStr) {
+    if (!dateISO || !timeHHMM) return null;
+    var mins = _parseDurMinutes(durationStr);
+    if (!mins || mins <= 0) return null;
+    var parts = timeHHMM.split(':');
+    var depMins = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    var arrMins = depMins + mins;
+    var extraDays = Math.floor(arrMins / (24 * 60));
+    arrMins = arrMins % (24 * 60);
+    var hh = String(Math.floor(arrMins / 60)).padStart(2, '0');
+    var mm = String(arrMins % 60).padStart(2, '0');
+    var arrDate = dateISO;
+    if (extraDays > 0) {
+      var d = new Date(dateISO + 'T12:00:00');
+      d.setDate(d.getDate() + extraDays);
+      arrDate = d.toISOString().slice(0, 10);
+    }
+    return { data: arrDate, horario: hh + ':' + mm, nextDay: extraDays > 0 };
   }
 
   function _normalizarListaParticipantes(lista, fallbackQtd) {
@@ -813,12 +851,62 @@ var Store = (function () {
   var _despesasMigradas = _migrarDespesasParaParticipantesId();
   if (_despesasMigradas) _salvarDespesas();
 
+  // ---- Bagagem templates ----
+  var _bagTemplates = (function () {
+    try {
+      var raw = localStorage.getItem(_LS_BAG_TEMPLATES);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) { return []; }
+  }());
+
+  function _salvarBagTemplates() {
+    try { localStorage.setItem(_LS_BAG_TEMPLATES, JSON.stringify(_bagTemplates)); } catch (e) {}
+  }
+
   // ---- API pública ----
   return {
 
     getState: function () { return _state; },
 
     subscribe: function (fn) { _listeners.push(fn); },
+
+    // ---- Bagagem ----
+    getBagagem: function (tripId) {
+      var viagem = _state.viagens.find(function (v) { return v.id === tripId; });
+      if (!viagem) return null;
+      return viagem.bagagem || null;
+    },
+
+    setBagagem: function (tripId, bag) {
+      var idx = _state.viagens.findIndex(function (v) { return v.id === tripId; });
+      if (idx === -1) return false;
+      _state.viagens[idx] = Object.assign({}, _state.viagens[idx], {
+        bagagem: Object.assign({}, bag, { updatedAt: new Date().toISOString() }),
+      });
+      _salvarViagens();
+      _marcarSyncPendente();
+      _notificar();
+      return true;
+    },
+
+    // ---- Bagagem Templates ----
+    getBagagemTemplates: function () { return _bagTemplates.slice(); },
+
+    saveBagagemTemplate: function (tpl) {
+      var idx = _bagTemplates.findIndex(function (t) { return t.id === tpl.id; });
+      if (idx >= 0) { _bagTemplates[idx] = tpl; }
+      else { _bagTemplates.push(tpl); }
+      _salvarBagTemplates();
+      _marcarSyncPendente();
+      return true;
+    },
+
+    deleteBagagemTemplate: function (id) {
+      _bagTemplates = _bagTemplates.filter(function (t) { return t.id !== id; });
+      _salvarBagTemplates();
+      _marcarSyncPendente();
+      return true;
+    },
 
     // ---- Leitura ----
     getViagens:        function () { return _state.viagens; },
@@ -972,6 +1060,25 @@ var Store = (function () {
         trechosPorData[d].push(t);
       });
 
+      // Build cross-day arrival milestones index (key = chegadaData)
+      var chegadasPorData = {};
+      trechosViagem.forEach(function (t) {
+        if (!t.data || !t.horario) return;
+        var chegH = t.chegadaHorario;
+        var chegD = t.chegadaData;
+        if (!chegH || !chegD) {
+          var arr = _calcArrival(t.data, t.horario, t.duracaoEstimada);
+          if (arr && arr.nextDay) { chegH = arr.horario; chegD = arr.data; }
+        }
+        if (chegD && chegD !== t.data) {
+          if (!chegadasPorData[chegD]) chegadasPorData[chegD] = [];
+          chegadasPorData[chegD].push(Object.assign({}, t, {
+            _chegadaHorario: chegH,
+            _chegadaData:    chegD,
+          }));
+        }
+      });
+
       // Injeta entradas de hospedagem (check-in/check-out) por data — somente leitura
       var despesasTrip = (_despesas[tripId] || []).filter(function (d) {
         return d && d.tripId === tripId && d.categoria === 'hospedagem' && d.hospedagem;
@@ -1004,6 +1111,7 @@ var Store = (function () {
           return Object.assign({}, dia, {
             trechos:    (trechosPorData[dia.data]     || []).slice(),
             hospedagem: (hospedagemPorData[dia.data]  || []).slice(),
+            chegadas:   (chegadasPorData[dia.data]    || []).slice(),
           });
         }),
       };

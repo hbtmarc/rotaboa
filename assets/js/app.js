@@ -974,6 +974,25 @@ function paginaRoteiro(params, container) {
 }
 
 
+// ==== PÁGINA: Bagagem ====
+function paginaBagagem(params, container) {
+  var viagem = Store.getViagemSelecionada();
+  if (!viagem) {
+    container.innerHTML = (
+      '<div class="page-section">' +
+        '<div class="fin-empty">' +
+          '<div style="font-size:2.5rem;margin-bottom:var(--space-3)">🧳</div>' +
+          '<p class="font-semibold" style="margin-bottom:var(--space-1)">Nenhuma viagem selecionada</p>' +
+          '<p class="text-sm text-secondary" style="margin-bottom:var(--space-4)">Selecione uma viagem para organizar a bagagem.</p>' +
+          '<a href="#/viagens" class="btn btn-primary btn-sm">Escolher viagem</a>' +
+        '</div>' +
+      '</div>'
+    );
+    return;
+  }
+  BagagemPage.render(viagem, container);
+}
+
 // ==== PÁGINA: Financeiro ====
 function paginaFinanceiro(params, container) {
   var viagem = Store.getViagemSelecionada();
@@ -3584,8 +3603,18 @@ var TrechoModal = (function () {
           _DTWidget.renderData('rf-data', dataAtual) +
           '<span class="form-hint" style="font-size:var(--text-xs);color:var(--color-text-muted)">Defina datas de início e fim na viagem para ver os dias disponíveis.</span>' +
         '</div>');
+    var horarioPadrao = (t && t.horario) ? t.horario : '08:00';
+    var horarioSecSel = (
+      '<div class="form-group" style="margin-bottom:var(--space-3)">' +
+        '<label class="form-label" for="rf-horario">Horário da partida</label>' +
+        '<input id="rf-horario" class="form-input" type="time" value="' + _esc(horarioPadrao) + '" style="max-width:140px" oninput="TrechoModal._updateArrivalPreview()">' +
+      '</div>' +
+      '<div id="rf-chegada-preview" class="rota-arrival-preview" style="display:none"></div>'
+    );
+
     return (
       dataSel +
+      horarioSecSel +
       '<div class="form-row">' +
         '<div class="form-group">' +
           '<label class="form-label form-label-required" for="rf-origem">Origem</label>' +
@@ -3618,7 +3647,7 @@ var TrechoModal = (function () {
       '<div class="form-row">' +
         '<div class="form-group">' +
           '<label class="form-label" for="rf-dur">Duração estimada</label>' +
-          '<input id="rf-dur" class="form-input" type="text" maxlength="40" placeholder="Ex: 2h 30min" value="' + _esc(t.duracaoEstimada) + '">' +
+          '<input id="rf-dur" class="form-input" type="text" maxlength="40" placeholder="Ex: 2h 30min" value="' + _esc(t.duracaoEstimada) + '" oninput="TrechoModal._updateArrivalPreview()">' +
         '</div>' +
         '<div class="form-group">' +
           '<label class="form-label" for="rf-consumo">Consumo médio (km/L)</label>' +
@@ -3657,12 +3686,17 @@ var TrechoModal = (function () {
                '<div class="form-group" style="margin-bottom:var(--space-3)">' +
                  '<label class="form-label" for="rf-volta-data">Data da volta</label>' +
                  (dias.length
-                   ? ('<select id="rf-volta-data" class="form-select">' +
+                   ? ('<select id="rf-volta-data" class="form-select" onchange="TrechoModal._updateVoltaArrivalPreview()">' +
                       '<option value="">— Sem data —</option>' +
                       dias.map(function (d) { return '<option value="' + d.iso + '">' + d.label + '</option>'; }).join('') +
                       '</select>')
                    : _DTWidget.renderData('rf-volta-data', '')) +
                '</div>' +
+               '<div class="form-group" style="margin-bottom:var(--space-3)">' +
+                 '<label class="form-label" for="rf-volta-horario">Horário da volta</label>' +
+                 '<input id="rf-volta-horario" class="form-input" type="time" value="16:00" style="max-width:140px" oninput="TrechoModal._updateVoltaArrivalPreview()">' +
+               '</div>' +
+               '<div id="rf-volta-chegada-preview" class="rota-arrival-preview" style="display:none"></div>' +
                '<div class="rota-volta-preview" id="rf-volta-preview" style="display:none"></div>' +
              '</div>' +
            '</div>')
@@ -3708,6 +3742,42 @@ var TrechoModal = (function () {
     if (fixo < 0) { _erro('fixo', true); ok = false; }
 
     return ok;
+  }
+
+  // ---- Arrival time helpers (private) ----
+  function _parseDurMinutes(str) {
+    if (!str) return null;
+    var s = String(str).trim().toLowerCase();
+    var hm = s.match(/^(\d+)\s*h\s*(\d+)\s*(?:min|m)?$/);
+    if (hm) return parseInt(hm[1], 10) * 60 + parseInt(hm[2], 10);
+    var ho = s.match(/^(\d+)\s*h$/);
+    if (ho) return parseInt(ho[1], 10) * 60;
+    var mi = s.match(/^(\d+)\s*(?:min|m)$/);
+    if (mi) return parseInt(mi[1], 10);
+    var col = s.match(/^(\d+):(\d{2})$/);
+    if (col) return parseInt(col[1], 10) * 60 + parseInt(col[2], 10);
+    var n = parseInt(s, 10);
+    return (!isNaN(n) && n > 0) ? n : null;
+  }
+
+  function _computeArrival(dateISO, timeHHMM, durationStr) {
+    if (!dateISO || !timeHHMM) return null;
+    var mins = _parseDurMinutes(durationStr);
+    if (!mins || mins <= 0) return null;
+    var parts = timeHHMM.split(':');
+    var depMins = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    var arrMins = depMins + mins;
+    var extraDays = Math.floor(arrMins / (24 * 60));
+    arrMins = arrMins % (24 * 60);
+    var hh = String(Math.floor(arrMins / 60)).padStart(2, '0');
+    var mm = String(arrMins % 60).padStart(2, '0');
+    var arrDate = dateISO;
+    if (extraDays > 0) {
+      var d = new Date(dateISO + 'T12:00:00');
+      d.setDate(d.getDate() + extraDays);
+      arrDate = d.toISOString().slice(0, 10);
+    }
+    return { data: arrDate, horario: hh + ':' + mm, nextDay: extraDays > 0 };
   }
 
   return {
@@ -3848,6 +3918,7 @@ var TrechoModal = (function () {
         destino: document.getElementById('rf-destino').value.trim(),
         tipo: document.getElementById('rf-tipo').value,
         data: (function() { var el = document.getElementById('rf-data'); return el ? el.value : _DTWidget.lerData('rf-data'); })(),
+        horario: (function() { var el = document.getElementById('rf-horario'); return el ? (el.value || '08:00') : '08:00'; })(),
         distanciaKm: Number(document.getElementById('rf-dist').value) || 0,
         duracaoEstimada: document.getElementById('rf-dur').value.trim(),
         consumoKmL: Number(document.getElementById('rf-consumo').value) || 0,
@@ -3859,12 +3930,17 @@ var TrechoModal = (function () {
         origemPlaceId:  origemPlace  && origemPlace.placeId  ? origemPlace.placeId  : '',
         destinoPlaceId: destinoPlace && destinoPlace.placeId ? destinoPlace.placeId : '',
       };
+      // Compute and persist arrival time
+      var _chegIda = _computeArrival(dados.data, dados.horario, dados.duracaoEstimada);
+      if (_chegIda) { dados.chegadaData = _chegIda.data; dados.chegadaHorario = _chegIda.horario; }
 
       // Read return-trip fields before closing modal
       var voltaCheck  = document.getElementById('rf-volta-check');
       var comVolta    = !trechoId && voltaCheck && voltaCheck.checked;
       var voltaDataEl = document.getElementById('rf-volta-data');
       var voltaData   = voltaDataEl ? voltaDataEl.value : (_DTWidget ? _DTWidget.lerData('rf-volta-data') : '');
+      var voltaHorarioEl = document.getElementById('rf-volta-horario');
+      var voltaHorario   = voltaHorarioEl ? (voltaHorarioEl.value || '16:00') : '16:00';
 
       // Close modal immediately — UI state cleared after this line
       TrechoModal.fechar();
@@ -3886,6 +3962,7 @@ var TrechoModal = (function () {
           destino:             dados.origem,
           tipo:                dados.tipo,
           data:                voltaData || '',
+          horario:             voltaHorario,
           distanciaKm:         dados.distanciaKm,
           duracaoEstimada:     dados.duracaoEstimada,
           consumoKmL:          dados.consumoKmL,
@@ -3899,6 +3976,9 @@ var TrechoModal = (function () {
           direction:           'volta',
           roundTripGroupId:    groupId,
         };
+        // Compute arrival for return segment
+        var _chegVolta = _computeArrival(dadosVolta.data, dadosVolta.horario, dadosVolta.duracaoEstimada);
+        if (_chegVolta) { dadosVolta.chegadaData = _chegVolta.data; dadosVolta.chegadaHorario = _chegVolta.horario; }
 
         // Save outbound first (synchronous)
         Store.adicionarTrechoRota(tripId, dadosIda);
@@ -3963,6 +4043,41 @@ var TrechoModal = (function () {
       if (!destino || !origem) { previewDiv.style.display = 'none'; return; }
       previewDiv.style.display = '';
       previewDiv.textContent = '↩ Volta: ' + destino + ' → ' + origem;
+      TrechoModal._updateVoltaArrivalPreview();
+    },
+
+    _updateArrivalPreview: function () {
+      var preview = document.getElementById('rf-chegada-preview');
+      if (!preview) return;
+      var dateEl = document.getElementById('rf-data');
+      var timeEl = document.getElementById('rf-horario');
+      var durEl  = document.getElementById('rf-dur');
+      var arr = _computeArrival(
+        dateEl ? dateEl.value : '',
+        timeEl ? timeEl.value : '',
+        durEl  ? durEl.value  : ''
+      );
+      if (!arr) { preview.style.display = 'none'; return; }
+      var p = arr.data.split('-');
+      preview.style.display = '';
+      preview.textContent = '→ Chegada prevista: ' + arr.horario + (arr.nextDay ? ' (+1 dia)' : '') + ' · ' + p[2] + '/' + p[1] + '/' + p[0];
+    },
+
+    _updateVoltaArrivalPreview: function () {
+      var preview = document.getElementById('rf-volta-chegada-preview');
+      if (!preview) return;
+      var dateEl = document.getElementById('rf-volta-data');
+      var timeEl = document.getElementById('rf-volta-horario');
+      var durEl  = document.getElementById('rf-dur');
+      var arr = _computeArrival(
+        dateEl ? dateEl.value : '',
+        timeEl ? timeEl.value : '',
+        durEl  ? durEl.value  : ''
+      );
+      if (!arr) { preview.style.display = 'none'; return; }
+      var p = arr.data.split('-');
+      preview.style.display = '';
+      preview.textContent = '→ Chegada prevista: ' + arr.horario + (arr.nextDay ? ' (+1 dia)' : '') + ' · ' + p[2] + '/' + p[1] + '/' + p[0];
     },
   };
 })();
@@ -4098,6 +4213,7 @@ var TrechoActions = {
   Router.registrar('/roteiro',       paginaRoteiro);
   Router.registrar('/financeiro',    paginaFinanceiro);
   Router.registrar('/rotas',         paginaRotas);
+  Router.registrar('/bagagem',        paginaBagagem);
   Router.registrar('/login',         paginaLogin);
   Router.registrar('/config',        paginaConfiguracoes);
   Router.registrar('/configuracoes', paginaConfiguracoes);

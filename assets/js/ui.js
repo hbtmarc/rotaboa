@@ -291,6 +291,43 @@ var UI = (function () {
     );
   }
 
+  // ---- Parses duration string → total minutes ----
+  function _parseDurMinutes(str) {
+    if (!str) return null;
+    var s = String(str).trim().toLowerCase();
+    var hm = s.match(/^(\d+)\s*h\s*(\d+)\s*(?:min|m)?$/);
+    if (hm) return parseInt(hm[1], 10) * 60 + parseInt(hm[2], 10);
+    var ho = s.match(/^(\d+)\s*h$/);
+    if (ho) return parseInt(ho[1], 10) * 60;
+    var mi = s.match(/^(\d+)\s*(?:min|m)$/);
+    if (mi) return parseInt(mi[1], 10);
+    var col = s.match(/^(\d+):(\d{2})$/);
+    if (col) return parseInt(col[1], 10) * 60 + parseInt(col[2], 10);
+    var n = parseInt(s, 10);
+    return (!isNaN(n) && n > 0) ? n : null;
+  }
+
+  // ---- Calculates arrival from departure date/time + duration ----
+  function _calcArrival(dateISO, timeHHMM, durationStr) {
+    if (!dateISO || !timeHHMM) return null;
+    var mins = _parseDurMinutes(durationStr);
+    if (!mins || mins <= 0) return null;
+    var parts = timeHHMM.split(':');
+    var depMins = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    var arrMins = depMins + mins;
+    var extraDays = Math.floor(arrMins / (24 * 60));
+    arrMins = arrMins % (24 * 60);
+    var hh = String(Math.floor(arrMins / 60)).padStart(2, '0');
+    var mm = String(arrMins % 60).padStart(2, '0');
+    var arrDate = dateISO;
+    if (extraDays > 0) {
+      var d = new Date(dateISO + 'T12:00:00');
+      d.setDate(d.getDate() + extraDays);
+      arrDate = d.toISOString().slice(0, 10);
+    }
+    return { data: arrDate, horario: hh + ':' + mm, nextDay: extraDays > 0 };
+  }
+
   var _tipoMetaRota = {
     aereo:     { emoji: '✈️', nome: 'Aéreo' },
     carro:     { emoji: '🚗', nome: 'Carro' },
@@ -316,6 +353,31 @@ var UI = (function () {
       ? '<span class="trecho-chip-dir trecho-chip-volta">↩ Volta</span>'
       : '';
 
+    var dataHoraChip = (function () {
+      if (!trecho.data) return '';
+      var partes = String(trecho.data).split('-');
+      var dataTxt = partes.length === 3 ? partes[2] + '/' + partes[1] + '/' + partes[0] : trecho.data;
+      return dataTxt + (trecho.horario ? ' · ' + trecho.horario : '');
+    }());
+
+    // Saída/chegada line
+    var saidaChegadaTxt = (function () {
+      var saida = trecho.horario ? 'Saída ' + trecho.horario : '';
+      var cheg = '';
+      if (trecho.chegadaHorario) {
+        cheg = 'Chegada ' + trecho.chegadaHorario;
+        if (trecho.data && trecho.chegadaData && trecho.chegadaData !== trecho.data) {
+          cheg += ' (+1 dia)';
+        }
+      } else if (trecho.data && trecho.horario && trecho.duracaoEstimada) {
+        var _arr = _calcArrival(trecho.data, trecho.horario, trecho.duracaoEstimada);
+        if (_arr) {
+          cheg = 'Chegada ' + _arr.horario + (_arr.nextDay ? ' (+1 dia)' : '');
+        }
+      }
+      return [saida, cheg].filter(Boolean).join(' · ');
+    }());
+
     return (
       '<div class="rota-card" data-trecho-id="' + trecho.id + '">' +
         '<div class="rota-card-top">' +
@@ -323,9 +385,11 @@ var UI = (function () {
             '<span class="rota-type-chip">' + meta.emoji + ' ' + meta.nome + '</span>' +
             badgeFonte +
             directionChip +
+            (dataHoraChip ? '<span class="text-xs text-muted" style="margin-left:var(--space-1)">' + dataHoraChip + '</span>' : '') +
           '</div>' +
           '<span class="rota-distance">' + distanciaTxt + ' km</span>' +
         '</div>' +
+        (saidaChegadaTxt ? '<div class="rota-time-row">' + saidaChegadaTxt + '</div>' : '') +
         '<div class="rota-main">' +
           '<div class="rota-route">' + trecho.origem + ' → ' + trecho.destino + '</div>' +
           '<div class="rota-total">' + formatarMoeda(trecho.custoTotal || 0) + '</div>' +
@@ -493,25 +557,71 @@ var UI = (function () {
     var destino = String(trecho.destino || '?');
     var icones  = { carro: '🚗', moto: '🏍️', aviao: '✈️', onibus: '🚌', trem: '🚆', barco: '⛵', bicicleta: '🚲', caminhando: '🚶' };
     var ico     = icones[trecho.tipo] || '🚗';
+    var hora    = String(trecho.horario || '').trim();
 
     var dir = trecho.direction || trecho.direcao || '';
-    var titulo;
-    if (dir === 'ida') {
-      titulo = 'Ida · ' + destino;
-    } else if (dir === 'volta') {
-      titulo = 'Volta · ' + origem;
-    } else {
-      titulo = origem + ' → ' + destino;
-    }
+    var dirLabel = dir === 'ida' ? 'Ida' : dir === 'volta' ? 'Volta' : '';
+    var lugar    = dir === 'volta' ? origem : (dir === 'ida' ? destino : (origem + ' → ' + destino));
+    var tituloFull = (hora ? hora + ' · ' : '') + (dirLabel ? dirLabel + ' · ' : '') + lugar;
 
     var distStr = trecho.distanciaKm
       ? (Number(trecho.distanciaKm).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' km')
       : '';
     var durStr = trecho.duracaoEstimada || '';
-    var sub    = [distStr, durStr].filter(Boolean).join(' · ');
+
+    // Arrival line for roteiro — only show same-day arrival
+    var chegadaStr = (function () {
+      var chegH = trecho.chegadaHorario;
+      var chegD = trecho.chegadaData;
+      if (!chegH && trecho.data && trecho.horario && trecho.duracaoEstimada) {
+        var _a = _calcArrival(trecho.data, trecho.horario, trecho.duracaoEstimada);
+        if (_a) { chegH = _a.horario; chegD = _a.data; }
+      }
+      if (!chegH) return '';
+      // Cross-day: arrival will appear on the arrival day as a milestone
+      if (chegD && trecho.data && chegD !== trecho.data) return '';
+      return 'Chegada ' + chegH;
+    }());
+
+    var sub = [chegadaStr, distStr, durStr].filter(Boolean).join(' · ');
 
     return (
       '<div class="itin-row rota-row">' +
+        '<div class="itin-row-icon">' + ico + '</div>' +
+        '<div class="itin-row-main">' +
+          '<div class="itin-row-title">' + tituloFull + '</div>' +
+          (sub ? '<div class="itin-row-sub">' + sub + '</div>' : '') +
+        '</div>' +
+        '<div class="itin-row-action">' +
+          '<a href="#/rotas" class="itin-rota-link" title="Ver rota">Ver rota</a>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  // ---- Renderiza milestone de chegada de rota cross-day ----
+  function renderChegadaMilestone(trecho) {
+    var hora = trecho._chegadaHorario || trecho.chegadaHorario || '?';
+    var dir  = trecho.direction || '';
+    var lugar = dir === 'volta'
+      ? String(trecho.origem  || '?')
+      : String(trecho.destino || '?');
+    var dirLabel = dir === 'ida' ? 'Ida' : dir === 'volta' ? 'Volta' : '';
+    var titulo = hora + ' · Chegada' + (dirLabel ? ' (' + dirLabel + ')' : '') + ' em ' + lugar;
+    var depPartes = (trecho.data || '').split('-');
+    var depDataTxt = depPartes.length === 3 ? depPartes[2] + '/' + depPartes[1] + '/' + depPartes[0] : trecho.data;
+    var distStr = trecho.distanciaKm
+      ? (Number(trecho.distanciaKm).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' km')
+      : '';
+    var durStr = trecho.duracaoEstimada || '';
+    var sub = [
+      depDataTxt ? 'Saída ' + (trecho.horario || '') + (depDataTxt ? ' · ' + depDataTxt : '') : '',
+      distStr, durStr
+    ].filter(Boolean).join(' · ');
+    var icones = { aereo: '✈️', carro: '🚗', van: '🚐', onibus: '🚌', trem: '🚆', barco: '⛵', caminhada: '🚶', outro: '🧭' };
+    var ico = icones[trecho.tipo] || '🚗';
+    return (
+      '<div class="itin-row chegada-row">' +
         '<div class="itin-row-icon">' + ico + '</div>' +
         '<div class="itin-row-main">' +
           '<div class="itin-row-title">' + titulo + '</div>' +
@@ -547,17 +657,38 @@ var UI = (function () {
   function renderDiaItinerario(dia, numDia, tripId) {
     var lista = dia.atividades || [];
     var trechos = dia.trechos || [];
-    var hospEntradas = (dia.hospedagem || []).slice().sort(function (a, b) {
-      return (a.hora || '').localeCompare(b.hora || '');
+    var hospEntradas = (dia.hospedagem || []).slice();
+    var chegadas = dia.chegadas || [];
+
+    // Build unified, time-sorted timeline (hospedagem + rotas + chegadas cross-day)
+    var entries = [];
+    hospEntradas.forEach(function (h) {
+      entries.push({ tipo: 'hosp', hora: h.hora || '00:00', item: h });
+    });
+    trechos.forEach(function (t) {
+      entries.push({ tipo: 'rota', hora: t.horario || '08:00', item: t });
+    });
+    chegadas.forEach(function (t) {
+      entries.push({ tipo: 'chegada', hora: t._chegadaHorario || '00:00', item: t });
+    });
+    entries.sort(function (a, b) {
+      if (a.hora < b.hora) return -1;
+      if (a.hora > b.hora) return 1;
+      // Same time priority: chegada > rota > hosp
+      var prio = { rota: 0, chegada: 1, hosp: 2 };
+      return (prio[a.tipo] || 0) - (prio[b.tipo] || 0);
     });
 
-    var totalItens = lista.length + trechos.length + hospEntradas.length;
+    var totalItens = lista.length + entries.length;
 
-    var timelineItems = hospEntradas.map(renderHospedagemEntry).join('') +
-      trechos.map(function (t) { return renderTrechoNoRoteiro(t, tripId); }).join('');
-
-    var timelineHtml = timelineItems
-      ? '<div class="itin-timeline">' + timelineItems + '</div>'
+    var timelineHtml = entries.length
+      ? '<div class="itin-timeline">' +
+          entries.map(function (e) {
+            if (e.tipo === 'hosp') return renderHospedagemEntry(e.item);
+            if (e.tipo === 'chegada') return renderChegadaMilestone(e.item);
+            return renderTrechoNoRoteiro(e.item, tripId);
+          }).join('') +
+        '</div>'
       : '';
 
     var atividades = lista.map(function (a) {
