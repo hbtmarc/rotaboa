@@ -942,7 +942,9 @@ var BagagemPage = (function () {
 
   function _abrirTemplateModal() {
     var custom = Store.getBagagemTemplates();
-    var all    = BAG_BUILT_IN_TEMPLATES.concat(custom);
+    // custom versions override builtin entries with the same id
+    var customIds = custom.map(function (t) { return t.id; });
+    var all = BAG_BUILT_IN_TEMPLATES.filter(function (t) { return customIds.indexOf(t.id) < 0; }).concat(custom);
     var tplHtml = all.map(function (t) {
       var totalItens = 0;
       (t.containers || []).forEach(function (c) {
@@ -957,7 +959,7 @@ var BagagemPage = (function () {
           '<div class="bag-tpl-acts">' +
             '<button class="btn btn-primary btn-xs" onclick="BagagemPage.aplicarTemplate(\'' + t.id + '\')">Aplicar</button>' +
             '<button class="btn btn-ghost btn-xs" onclick="BagagemPage.duplicarTemplate(\'' + t.id + '\')">Duplicar</button>' +
-            (!t.builtin ? '<button class="btn btn-outline btn-xs" onclick="BagagemPage.editarTemplate(\'' + t.id + '\')">✏️ Editar</button>' : '') +
+            (!t.builtin || t.id === 'builtin-saothome' ? '<button class="btn btn-outline btn-xs" onclick="BagagemPage.editarTemplate(\'' + t.id + '\')">✏️ Editar</button>' : '') +
             (!t.builtin ? '<button class="btn btn-ghost btn-xs bag-tpl-del" onclick="BagagemPage.excluirTemplate(\'' + t.id + '\')">🗑️</button>' : '') +
           '</div>' +
         '</div>'
@@ -988,8 +990,8 @@ var BagagemPage = (function () {
 
   // ---- Template editor ----------------------------
   function _abrirTemplateEditor(tplId) {
-    var custom = Store.getBagagemTemplates();
-    var tpl = custom.find(function (t) { return t.id === tplId; });
+    var allTpls = BAG_BUILT_IN_TEMPLATES.concat(Store.getBagagemTemplates());
+    var tpl = allTpls.find(function (t) { return t.id === tplId; });
     if (!tpl) return;
     _tplDraft = JSON.parse(JSON.stringify(tpl));
     var existing = document.getElementById('bag-tpl-editor');
@@ -1164,6 +1166,7 @@ var BagagemPage = (function () {
         g.itens = (g.itens || []).filter(function (it) { return it.nome.trim() !== ''; });
       });
     });
+    _tplDraft.builtin = false;
     Store.saveBagagemTemplate(_tplDraft);
     _tplEdFechar();
     fecharTemplateModal();
