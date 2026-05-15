@@ -31,6 +31,7 @@ var RB_PREFS_DEFAULT = {
   precoCombustivelPadrao: '',
   syncAuto: true,
   syncIntervalo: 1,
+  templatesEditaveis: [],
 };
 
 var RB_AUTH_STATE = {
@@ -1556,6 +1557,40 @@ function paginaConfiguracoes(params, container) {
         '</div>' +
       '</div>' +
 
+      '<div class="cfg-section-title">📋 Templates de bagagem</div>' +
+      '<div class="card" style="margin-bottom:var(--space-5)">' +
+        '<div class="card-body">' +
+          '<p class="cfg-tpl-hint">Templates marcados podem ser editados diretamente na página de Bagagem.</p>' +
+          '<div class="cfg-tpl-grid">' +
+          (function () {
+            var editaveis = Array.isArray(prefs.templatesEditaveis) ? prefs.templatesEditaveis : [];
+            var builtins  = window.BAG_BUILT_IN_TEMPLATES || [];
+            return builtins.map(function (t) {
+              var checked = editaveis.indexOf(t.id) >= 0;
+              var total = 0;
+              (t.containers || []).forEach(function (c) {
+                (c.grupos || []).forEach(function (g) { total += (g.itens || []).length; });
+              });
+              var emoji = (t.containers && t.containers[0] && t.containers[0].emoji) || '📋';
+              return (
+                '<label class="cfg-tpl-card' + (checked ? ' cfg-tpl-card-on' : '') + '">' +
+                  '<input type="checkbox" class="cfg-tpl-cb" data-tpl-id="' + t.id + '"' + (checked ? ' checked' : '') + ' onchange="this.closest(\'.cfg-tpl-card\').classList.toggle(\'cfg-tpl-card-on\',this.checked)">' +
+                  '<div class="cfg-tpl-card-emoji">' + emoji + '</div>' +
+                  '<div class="cfg-tpl-card-body">' +
+                    '<div class="cfg-tpl-card-nome">' + _esc(t.nome) + '</div>' +
+                    '<div class="cfg-tpl-card-meta">' + _esc(t.descricao || '') + ' &nbsp;·&nbsp; ' + total + ' itens</div>' +
+                  '</div>' +
+                  '<div class="cfg-tpl-toggle">' +
+                    '<div class="cfg-tpl-toggle-track"><div class="cfg-tpl-toggle-thumb"></div></div>' +
+                  '</div>' +
+                '</label>'
+              );
+            }).join('');
+          }()) +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
       '<div style="margin-bottom:var(--space-5);display:flex;align-items:center;gap:var(--space-3)">' +
         '<button class="btn btn-primary" onclick="ConfigActions.salvarPreferencias(false)">Salvar preferências</button>' +
         '<span id="cfg-pref-status" class="text-xs text-muted"></span>' +
@@ -1848,6 +1883,12 @@ var ConfigActions = {
     if (precoComb) prefs.precoCombustivelPadrao = precoComb.value;
     if (syncAuto)  prefs.syncAuto              = syncAuto.value !== 'nao';
     if (syncInt)   prefs.syncIntervalo         = Number(syncInt.value) || 1;
+
+    // Collect editable-builtin-templates checkboxes
+    var tplCbs = document.querySelectorAll('.cfg-tpl-cb');
+    var editaveis = [];
+    tplCbs.forEach(function (cb) { if (cb.checked) editaveis.push(cb.getAttribute('data-tpl-id')); });
+    prefs.templatesEditaveis = editaveis;
 
     _salvarPreferencias(prefs);
     _aplicarDensidade();

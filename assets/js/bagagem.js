@@ -284,6 +284,9 @@ var BagagemPage = (function () {
   var _viagem   = null;
   var _filter   = 'todos';
   var _tplDraft  = null;
+  var _tplEdActiveCi = 0;
+  var _tplEdSugOpen = false;
+  var _tplEdSugList = [];
   var _search   = '';
 
   // ---- Store bridge -----------------------------------
@@ -959,7 +962,7 @@ var BagagemPage = (function () {
           '<div class="bag-tpl-acts">' +
             '<button class="btn btn-primary btn-xs" onclick="BagagemPage.aplicarTemplate(\'' + t.id + '\')">Aplicar</button>' +
             '<button class="btn btn-ghost btn-xs" onclick="BagagemPage.duplicarTemplate(\'' + t.id + '\')">Duplicar</button>' +
-            (!t.builtin || t.id === 'builtin-saothome' ? '<button class="btn btn-outline btn-xs" onclick="BagagemPage.editarTemplate(\'' + t.id + '\')">✏️ Editar</button>' : '') +
+            ((!t.builtin || (typeof _lerPreferencias === 'function' && _lerPreferencias().templatesEditaveis.indexOf(t.id) >= 0)) ? '<button class="btn btn-outline btn-xs" onclick="BagagemPage.editarTemplate(\'' + t.id + '\')">✏️ Editar</button>' : '') +
             (!t.builtin ? '<button class="btn btn-ghost btn-xs bag-tpl-del" onclick="BagagemPage.excluirTemplate(\'' + t.id + '\')">🗑️</button>' : '') +
           '</div>' +
         '</div>'
@@ -988,100 +991,125 @@ var BagagemPage = (function () {
     document.body.appendChild(div.firstChild);
   }
 
-  // ---- Template editor ----------------------------
+  // ---- Template editor (fullscreen) ----------------------------
   function _abrirTemplateEditor(tplId) {
     var allTpls = BAG_BUILT_IN_TEMPLATES.concat(Store.getBagagemTemplates());
     var tpl = allTpls.find(function (t) { return t.id === tplId; });
     if (!tpl) return;
     _tplDraft = JSON.parse(JSON.stringify(tpl));
+    _tplEdActiveCi = 0;
+    _tplEdSugOpen = false;
+    _tplEdSugList = [];
     var existing = document.getElementById('bag-tpl-editor');
     if (existing) existing.remove();
+    document.body.classList.add('tpled-open');
     var div = document.createElement('div');
-    div.className = 'bag-modal-overlay';
     div.id = 'bag-tpl-editor';
     div.innerHTML = _buildTplEditorHtml();
     document.body.appendChild(div);
   }
 
   function _buildTplEditorHtml() {
-    var containersHtml = (_tplDraft.containers || []).map(function (c, ci) {
+    var containers = _tplDraft.containers || [];
+
+    // Build board columns — one per section
+    var colsHtml = containers.map(function (c, ci) {
       var gruposHtml = (c.grupos || []).map(function (g, gi) {
         var itensHtml = (g.itens || []).map(function (it, ii) {
           return (
-            '<div class="tpled-item-row">' +
-              '<input class="input input-sm tpled-item-nome" value="' + _esc(it.nome) + '" placeholder="Nome do item">' +
-              '<input class="input input-sm tpled-item-qtd" type="number" min="1" value="' + (it.qtd || 1) + '">' +
-              '<button class="btn btn-ghost btn-xs tpled-remove-item" title="Remover item" onclick="BagagemPage._tplEdRemoveItem(' + ci + ',' + gi + ',' + ii + ')">🗑️</button>' +
+            '<div class="tpled-item-row" data-ci="' + ci + '" data-gi="' + gi + '" data-ii="' + ii + '">' +
+              '<input class="tpled-item-nome" value="' + _esc(it.nome) + '" placeholder="Item...">' +
+              '<input class="tpled-item-qtd" type="number" min="1" value="' + (it.qtd || 1) + '">' +
+              '<button class="tpled-item-del" onclick="BagagemPage._tplEdRemoveItem(' + ci + ',' + gi + ',' + ii + ')">✕</button>' +
             '</div>'
           );
         }).join('');
         return (
-          '<div class="tpled-grupo">' +
-            '<div class="tpled-grupo-hdr">' +
-              '<input class="input input-sm tpled-grupo-nome" value="' + _esc(g.nome) + '" placeholder="Nome do grupo">' +
-              '<button class="btn btn-ghost btn-xs" title="Remover grupo" onclick="BagagemPage._tplEdRemoveGrupo(' + ci + ',' + gi + ')">✕</button>' +
+          '<div class="tpled-group-card" data-ci="' + ci + '" data-gi="' + gi + '">' +
+            '<div class="tpled-group-hdr">' +
+              '<input class="tpled-group-nome" value="' + _esc(g.nome) + '" placeholder="Grupo...">' +
+              '<span class="tpled-group-badge">' + (g.itens || []).length + '</span>' +
+              '<button class="tpled-group-del" onclick="BagagemPage._tplEdRemoveGrupo(' + ci + ',' + gi + ')">✕</button>' +
             '</div>' +
-            '<div class="tpled-itens">' + itensHtml + '</div>' +
-            '<button class="btn btn-ghost btn-xs tpled-add-item" onclick="BagagemPage._tplEdAddItem(' + ci + ',' + gi + ')">+ item</button>' +
+            '<div class="tpled-items">' + (itensHtml || '<div class="tpled-items-empty">vazio</div>') + '</div>' +
+            '<button class="tpled-add-item-btn" onclick="BagagemPage._tplEdAddItem(' + ci + ',' + gi + ')">+ item</button>' +
           '</div>'
         );
       }).join('');
+      var totalItens = 0;
+      (c.grupos || []).forEach(function (g) { totalItens += (g.itens || []).length; });
       return (
-        '<div class="tpled-container">' +
-          '<div class="tpled-cont-hdr">' +
-            '<input class="input input-sm tpled-cont-emoji" value="' + _esc(c.emoji || '📦') + '" maxlength="4" placeholder="🧳">' +
-            '<input class="input input-sm tpled-cont-nome" value="' + _esc(c.nome) + '" placeholder="Nome da seção">' +
-            '<button class="btn btn-ghost btn-xs tpled-remove-cont" title="Remover seção" onclick="BagagemPage._tplEdRemoveContainer(' + ci + ')">✕</button>' +
+        '<div class="tpled-col" data-ci="' + ci + '">' +
+          '<div class="tpled-col-hdr">' +
+            '<input class="tpled-col-emoji" maxlength="4" value="' + _esc(c.emoji || '📦') + '">' +
+            '<input class="tpled-col-nome" value="' + _esc(c.nome) + '" placeholder="Nome...">' +
+            '<span class="tpled-col-cnt">' + totalItens + '</span>' +
+            '<button class="tpled-col-del" title="Remover seção" onclick="BagagemPage._tplEdRemoveContainer(' + ci + ')">✕</button>' +
           '</div>' +
-          '<div class="tpled-grupos">' + gruposHtml + '</div>' +
-          '<button class="btn btn-ghost btn-xs tpled-add-grupo" onclick="BagagemPage._tplEdAddGrupo(' + ci + ')">+ grupo</button>' +
+          '<div class="tpled-col-body">' +
+            (gruposHtml || '<div class="tpled-col-empty">Nenhum grupo ainda.</div>') +
+            '<button class="tpled-add-grupo-btn" onclick="BagagemPage._tplEdAddGrupo(' + ci + ')">+ grupo</button>' +
+          '</div>' +
         '</div>'
       );
     }).join('');
+
+    // "add section" ghost column
+    var addColHtml = (
+      '<div class="tpled-col tpled-col-add" onclick="BagagemPage._tplEdAddContainer()">' +
+        '<div class="tpled-col-add-inner">' +
+          '<span class="tpled-col-add-icon">＋</span>' +
+          '<span>Nova seção</span>' +
+        '</div>' +
+      '</div>'
+    );
+
     return (
-      '<div class="bag-modal bag-modal-lg">' +
-        '<div class="bag-modal-hdr">' +
-          '<span>✏️ Editar template</span>' +
-          '<button class="modal-close" onclick="BagagemPage._tplEdFechar()">✕</button>' +
-        '</div>' +
-        '<div class="bag-modal-body" id="tpled-body">' +
-          '<div class="tpled-meta">' +
-            '<input class="input" id="tpled-nome" value="' + _esc(_tplDraft.nome) + '" placeholder="Nome do template">' +
-            '<input class="input" id="tpled-desc" value="' + _esc(_tplDraft.descricao || '') + '" placeholder="Descrição">' +
+      '<div class="tpled-fullscreen">' +
+        '<div class="tpled-topbar">' +
+          '<div class="tpled-topbar-meta">' +
+            '<input class="tpled-nome-big" id="tpled-nome" value="' + _esc(_tplDraft.nome) + '" placeholder="Nome do template">' +
+            '<input class="tpled-desc-sm" id="tpled-desc" value="' + _esc(_tplDraft.descricao || '') + '" placeholder="Descrição breve">' +
           '</div>' +
-          '<div id="tpled-containers">' + containersHtml + '</div>' +
-          '<button class="btn btn-outline btn-sm" onclick="BagagemPage._tplEdAddContainer()">+ seção</button>' +
+          '<div class="tpled-topbar-actions">' +
+            '<button class="btn btn-ghost ' + (_tplEdSugOpen ? 'tpled-sug-btn-active' : '') + '" onclick="BagagemPage._tplEdToggleSug()">💡 Sugestões</button>' +
+            '<button class="btn btn-ghost" onclick="BagagemPage._tplEdFechar()">Cancelar</button>' +
+            '<button class="btn btn-primary" onclick="BagagemPage._tplEdSalvar()">Salvar template</button>' +
+          '</div>' +
         '</div>' +
-        '<div class="bag-modal-footer">' +
-          '<button class="btn btn-ghost" onclick="BagagemPage._tplEdFechar()">Cancelar</button>' +
-          '<button class="btn btn-primary" onclick="BagagemPage._tplEdSalvar()">Salvar template</button>' +
+        '<div class="tpled-body" id="tpled-body">' +
+          '<div class="tpled-board" id="tpled-board">' +
+            colsHtml +
+            addColHtml +
+          '</div>' +
+          (_tplEdSugOpen ? _buildTplEdSugPanelHtml() : '') +
         '</div>' +
       '</div>'
     );
   }
 
   function _tplEdCollect() {
-    // Sync current DOM values into _tplDraft before any structural change
     var nomeEl = document.getElementById('tpled-nome');
     var descEl = document.getElementById('tpled-desc');
     if (nomeEl) _tplDraft.nome = nomeEl.value.trim();
     if (descEl) _tplDraft.descricao = descEl.value.trim();
-    var contEls = document.querySelectorAll('#tpled-containers .tpled-container');
-    contEls.forEach(function (cEl, ci) {
+    // Collect all columns
+    document.querySelectorAll('.tpled-col:not(.tpled-col-add)').forEach(function (colEl) {
+      var ci = parseInt(colEl.getAttribute('data-ci'), 10);
       var c = (_tplDraft.containers || [])[ci];
       if (!c) return;
-      var emojiEl = cEl.querySelector('.tpled-cont-emoji');
-      var cNomeEl = cEl.querySelector('.tpled-cont-nome');
+      var emojiEl = colEl.querySelector('.tpled-col-emoji');
+      var cNomeEl = colEl.querySelector('.tpled-col-nome');
       if (emojiEl) c.emoji = emojiEl.value || '📦';
-      if (cNomeEl) c.nome = cNomeEl.value.trim() || c.nome;
-      var grpEls = cEl.querySelectorAll('.tpled-grupo');
-      grpEls.forEach(function (gEl, gi) {
+      if (cNomeEl && cNomeEl.value.trim()) c.nome = cNomeEl.value.trim();
+      colEl.querySelectorAll('.tpled-group-card').forEach(function (gEl) {
+        var gi = parseInt(gEl.getAttribute('data-gi'), 10);
         var g = (c.grupos || [])[gi];
         if (!g) return;
-        var gNomeEl = gEl.querySelector('.tpled-grupo-nome');
-        if (gNomeEl) g.nome = gNomeEl.value.trim() || g.nome;
-        var itemEls = gEl.querySelectorAll('.tpled-item-row');
-        itemEls.forEach(function (iEl, ii) {
+        var gNomeEl = gEl.querySelector('.tpled-group-nome');
+        if (gNomeEl && gNomeEl.value.trim()) g.nome = gNomeEl.value.trim();
+        gEl.querySelectorAll('.tpled-item-row').forEach(function (iEl) {
+          var ii = parseInt(iEl.getAttribute('data-ii'), 10);
           var it = (g.itens || [])[ii];
           if (!it) return;
           var iNomeEl = iEl.querySelector('.tpled-item-nome');
@@ -1093,17 +1121,38 @@ var BagagemPage = (function () {
     });
   }
 
-  function _tplEdRerender() {
-    var editor = document.getElementById('bag-tpl-editor');
-    if (!editor) return;
-    editor.innerHTML = _buildTplEditorHtml();
+  function _tplEdRerender(focus) {
+    var el = document.getElementById('bag-tpl-editor');
+    if (!el) return;
+    var board = document.getElementById('tpled-board');
+    var scrollLeft = board ? board.scrollLeft : 0;
+    el.innerHTML = _buildTplEditorHtml();
+    var newBoard = document.getElementById('tpled-board');
+    if (newBoard) newBoard.scrollLeft = scrollLeft;
+    if (focus === 'focus-last-item') {
+      var inputs = document.querySelectorAll('.tpled-item-nome');
+      var last = inputs[inputs.length - 1];
+      if (last) { last.focus(); last.select(); }
+    } else if (focus === 'focus-last-group') {
+      var gi = document.querySelectorAll('.tpled-group-nome');
+      var lastG = gi[gi.length - 1];
+      if (lastG) { lastG.focus(); lastG.select(); }
+    } else if (focus === 'focus-last-col') {
+      var cn = document.querySelectorAll('.tpled-col-nome');
+      var lastCol = cn[cn.length - 1];
+      if (lastCol) { lastCol.focus(); lastCol.select(); }
+      // scroll board to the right
+      if (newBoard) newBoard.scrollLeft = newBoard.scrollWidth;
+    }
   }
+
+  function _tplEdSelectCont(ci) { /* no-op kept for compat */ }
 
   function _tplEdAddContainer() {
     _tplEdCollect();
     if (!_tplDraft.containers) _tplDraft.containers = [];
     _tplDraft.containers.push({ id: _bagId(), nome: 'Nova seção', emoji: '📦', descricao: '', grupos: [] });
-    _tplEdRerender();
+    _tplEdRerender('focus-last-col');
   }
 
   function _tplEdRemoveContainer(ci) {
@@ -1119,7 +1168,7 @@ var BagagemPage = (function () {
     if (!c) return;
     if (!c.grupos) c.grupos = [];
     c.grupos.push({ id: _bagId(), nome: 'Novo grupo', itens: [] });
-    _tplEdRerender();
+    _tplEdRerender('focus-last-group');
   }
 
   function _tplEdRemoveGrupo(ci, gi) {
@@ -1138,7 +1187,7 @@ var BagagemPage = (function () {
     if (!g) return;
     if (!g.itens) g.itens = [];
     g.itens.push({ id: _bagId(), nome: '', qtd: 1, observacao: '', checked: false, obrigatorio: false, origem: 'template' });
-    _tplEdRerender();
+    _tplEdRerender('focus-last-item');
   }
 
   function _tplEdRemoveItem(ci, gi, ii) {
@@ -1155,12 +1204,21 @@ var BagagemPage = (function () {
     var el = document.getElementById('bag-tpl-editor');
     if (el) el.remove();
     _tplDraft = null;
+    _tplEdActiveCi = 0;
+    _tplEdSugOpen = false;
+    _tplEdSugList = [];
+    document.body.classList.remove('tpled-open');
   }
 
   function _tplEdSalvar() {
     _tplEdCollect();
-    if (!_tplDraft.nome) { alert('O template precisa de um nome.'); return; }
-    // Remove items with empty names
+    var nomeEl = document.getElementById('tpled-nome');
+    var nome = nomeEl ? nomeEl.value.trim() : _tplDraft.nome;
+    if (!nome) {
+      if (nomeEl) { nomeEl.focus(); nomeEl.classList.add('tpled-input-error'); }
+      return;
+    }
+    _tplDraft.nome = nome;
     (_tplDraft.containers || []).forEach(function (c) {
       (c.grupos || []).forEach(function (g) {
         g.itens = (g.itens || []).filter(function (it) { return it.nome.trim() !== ''; });
@@ -1171,6 +1229,114 @@ var BagagemPage = (function () {
     _tplEdFechar();
     fecharTemplateModal();
     _abrirTemplateModal();
+  }
+
+  // ---- Template editor: smart suggestions panel ------
+  function _tplEdGerarSugestoes() {
+    if (!_tplDraft) return [];
+    var ctx = (_tplDraft.nome + ' ' + (_tplDraft.descricao || '') + ' ' + (_tplDraft.tags || []).join(' ')).toLowerCase();
+    var temCarro    = /estrada|carro|road|km/.test(ctx);
+    var temNatureza = /trilha|cachoeira|mata|eco|parque|serra|morro|trekking|caminhada|natureza/.test(ctx);
+    var temPraia    = /praia|mar|litoral|piscina/.test(ctx);
+    var temFrio     = /frio|neve|inverno|montanha|temperatura/.test(ctx);
+    var temCidade   = /cidade|city|urban|hotel|pousada/.test(ctx);
+    var temWork     = /trabalho|work|neg.cios|congresso|palestra/.test(ctx);
+
+    var CATALOG = [
+      { nome: 'Documentos & dinheiro',     emoji: '📋', show: true,        itens: ['RG / CNH', 'Cartão de crédito / débito', 'Dinheiro trocado', 'Seguro saúde anotado'] },
+      { nome: 'Energia & conectividade',   emoji: '🔋', show: true,        itens: ['Carregador de celular', 'Powerbank', 'Cabo USB-C', 'Fone de ouvido'] },
+      { nome: 'Higiene pessoal',           emoji: '🪥', show: true,        itens: ['Escova + pasta', 'Desodorante', 'Shampoo', 'Sabonete', 'Perfume'] },
+      { nome: 'Saúde básica',              emoji: '💊', show: true,        itens: ['Protetor solar FPS 50+', 'Analgésico / antitérmico', 'Band-aids', 'Medicamentos pessoais'] },
+      { nome: 'Kit carro',                 emoji: '🚗', show: temCarro,    itens: ['Galão de água (5 L)', 'Snacks de estrada', 'Suporte celular painel', 'Carregador veicular', 'Saco de lixo'] },
+      { nome: 'Segurança veicular',        emoji: '🔧', show: temCarro,    itens: ['Estepe calibrado', 'Macaco + chave de roda', 'Triângulo', 'Extintor', 'Cabo auxiliar'] },
+      { nome: 'Trilha & caminhada',        emoji: '🥾', show: temNatureza, itens: ['Tênis trail / trekking', 'Garrafa de água (1,5 L)', 'Repelente', 'Snacks energéticos', 'Saco p/ roupa molhada'] },
+      { nome: 'Segurança pessoal',         emoji: '🔦', show: temNatureza, itens: ['Head lamp / lanterna', 'Canivete', 'Apito', 'Mapa offline'] },
+      { nome: 'Praia & água',              emoji: '🏖️', show: temPraia,    itens: ['Roupa de banho extra', 'Toalha de praia', 'Óculos de sol', 'Chinelo', 'Protetor labial FPS'] },
+      { nome: 'Frio & montanha',           emoji: '🧥', show: temFrio,     itens: ['Casaco pesado', 'Meia grossa', 'Luvas', 'Touca', 'Garrafa térmica'] },
+      { nome: 'City & hotel',              emoji: '🏨', show: temCidade,   itens: ['Adaptador de tomada', 'Guarda-chuva compacto', 'Roupas passeio', 'Sapato fechado'] },
+      { nome: 'Trabalho & tecnologia',     emoji: '💼', show: temWork,     itens: ['Notebook + carregador', 'Mouse portátil', 'HD externo / pen drive', 'Cartões de visita'] },
+      { nome: 'Cuidados pessoais',         emoji: '✨', show: true,        itens: ['Protetor solar FPS 50+', 'Hidratante facial / labial', 'Espelho compacto', 'Absorvente (bolsa)'] },
+      { nome: 'Organização & embalagem',   emoji: '🧳', show: true,        itens: ['Cubo organizador (roupas)', 'Saco impermeável', 'Etiqueta de mala', 'Cadeado'] }
+    ];
+
+    var existingNames = [];
+    (_tplDraft.containers || []).forEach(function (c) {
+      (c.grupos || []).forEach(function (g) { existingNames.push(g.nome.toLowerCase()); });
+    });
+
+    return CATALOG.filter(function (g) {
+      return g.show && existingNames.indexOf(g.nome.toLowerCase()) === -1;
+    });
+  }
+
+  function _buildTplEdSugPanelHtml() {
+    var containers = _tplDraft ? (_tplDraft.containers || []) : [];
+    var colOpts = containers.length
+      ? containers.map(function (c, ci) {
+          return '<option value="' + ci + '">' + _esc(c.emoji || '📦') + ' ' + _esc(c.nome) + '</option>';
+        }).join('')
+      : '<option value="" disabled>Crie uma seção primeiro</option>';
+
+    var cardsHtml = _tplEdSugList.map(function (sg, sgIdx) {
+      var preview = sg.itens.slice(0, 4).join(', ') + (sg.itens.length > 4 ? '…' : '');
+      return (
+        '<div class="tpled-sug-card" id="tpled-sug-card-' + sgIdx + '">' +
+          '<div class="tpled-sug-card-nome">' + _esc(sg.emoji) + ' ' + _esc(sg.nome) + '</div>' +
+          '<div class="tpled-sug-card-preview">' + _esc(preview) + '</div>' +
+          (containers.length
+            ? ('<div class="tpled-sug-card-foot">' +
+                '<select class="tpled-sug-sel" id="tpled-sug-sel-' + sgIdx + '">' +
+                  '<option value="">Seção...</option>' + colOpts +
+                '</select>' +
+                '<button class="btn btn-primary btn-xs" onclick="BagagemPage._tplEdAddSugGrupo(' + sgIdx + ')">+ Add</button>' +
+              '</div>')
+            : '<div class="tpled-sug-card-foot tpled-sug-card-nosel">Crie uma seção primeiro</div>') +
+        '</div>'
+      );
+    }).join('');
+
+    return (
+      '<div class="tpled-sug-panel" id="tpled-sug-panel">' +
+        '<div class="tpled-sug-phdr">' +
+          '<span class="tpled-sug-ptitle">💡 Sugestões</span>' +
+          '<span class="tpled-sug-psubt">Grupos para adicionar ao template</span>' +
+          '<button class="tpled-sug-pclose" onclick="BagagemPage._tplEdToggleSug()">✕</button>' +
+        '</div>' +
+        '<div class="tpled-sug-pbody">' +
+          (cardsHtml || '<div class="tpled-sug-empty">✅ Todas as sugestões já foram aplicadas.</div>') +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function _tplEdToggleSug() {
+    _tplEdCollect();
+    _tplEdSugOpen = !_tplEdSugOpen;
+    if (_tplEdSugOpen) _tplEdSugList = _tplEdGerarSugestoes();
+    _tplEdRerender();
+  }
+
+  function _tplEdAddSugGrupo(sgIdx) {
+    _tplEdCollect();
+    var sg = _tplEdSugList[sgIdx];
+    if (!sg) return;
+    var sel = document.getElementById('tpled-sug-sel-' + sgIdx);
+    var ci = sel ? parseInt(sel.value, 10) : NaN;
+    if (isNaN(ci) || ci < 0) {
+      if (sel) { sel.focus(); sel.style.outline = '2px solid var(--color-danger, #dc2626)'; }
+      return;
+    }
+    var c = (_tplDraft.containers || [])[ci];
+    if (!c) return;
+    if (!c.grupos) c.grupos = [];
+    c.grupos.push({
+      id: _bagId(), nome: sg.nome,
+      itens: sg.itens.map(function (nome) {
+        return { id: _bagId(), nome: nome, qtd: 1, observacao: '', checked: false, obrigatorio: false, origem: 'template' };
+      })
+    });
+    _tplEdSugList.splice(sgIdx, 1); // remove from list after adding
+    _tplEdRerender('focus-last-group');
   }
 
   // ---- Modal: suggestions -----------------------------
@@ -1661,12 +1827,15 @@ var BagagemPage = (function () {
     _fecharMiniModais:   _fecharMiniModais,
     _tplEdAddContainer:  _tplEdAddContainer,
     _tplEdRemoveContainer: _tplEdRemoveContainer,
+    _tplEdSelectCont:    _tplEdSelectCont,
     _tplEdAddGrupo:      _tplEdAddGrupo,
     _tplEdRemoveGrupo:   _tplEdRemoveGrupo,
     _tplEdAddItem:       _tplEdAddItem,
     _tplEdRemoveItem:    _tplEdRemoveItem,
     _tplEdFechar:        _tplEdFechar,
     _tplEdSalvar:        _tplEdSalvar,
+    _tplEdToggleSug:     _tplEdToggleSug,
+    _tplEdAddSugGrupo:   _tplEdAddSugGrupo,
     abrirSugModal:       abrirSugModal,
     fecharSugModal:      fecharSugModal,
     adicionarSugestao:   adicionarSugestao,
