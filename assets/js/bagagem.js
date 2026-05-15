@@ -29,6 +29,41 @@ function _bagNomesAtivos(viagem) {
 }
 function _bagQ(dias, r) { return Math.max(1, Math.ceil(dias * r)); }
 
+// ---- Portuguese singularizer -----------------------
+function _singularizarPT(nome) {
+  if (!nome) return nome;
+  if (/ções$/i.test(nome))  return nome.replace(/ções$/i,  'ção');
+  if (/ões$/i.test(nome))   return nome.replace(/ões$/i,   'ão');
+  if (/ães$/i.test(nome))   return nome.replace(/ães$/i,   'ão');
+  if (/ns$/i.test(nome))    return nome.replace(/ns$/i,    'm');
+  if (/[bcdfghjklmnpqrstvwxyzáâãéêíóôõú]s$/i.test(nome) && nome.length > 4)
+    return nome.slice(0, -1);
+  if (/[aeiouáâãéêíóôõú]s$/i.test(nome) && nome.length > 3)
+    return nome.slice(0, -1);
+  return nome;
+}
+
+// ---- Normalise item names with embedded qty, e.g. "Camisetas (4)" → nome "Camiseta" qtd 4 ---
+function _normalizarItensTemplate(tplDraft) {
+  // Measurement units that should NOT be treated as qty  (e.g. "Galão de água (5 L)")
+  var UNITS = /^(l|ml|kg|g|mg|cm|m|km|h|min|cal|kcal|un|und|gramas?)$/i;
+  (tplDraft.containers || []).forEach(function (c) {
+    (c.grupos || []).forEach(function (g) {
+      (g.itens || []).forEach(function (it) {
+        var m = it.nome.match(/^(.+?)\s*\(\s*(\d+)\s*([^)]*)\)\s*$/);
+        if (m) {
+          var qty  = parseInt(m[2], 10);
+          var rest = m[3].trim().toLowerCase();
+          if (!UNITS.test(rest) && qty >= 1) {
+            it.qtd  = qty;
+            it.nome = qty > 1 ? _singularizarPT(m[1].trim()) : m[1].trim();
+          }
+        }
+      });
+    });
+  });
+}
+
 // ---- Built-in templates ----------------------------
 var BAG_BUILT_IN_TEMPLATES = (function () {
   function container(id, nome, emoji, desc, grupos) {
@@ -993,10 +1028,14 @@ var BagagemPage = (function () {
 
   // ---- Template editor (fullscreen) ----------------------------
   function _abrirTemplateEditor(tplId) {
-    var allTpls = BAG_BUILT_IN_TEMPLATES.concat(Store.getBagagemTemplates());
+    // User-saved templates take precedence over builtins (same id = override)
+    var userTpls = Store.getBagagemTemplates();
+    var allTpls = userTpls.concat(BAG_BUILT_IN_TEMPLATES);
     var tpl = allTpls.find(function (t) { return t.id === tplId; });
     if (!tpl) return;
     _tplDraft = JSON.parse(JSON.stringify(tpl));
+    _normalizarItensTemplate(_tplDraft);
+    _tplEdSortDraft();
     _tplEdActiveCi = 0;
     _tplEdSugOpen = false;
     _tplEdSugList = [];
@@ -1007,6 +1046,39 @@ var BagagemPage = (function () {
     div.id = 'bag-tpl-editor';
     div.innerHTML = _buildTplEditorHtml();
     document.body.appendChild(div);
+  }
+
+  function _pl(n, s, p) { return n + ' ' + (n === 1 ? s : p); }
+
+  function _buildTplEdTripInfoHtml() {
+    if (!_viagem) return '';
+    var dias     = _bagDias(_viagem);
+    var loc      = _esc(_viagem.localizacaoCurta || _viagem.destinoPrincipal || _viagem.destino || '');
+    var di       = _viagem.dataInicio ? _viagem.dataInicio.split('-') : null;
+    var df       = _viagem.dataFim    ? _viagem.dataFim.split('-')    : null;
+    var datas    = (di && df) ? (di[2]+'/'+(di[1]) + '–' + df[2]+'/'+df[1]+'/'+df[0]) : '';
+    var partic   = _viagem.participantes;
+    var nPessoas = Array.isArray(partic)
+      ? (partic.filter(function(p){ return p.ativo !== false; }).length || 1)
+      : (parseInt(partic, 10) || 1);
+    var trocas   = Math.max(1, dias - 1);
+    var roteiro  = (_tripId && Store.getItinerario ? Store.getItinerario(_tripId) : null) || { dias: [] };
+    var nEventos = roteiro.dias.reduce(function (acc, dia) {
+      return acc +
+        (dia.atividades  || []).length +
+        (dia.trechos     || []).length +
+        (dia.hospedagem  || []).length;
+    }, 0);
+
+    var chips = [
+      loc      ? '<span class="tpled-ti-chip">📍 ' + loc + '</span>'                                           : '',
+      datas    ? '<span class="tpled-ti-chip">📅 ' + _esc(datas) + '</span>'                                   : '',
+               '<span class="tpled-ti-chip">🗓️ ' + _pl(dias, 'dia', 'dias') + '</span>',
+               '<span class="tpled-ti-chip">👥 ' + _pl(nPessoas, 'pessoa', 'pessoas') + '</span>',
+               '<span class="tpled-ti-chip" title="Estimativa: 1 troca por dia de viagem">👕 ~' + _pl(trocas, 'troca de roupa', 'trocas de roupa') + '</span>',
+      nEventos ? '<span class="tpled-ti-chip">🗺️ ' + _pl(nEventos, 'evento no roteiro', 'eventos no roteiro') + '</span>' : '',
+    ].filter(Boolean).join('');
+    return '<div class="tpled-trip-info">' + chips + '</div>';
   }
 
   function _buildTplEditorHtml() {
@@ -1077,6 +1149,7 @@ var BagagemPage = (function () {
             '<button class="btn btn-primary" onclick="BagagemPage._tplEdSalvar()">Salvar template</button>' +
           '</div>' +
         '</div>' +
+        _buildTplEdTripInfoHtml() +
         '<div class="tpled-body" id="tpled-body">' +
           '<div class="tpled-board" id="tpled-board">' +
             colsHtml +
@@ -1121,27 +1194,68 @@ var BagagemPage = (function () {
     });
   }
 
+  function _bagCmpStr(a, b) {
+    return (a || '').localeCompare(b || '', 'pt-BR', { sensitivity: 'base' });
+  }
+
+  // Sort draft in-place: containers → groups → items, all A→Z.
+  // Items with blank names (newly added) stay at the end of their group.
+  function _tplEdSortDraft() {
+    if (!_tplDraft) return;
+    (_tplDraft.containers || []).forEach(function (c) {
+      (c.grupos || []).forEach(function (g) {
+        (g.itens || []).sort(function (a, b) {
+          var an = (a.nome || '').trim(), bn = (b.nome || '').trim();
+          if (!an && !bn) return 0;
+          if (!an) return 1;   // blank → end
+          if (!bn) return -1;
+          return _bagCmpStr(an, bn);
+        });
+      });
+      (c.grupos || []).sort(function (a, b) { return _bagCmpStr(a.nome, b.nome); });
+    });
+    (_tplDraft.containers || []).sort(function (a, b) { return _bagCmpStr(a.nome, b.nome); });
+  }
+
   function _tplEdRerender(focus) {
     var el = document.getElementById('bag-tpl-editor');
     if (!el) return;
+    _tplEdSortDraft();
+    // Capture scroll state before re-render
     var board = document.getElementById('tpled-board');
     var scrollLeft = board ? board.scrollLeft : 0;
+    var colScrolls = {};
+    document.querySelectorAll('.tpled-col-body').forEach(function (cb) {
+      var ci = cb.closest('.tpled-col') && cb.closest('.tpled-col').getAttribute('data-ci');
+      if (ci != null) colScrolls[ci] = cb.scrollTop;
+    });
     el.innerHTML = _buildTplEditorHtml();
+    // Restore scroll state after re-render
     var newBoard = document.getElementById('tpled-board');
     if (newBoard) newBoard.scrollLeft = scrollLeft;
+    document.querySelectorAll('.tpled-col-body').forEach(function (cb) {
+      var ci = cb.closest('.tpled-col') && cb.closest('.tpled-col').getAttribute('data-ci');
+      if (ci != null && colScrolls[ci]) cb.scrollTop = colScrolls[ci];
+    });
     if (focus === 'focus-last-item') {
+      // New blank items sort to end of their group → querySelectorAll last = correct
       var inputs = document.querySelectorAll('.tpled-item-nome');
       var last = inputs[inputs.length - 1];
       if (last) { last.focus(); last.select(); }
     } else if (focus === 'focus-last-group') {
-      var gi = document.querySelectorAll('.tpled-group-nome');
-      var lastG = gi[gi.length - 1];
-      if (lastG) { lastG.focus(); lastG.select(); }
+      // Find the new placeholder group (value = 'Novo grupo') — after sort it can be anywhere
+      var allGNome = document.querySelectorAll('.tpled-group-nome');
+      var newG = null;
+      allGNome.forEach(function (el) { if (el.value === 'Novo grupo') newG = el; });
+      if (!newG && allGNome.length) newG = allGNome[allGNome.length - 1];
+      if (newG) { newG.focus(); newG.select(); }
     } else if (focus === 'focus-last-col') {
-      var cn = document.querySelectorAll('.tpled-col-nome');
-      var lastCol = cn[cn.length - 1];
-      if (lastCol) { lastCol.focus(); lastCol.select(); }
-      // scroll board to the right
+      // Find the new placeholder col (value = 'Nova seção') — after sort it can be anywhere
+      var allCNome = document.querySelectorAll('.tpled-col-nome');
+      var newC = null;
+      allCNome.forEach(function (el) { if (el.value === 'Nova seção') newC = el; });
+      if (!newC && allCNome.length) newC = allCNome[allCNome.length - 1];
+      if (newC) { newC.focus(); newC.select(); }
       if (newBoard) newBoard.scrollLeft = newBoard.scrollWidth;
     }
   }
@@ -1585,7 +1699,7 @@ var BagagemPage = (function () {
   function fecharTemplateModal() { var el = document.getElementById('bag-tpl-modal'); if (el) el.remove(); }
 
   function aplicarTemplate(tplId) {
-    var all = BAG_BUILT_IN_TEMPLATES.concat(Store.getBagagemTemplates());
+    var all = Store.getBagagemTemplates().concat(BAG_BUILT_IN_TEMPLATES);
     var tpl = all.find(function (t) { return t.id === tplId; });
     if (!tpl) return;
     _abrirConfirmModal(
@@ -1607,7 +1721,7 @@ var BagagemPage = (function () {
   }
 
   function duplicarTemplate(tplId) {
-    var all = BAG_BUILT_IN_TEMPLATES.concat(Store.getBagagemTemplates());
+    var all = Store.getBagagemTemplates().concat(BAG_BUILT_IN_TEMPLATES);
     var tpl = all.find(function (t) { return t.id === tplId; });
     if (!tpl) return;
     _abrirDuplicarModal(tplId, tpl.nome);

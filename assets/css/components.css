@@ -2785,6 +2785,23 @@ body.tpled-open { overflow: hidden; }
 .tpled-topbar-actions { display: flex; gap: var(--space-2); flex-shrink: 0; }
 .tpled-sug-btn-active { background: rgba(59,130,246,.1) !important; color: var(--color-primary) !important; }
 
+/* Trip summary strip */
+.tpled-trip-info {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  padding: 6px var(--space-5);
+  background: var(--color-bg-alt, #f1f5f9);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+.tpled-ti-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px; font-weight: 500; color: var(--color-text-secondary);
+  background: var(--color-bg-card, #fff);
+  border: 1px solid var(--color-border);
+  border-radius: 99px; padding: 2px 9px;
+  white-space: nowrap; cursor: default;
+}
+
 /* Body row: board + optional suggestions panel */
 .tpled-body {
   display: flex; flex-direction: row; flex: 1; overflow: hidden;
