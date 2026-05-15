@@ -13,7 +13,6 @@ var Store = (function () {
   var _LS_ITIN     = 'rotaboa.itineraries.v1';
   var _LS_EXPENSES = 'rotaboa.expenses.v1';
   var _LS_ROUTES   = 'rotaboa.routes.v1';
-  var _LS_GOOGLE_MAPS_API_KEY = 'rotaboa.googleMapsApiKey.v1';
   var _LS_BAG_TEMPLATES = 'rotaboa.bagagem.templates.v1';
   var _rotasLegacySemTripIdLogado = false;
 
@@ -788,9 +787,7 @@ var Store = (function () {
     roteiro: MockData.roteiro,        // Mock por enquanto — Prompt 3 tornará dinâmico
     financeiro: MockData.financeiro,  // idem
     rotas: {},
-    configuracoes: Object.assign({}, MockData.configuracoes, {
-      googleMapsApiKey: localStorage.getItem(_LS_GOOGLE_MAPS_API_KEY) || '',
-    }),
+    configuracoes: Object.assign({}, MockData.configuracoes),
     usuario: {
       nome: MockData.configuracoes.nomeUsuario,
       email: MockData.configuracoes.email,
@@ -921,22 +918,7 @@ var Store = (function () {
     getConfiguracoes:  function () { return _state.configuracoes; },
 
     getGoogleMapsApiKey: function () {
-      return String((_state.configuracoes && _state.configuracoes.googleMapsApiKey) || localStorage.getItem(_LS_GOOGLE_MAPS_API_KEY) || '').trim();
-    },
-
-    setGoogleMapsApiKey: function (apiKey) {
-      var key = String(apiKey || '').trim();
-      _state.configuracoes = Object.assign({}, _state.configuracoes, {
-        googleMapsApiKey: key,
-      });
-      if (key) {
-        localStorage.setItem(_LS_GOOGLE_MAPS_API_KEY, key);
-      } else {
-        localStorage.removeItem(_LS_GOOGLE_MAPS_API_KEY);
-      }
-      _marcarSyncPendente();
-      _notificar();
-      return true;
+      return 'AIzaSyDS4rKFaIDfnbKj3MoUA1WXXjfl3kfmvGI';
     },
 
     getViagemSelecionada: function () {

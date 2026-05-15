@@ -10,14 +10,7 @@ var MapsService = (function () {
   // ---- Chave de API -------------------------------------------
 
   function _getApiKey() {
-    try {
-      if (window.Store && typeof window.Store.getGoogleMapsApiKey === 'function') {
-        return String(window.Store.getGoogleMapsApiKey() || '').trim();
-      }
-      return String(localStorage.getItem('rotaboa.googleMapsApiKey.v1') || '').trim();
-    } catch (e) {
-      return '';
-    }
+    return 'AIzaSyDS4rKFaIDfnbKj3MoUA1WXXjfl3kfmvGI';
   }
 
   function hasApiKey() {

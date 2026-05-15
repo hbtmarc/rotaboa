@@ -19,6 +19,7 @@ var RB_PREFS_KEY = 'rotaboa.preferences.v1';
 var RB_APP_VERSION = 'mvp-0.2.0';
 
 var RB_PREFS_DEFAULT = {
+  nomeUsuario: '',
   paginaInicialPadrao: '/inicio',
   mostrarValoresInicio: true,
   confirmarAntesExcluir: true,
@@ -92,6 +93,7 @@ var SyncService = (function () {
       itineraries: ler(RB_LOCAL_KEYS.itineraries) || {},
       expenses: ler(RB_LOCAL_KEYS.expenses) || {},
       routes: ler(RB_LOCAL_KEYS.routes) || {},
+      preferences: _lerPreferencias(),
       updatedAt: new Date().toISOString(),
       appVersion: RB_APP_VERSION,
     };
@@ -318,7 +320,28 @@ function _salvarPreferencias(prefs) {
   try {
     localStorage.setItem(RB_PREFS_KEY, JSON.stringify(merged));
   } catch (e) {}
+  // Persistir no RTDB quando o usuário estiver autenticado
+  if (RB_AUTH_STATE.user && RB_AUTH_STATE.user.uid &&
+      window.FirebaseClient && typeof FirebaseClient.savePreferences === 'function') {
+    FirebaseClient.savePreferences(RB_AUTH_STATE.user.uid, merged).catch(function () {});
+  }
   return merged;
+}
+
+// Restaura preferências salvas no RTDB para o localStorage ao fazer login
+function _restaurarPrefsDoRtdb(uid) {
+  if (!uid || !window.FirebaseClient || typeof FirebaseClient.loadPreferences !== 'function') return;
+  FirebaseClient.loadPreferences(uid).then(function (remotePrefs) {
+    if (!remotePrefs || typeof remotePrefs !== 'object') return;
+    var local = _lerPreferencias();
+    // Preferências remotas têm prioridade sobre o padrão, mas locais modificadas recentemente também contam
+    var merged = Object.assign({}, RB_PREFS_DEFAULT, remotePrefs, local);
+    // Se local === default, remoto ganha; se local foi explicitamente modificado, mantém
+    // Estratégia: prefer remote para garantir sincronia entre dispositivos
+    var mergedRemoteWins = Object.assign({}, RB_PREFS_DEFAULT, local, remotePrefs);
+    try { localStorage.setItem(RB_PREFS_KEY, JSON.stringify(mergedRemoteWins)); } catch (e) {}
+    _aplicarDensidade();
+  }).catch(function () {});
 }
 
 function _rotaInicialPadrao() {
@@ -461,7 +484,10 @@ function iniciarAuthStateListener() {
       resolverPrimeiraVez();
       if (RB_AUTH_STATE.user || RB_AUTH_STATE.offlineMode) {
         SyncService.startAutoSync();
-        if (RB_AUTH_STATE.user) SyncService.syncLocalToCloud({ silent: false, source: 'auth-ready' });
+        if (RB_AUTH_STATE.user) {
+          SyncService.syncLocalToCloud({ silent: false, source: 'auth-ready' });
+          _restaurarPrefsDoRtdb(RB_AUTH_STATE.user.uid);
+        }
       } else {
         SyncService.stopAutoSync();
       }
@@ -1409,8 +1435,6 @@ function paginaRotas(params, container) {
 // ==== PÁGINA: Configurações ====
 function paginaConfiguracoes(params, container) {
   var prefs = _lerPreferencias();
-  var mapsKey = (window.Store && typeof Store.getGoogleMapsApiKey === 'function') ? Store.getGoogleMapsApiKey() : '';
-  var mapsConfigurado = !!String(mapsKey || '').trim();
   var avisoSync = _renderAvisoSincronizacao();
 
   function _esc(str) {
@@ -1452,13 +1476,23 @@ function paginaConfiguracoes(params, container) {
         '</div>' +
       '</div>' +
 
+      '<div class="cfg-section-title">👤 Dados pessoais</div>' +
+      '<div class="card" style="margin-bottom:var(--space-5)">' +
+        '<div class="card-body">' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="pref-nome-usuario">Seu nome</label>' +
+            '<input id="pref-nome-usuario" class="form-input" type="text" maxlength="80" placeholder="Como você se chama" value="' + _esc(prefs.nomeUsuario || '') + '">' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
       '<div class="cfg-section-title">⚙️ Preferências do app</div>' +
       '<div class="card" style="margin-bottom:var(--space-5)">' +
         '<div class="card-body">' +
           '<div class="cfg-grid">' +
             '<div class="form-group">' +
               '<label class="form-label" for="pref-pagina-inicial">Página inicial</label>' +
-              '<select id="pref-pagina-inicial" class="form-select" onchange="ConfigActions.salvarPreferencias(true)">' +
+              '<select id="pref-pagina-inicial" class="form-select">'+
                 _opt('/inicio', 'Início', prefs.paginaInicialPadrao) +
                 _opt('/viagens', 'Viagens', prefs.paginaInicialPadrao) +
                 _opt('/roteiro', 'Roteiro', prefs.paginaInicialPadrao) +
@@ -1468,21 +1502,21 @@ function paginaConfiguracoes(params, container) {
             '</div>' +
             '<div class="form-group">' +
               '<label class="form-label" for="pref-densidade">Densidade visual</label>' +
-              '<select id="pref-densidade" class="form-select" onchange="ConfigActions.salvarPreferencias(true)">' +
+              '<select id="pref-densidade" class="form-select">'+
                 _opt('confortavel', 'Confortável', prefs.densidadeVisual) +
                 _opt('compacta', 'Compacta', prefs.densidadeVisual) +
               '</select>' +
             '</div>' +
             '<div class="form-group">' +
               '<label class="form-label" for="pref-mostrar-valores">Valores financeiros na tela inicial</label>' +
-              '<select id="pref-mostrar-valores" class="form-select" onchange="ConfigActions.salvarPreferencias(true)">' +
+              '<select id="pref-mostrar-valores" class="form-select">'+
                 '<option value="sim"' + (prefs.mostrarValoresInicio !== false ? ' selected' : '') + '>Sim</option>' +
                 '<option value="nao"' + (prefs.mostrarValoresInicio === false ? ' selected' : '') + '>Não</option>' +
               '</select>' +
             '</div>' +
             '<div class="form-group">' +
               '<label class="form-label" for="pref-confirmar-exclusao">Confirmar antes de excluir</label>' +
-              '<select id="pref-confirmar-exclusao" class="form-select" onchange="ConfigActions.salvarPreferencias(true)">' +
+              '<select id="pref-confirmar-exclusao" class="form-select">'+
                 '<option value="sim"' + (prefs.confirmarAntesExcluir !== false ? ' selected' : '') + '>Sim</option>' +
                 '<option value="nao"' + (prefs.confirmarAntesExcluir === false ? ' selected' : '') + '>Não</option>' +
               '</select>' +
@@ -1498,55 +1532,54 @@ function paginaConfiguracoes(params, container) {
           '<div class="cfg-grid">' +
             '<div class="form-group">' +
               '<label class="form-label" for="pref-ci-hora">Horário padrão de check-in</label>' +
-              '<input id="pref-ci-hora" class="form-input" type="time" value="' + _esc(prefs.checkInPadrao || '14:00') + '" onchange="ConfigActions.salvarPreferencias(true)">' +
+              '<input id="pref-ci-hora" class="form-input" type="time" value="' + _esc(prefs.checkInPadrao || '14:00') + '">' +
             '</div>' +
             '<div class="form-group">' +
               '<label class="form-label" for="pref-co-hora">Horário padrão de check-out</label>' +
-              '<input id="pref-co-hora" class="form-input" type="time" value="' + _esc(prefs.checkOutPadrao || '12:00') + '" onchange="ConfigActions.salvarPreferencias(true)">' +
+              '<input id="pref-co-hora" class="form-input" type="time" value="' + _esc(prefs.checkOutPadrao || '12:00') + '">' +
             '</div>' +
             '<div class="form-group">' +
               '<label class="form-label" for="pref-route-tipo">Tipo padrão de trecho</label>' +
-              '<select id="pref-route-tipo" class="form-select" onchange="ConfigActions.salvarPreferencias(true)">' +
+              '<select id="pref-route-tipo" class="form-select">' +
                 _tiposRota.map(function (p) { return _opt(p[0], p[1], prefs.routeTipoPadrao || 'carro'); }).join('') +
               '</select>' +
             '</div>' +
             '<div class="form-group">' +
               '<label class="form-label" for="pref-consumo">Consumo médio padrão (km/L)</label>' +
-              '<input id="pref-consumo" class="form-input" type="number" min="0" step="0.01" placeholder="Ex: 12" value="' + _esc(prefs.consumoPadrao) + '" onblur="ConfigActions.salvarPreferencias(true)">' +
+              '<input id="pref-consumo" class="form-input" type="number" min="0" step="0.01" placeholder="Ex: 12" value="' + _esc(prefs.consumoPadrao) + '">' +
             '</div>' +
             '<div class="form-group">' +
               '<label class="form-label" for="pref-preco-comb">Preço padrão do combustível (R$/L)</label>' +
-              '<input id="pref-preco-comb" class="form-input" type="number" min="0" step="0.01" placeholder="Ex: 6.20" value="' + _esc(prefs.precoCombustivelPadrao) + '" onblur="ConfigActions.salvarPreferencias(true)">' +
-              '<div class="text-xs text-muted" style="margin-top:var(--space-1)">Aplicado ao criar novos trechos.</div>' +
+              '<input id="pref-preco-comb" class="form-input" type="number" min="0" step="0.01" placeholder="Ex: 6.20" value="' + _esc(prefs.precoCombustivelPadrao) + '">' +
             '</div>' +
           '</div>' +
         '</div>' +
       '</div>' +
 
-      '<div class="cfg-section-title">�️ Google Maps</div>' +
+      '<div style="margin-bottom:var(--space-5);display:flex;align-items:center;gap:var(--space-3)">' +
+        '<button class="btn btn-primary" onclick="ConfigActions.salvarPreferencias(false)">Salvar preferências</button>' +
+        '<span id="cfg-pref-status" class="text-xs text-muted"></span>' +
+      '</div>' +
+
+      '<div class="cfg-section-title">☁️ Backup na nuvem</div>' +
       '<div class="card" style="margin-bottom:var(--space-5)">' +
         '<div class="card-body">' +
-          '<div class="form-group">' +
-            '<label class="form-label" for="cfg-google-maps-key">Chave de acesso</label>' +
-            '<div style="display:flex;gap:var(--space-2)">' +
-              '<input id="cfg-google-maps-key" class="form-input" type="password" autocomplete="off" placeholder="Cole sua chave aqui" value="' + _esc(mapsKey) + '" style="flex:1">' +
-              '<button class="btn btn-primary btn-sm" onclick="ConfigActions.salvarGoogleMapsKey()">Salvar</button>' +
-            '</div>' +
-            '<div class="text-xs text-muted" style="margin-top:var(--space-2)">' + (mapsConfigurado ? '✅ Configurado' : '⚠️ Não configurado') + ' · Usado para busca de endereços, distância e rotas.</div>' +
-          '</div>' +
-          '<div id="cfg-maps-status" class="text-xs text-muted" style="margin-top:var(--space-2)"></div>' +
+          (RB_AUTH_STATE.user
+            ? '<div style="display:flex;gap:var(--space-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--space-3)">' +
+                '<button class="btn btn-primary btn-sm" onclick="ConfigActions.criarBackup()">Criar backup agora</button>' +
+                '<span class="text-xs text-muted">Backups ficam associados à sua conta no servidor.</span>' +
+              '</div>' +
+              '<div id="cfg-bkp-lista" class="text-xs text-muted">Carregando backups...</div>' +
+              '<div id="cfg-bkp-status" class="text-xs text-muted" style="margin-top:var(--space-2)"></div>'
+            : '<div class="text-xs text-secondary">Faça login para criar e restaurar backups na nuvem. Os backups são vinculados à sua conta e acessíveis em qualquer dispositivo.</div>') +
         '</div>' +
       '</div>' +
 
-      '<div class="cfg-section-title">💾 Dados locais</div>' +
+      '<div class="cfg-section-title">🗑️ Dados locais</div>' +
       '<div class="card" style="margin-bottom:var(--space-5)">' +
         '<div class="card-body">' +
-          '<div style="display:flex;gap:var(--space-2);flex-wrap:wrap">' +
-            '<button class="btn btn-primary btn-sm" onclick="ConfigActions.exportarBackup()">Exportar backup</button>' +
-            '<button class="btn btn-secondary btn-sm" onclick="ConfigActions.importarBackup()">Importar backup</button>' +
-            '<button class="btn btn-ghost btn-sm" style="color:var(--color-danger)" onclick="ConfigActions.limparDadosLocais()">Limpar dados locais</button>' +
-          '</div>' +
-          '<input id="cfg-backup-input" type="file" accept="application/json" style="display:none" onchange="ConfigActions.processarArquivoBackup(event)">' +
+          '<div class="text-xs text-secondary" style="margin-bottom:var(--space-3)">Remove todas as viagens, roteiro, despesas e rotas armazenados neste dispositivo.</div>' +
+          '<button class="btn btn-ghost btn-sm" style="color:var(--color-danger)" onclick="ConfigActions.limparDadosLocais()">Limpar dados locais</button>' +
           '<div id="cfg-backup-status" class="text-xs text-muted" style="margin-top:var(--space-3)"></div>' +
         '</div>' +
       '</div>' +
@@ -1556,6 +1589,9 @@ function paginaConfiguracoes(params, container) {
 
   container.innerHTML = html;
   atualizarBadgeModoDadosHeader();
+  if (RB_AUTH_STATE.user) {
+    ConfigActions.carregarBackups();
+  }
 }
 
 // ==== PÁGINA: Login ====
@@ -1622,73 +1658,130 @@ var ConfigActions = {
     el.style.color = erro ? 'var(--color-danger)' : 'var(--color-text-muted)';
   },
 
-  exportarBackup: function () {
-    var payload = {
-      exportedAt: new Date().toISOString(),
-      version: 1,
-      data: {},
-    };
+  _statusBkp: function (msg, erro) {
+    var el = document.getElementById('cfg-bkp-status');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.color = erro ? 'var(--color-danger)' : 'var(--color-text-muted)';
+  },
 
-    Object.keys(RB_LOCAL_KEYS).forEach(function (k) {
-      var lsKey = RB_LOCAL_KEYS[k];
-      var raw = localStorage.getItem(lsKey);
-      if (!raw) return;
-      try {
-        payload.data[lsKey] = JSON.parse(raw);
-      } catch (e) {
-        payload.data[lsKey] = raw;
+  criarBackup: async function () {
+    if (!RB_AUTH_STATE.user) { _mostrarToast('Faça login para criar backups.'); return; }
+    this._statusBkp('Criando backup...', false);
+    var uid = RB_AUTH_STATE.user.uid;
+    try {
+      var payload = (function () {
+        function _ler(k) {
+          try { var r = localStorage.getItem(k); return r ? JSON.parse(r) : null; } catch (e) { return null; }
+        }
+        return {
+          trips: _ler(RB_LOCAL_KEYS.trips) || [],
+          selectedTripId: localStorage.getItem(RB_LOCAL_KEYS.selectedTrip) || null,
+          itineraries: _ler(RB_LOCAL_KEYS.itineraries) || {},
+          expenses: _ler(RB_LOCAL_KEYS.expenses) || {},
+          routes: _ler(RB_LOCAL_KEYS.routes) || {},
+          preferences: _lerPreferencias(),
+          appVersion: RB_APP_VERSION,
+        };
+      })();
+      await FirebaseClient.criarBackupRtdb(uid, payload);
+      this._statusBkp('✅ Backup criado com sucesso.', false);
+      _mostrarToast('Backup criado.');
+      await this.carregarBackups();
+    } catch (e) {
+      this._statusBkp('Falha ao criar backup: ' + String((e && (e.friendly || e.message)) || 'erro desconhecido'), true);
+    }
+  },
+
+  carregarBackups: async function () {
+    var lista = document.getElementById('cfg-bkp-lista');
+    if (!lista || !RB_AUTH_STATE.user) return;
+    lista.innerHTML = '<span class="text-muted">Carregando...</span>';
+    try {
+      var uid = RB_AUTH_STATE.user.uid;
+      var backups = await FirebaseClient.listarBackupsRtdb(uid);
+      if (!backups || backups.length === 0) {
+        lista.innerHTML = '<span class="text-muted">Nenhum backup encontrado. Crie o primeiro acima.</span>';
+        return;
       }
-    });
-
-    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = 'rotaboa-backup-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.json';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    this._statusBackup('Backup exportado com sucesso.', false);
+      var rows = backups.map(function (b) {
+        var dtStr = b.createdAt ? new Date(b.createdAt).toLocaleString('pt-BR') : '—';
+        var qtdViagens = (b.data && Array.isArray(b.data.trips)) ? b.data.trips.length : '?';
+        var bId = String(b.id || '');
+        return (
+          '<div style="display:flex;align-items:center;justify-content:space-between;padding:var(--space-2) 0;border-bottom:1px solid var(--color-border,#e5e7eb)">' +
+            '<div>' +
+              '<div class="font-semibold text-sm">' + dtStr + '</div>' +
+              '<div class="text-xs text-muted">' + qtdViagens + ' viagem(s) &middot; v' + String(b.appVersion || '—') + '</div>' +
+            '</div>' +
+            '<div style="display:flex;gap:var(--space-2)">' +
+              '<button class="btn btn-secondary btn-sm" onclick="ConfigActions.restaurarBackup(\'' + bId + '\')">Restaurar</button>' +
+              '<button class="btn btn-ghost btn-sm" style="color:var(--color-danger)" onclick="ConfigActions.excluirBackup(\'' + bId + '\')">Excluir</button>' +
+            '</div>' +
+          '</div>'
+        );
+      }).join('');
+      lista.innerHTML = '<div style="max-height:320px;overflow-y:auto">' + rows + '</div>';
+    } catch (e) {
+      lista.textContent = 'Erro ao carregar backups.';
+    }
   },
 
-  importarBackup: function () {
-    var input = document.getElementById('cfg-backup-input');
-    if (!input) return;
-    input.value = '';
-    input.click();
-  },
-
-  processarArquivoBackup: function (event) {
+  restaurarBackup: async function (backupId) {
+    if (!RB_AUTH_STATE.user || !backupId) return;
     var self = this;
-    var file = event && event.target && event.target.files && event.target.files[0];
-    if (!file) return;
+    ConfirmModal.abrirComCallback(
+      'Restaurar backup?',
+      'Os dados atuais serão substituídos pelos dados deste backup. A página será recarregada.',
+      async function () {
+        self._statusBkp('Restaurando...', false);
+        try {
+          var uid = RB_AUTH_STATE.user.uid;
+          var payload = await FirebaseClient.restaurarBackupRtdb(uid, backupId);
+          if (!payload) { self._statusBkp('Backup sem dados válidos.', true); return; }
 
-    var reader = new FileReader();
-    reader.onload = function (ev) {
-      try {
-        var parsed = JSON.parse(String(ev.target.result || '{}'));
-        var data = parsed && parsed.data ? parsed.data : parsed;
-        var restaurou = 0;
+          var lsMap = {
+            trips: RB_LOCAL_KEYS.trips,
+            selectedTripId: RB_LOCAL_KEYS.selectedTrip,
+            itineraries: RB_LOCAL_KEYS.itineraries,
+            expenses: RB_LOCAL_KEYS.expenses,
+            routes: RB_LOCAL_KEYS.routes,
+            preferences: RB_PREFS_KEY,
+          };
+          Object.keys(lsMap).forEach(function (k) {
+            if (!(k in payload)) return;
+            var val = payload[k];
+            localStorage.setItem(lsMap[k], typeof val === 'string' ? val : JSON.stringify(val));
+          });
 
-        Object.keys(RB_LOCAL_KEYS).forEach(function (k) {
-          var lsKey = RB_LOCAL_KEYS[k];
-          if (!(lsKey in data)) return;
-          var valor = data[lsKey];
-          localStorage.setItem(lsKey, typeof valor === 'string' ? valor : JSON.stringify(valor));
-          restaurou++;
-        });
-
-        SyncService.markPendingSync();
-
-        self._statusBackup('Backup importado (' + restaurou + ' chave(s)). Recarregando...', false);
-        setTimeout(function () { window.location.reload(); }, 400);
-      } catch (e) {
-        self._statusBackup('Arquivo de backup inválido.', true);
+          SyncService.markPendingSync();
+          self._statusBkp('Backup restaurado. Recarregando...', false);
+          setTimeout(function () { window.location.reload(); }, 700);
+        } catch (e) {
+          self._statusBkp('Erro ao restaurar: ' + String((e && (e.friendly || e.message)) || ''), true);
+        }
       }
-    };
-    reader.readAsText(file);
+    );
+  },
+
+  excluirBackup: async function (backupId) {
+    if (!RB_AUTH_STATE.user || !backupId) return;
+    var self = this;
+    ConfirmModal.abrirComCallback(
+      'Excluir backup?',
+      'Esta ação não pode ser desfeita.',
+      async function () {
+        self._statusBkp('Excluindo...', false);
+        try {
+          await FirebaseClient.excluirBackupRtdb(RB_AUTH_STATE.user.uid, backupId);
+          _mostrarToast('Backup excluído.');
+          self._statusBkp('Backup excluído.', false);
+          await self.carregarBackups();
+        } catch (e) {
+          self._statusBkp('Erro ao excluir: ' + String((e && (e.friendly || e.message)) || ''), true);
+        }
+      }
+    );
   },
 
   limparDadosLocais: function () {
@@ -1740,8 +1833,10 @@ var ConfigActions = {
     var precoComb = document.getElementById('pref-preco-comb');
     var syncAuto  = document.getElementById('pref-sync-auto');
     var syncInt   = document.getElementById('pref-sync-intervalo');
+    var nomeUsr   = document.getElementById('pref-nome-usuario');
 
     var prefs = {};
+    if (nomeUsr)   prefs.nomeUsuario            = String(nomeUsr.value || '').trim();
     if (pagina)    prefs.paginaInicialPadrao    = pagina.value;
     if (valores)   prefs.mostrarValoresInicio   = valores.value !== 'nao';
     if (confirmar) prefs.confirmarAntesExcluir  = confirmar.value !== 'nao';
@@ -1761,10 +1856,13 @@ var ConfigActions = {
       SyncService.startAutoSync();
     }
 
-    if (!silencioso) {
-      this._statusPrefs('Preferências salvas.', false);
-      _mostrarToast('Preferências salvas.');
-    }
+    // Feedback imediato sempre que o usuário clica Salvar
+    this._statusPrefs('Preferências salvas.' + (RB_AUTH_STATE.user ? ' (nuvem)' : ''), false);
+    _mostrarToast('Preferências salvas.');
+    setTimeout(function () {
+      var el = document.getElementById('cfg-pref-status');
+      if (el) el.textContent = '';
+    }, 3000);
   },
 
   _statusFirebase: function (msg, erro) {
@@ -1805,24 +1903,6 @@ var ConfigActions = {
     this._statusFirebase('✅ Configuração Firebase salva. Você já pode fazer login.', false);
     _mostrarToast('Configuração Firebase salva.');
     // Rerender page so badge atualiza
-    window.dispatchEvent(new HashChangeEvent('hashchange'));
-  },
-
-  salvarGoogleMapsKey: function () {
-    var input = document.getElementById('cfg-google-maps-key');
-    var key = input ? String(input.value || '').trim() : '';
-    if (window.Store && typeof Store.setGoogleMapsApiKey === 'function') {
-      Store.setGoogleMapsApiKey(key);
-    } else {
-      localStorage.setItem('rotaboa.googleMapsApiKey.v1', key);
-    }
-
-    if (window.MapsService && typeof MapsService.init === 'function') {
-      MapsService.init().catch(function () {});
-    }
-
-    this._statusMaps(key ? 'Google Maps configurado.' : 'Google Maps não configurado.', false);
-    _mostrarToast(key ? 'Google Maps configurado.' : 'Google Maps desativado.');
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   },
 
@@ -2033,12 +2113,12 @@ var TripModal = (function () {
       '<div class="form-row form-row-datas">' +
         '<div class="form-group">' +
           '<label class="form-label form-label-required">Data de início</label>' +
-          _DTWidget.renderData('f-inicio', val('dataInicio')) +
+          _DTWidget.renderData('f-inicio', val('dataInicio') || new Date().toISOString().slice(0, 10)) +
           '<span class="form-error" id="e-inicio">Data de início obrigatória.</span>' +
         '</div>' +
         '<div class="form-group">' +
           '<label class="form-label form-label-required">Data de fim</label>' +
-          _DTWidget.renderData('f-fim', val('dataFim')) +
+          _DTWidget.renderData('f-fim', val('dataFim') || new Date().toISOString().slice(0, 10)) +
           '<span class="form-error" id="e-fim">Data de fim obrigatória.</span>' +
         '</div>' +
       '</div>' +
@@ -2085,8 +2165,11 @@ var TripModal = (function () {
     }
     var qtd = Math.max(1, Number(viagem && viagem.participantes) || 1);
     var lista = [];
+    var prefs = _lerPreferencias();
+    var nomeBase = String(prefs.nomeUsuario || '').trim() || null;
     for (var i = 1; i <= qtd; i++) {
-      lista.push({ id: 'part-local-' + i + '-' + Date.now(), nome: 'Pessoa ' + i, ativo: true });
+      var nome = (i === 1 && nomeBase) ? nomeBase : 'Pessoa ' + i;
+      lista.push({ id: 'part-local-' + i + '-' + Date.now(), nome: nome, ativo: true });
     }
     return lista;
   }
@@ -3360,7 +3443,13 @@ var DespesaModal = (function () {
       }
       document.getElementById('desp-modal-title').textContent = despesaId ? 'Editar despesa' : 'Nova despesa';
       document.getElementById('desp-modal-save').textContent  = despesaId ? 'Salvar alterações' : 'Salvar despesa';
-      document.getElementById('desp-modal-body').innerHTML    = _renderForm(viagem, desp || {});
+      // Para nova despesa usa a data de início da viagem como padrão
+      var despForm = desp || {};
+      if (!_despesaId && !despForm.data) {
+        despForm = Object.assign({}, despForm, { data: (viagem && viagem.dataInicio) || '' });
+      }
+      var itin = Store.getItinerario ? Store.getItinerario(tripId) : null;
+      document.getElementById('desp-modal-body').innerHTML    = _renderForm(viagem, despForm, itin);
       this.alterarPagamento();
       this._onCatChange();
       _overlay.classList.add('aberto');

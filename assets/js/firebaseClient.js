@@ -23,9 +23,11 @@ var FirebaseClient = (function () {
   var _sdkApp = null;
   var _sdkAuth = null;
   var _sdkFirestore = null;
+  var _sdkRtdb = null;
   var _appInstancia = null;
   var _authInstancia = null;
   var _firestoreInstancia = null;
+  var _rtdbInstancia = null;
   var _authUserAtual = null;
 
   function _erro(msg) {
@@ -82,6 +84,22 @@ var FirebaseClient = (function () {
     if (_sdkFirestore) return _sdkFirestore;
     _sdkFirestore = await import('https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js');
     return _sdkFirestore;
+  }
+
+  async function _carregarSdkRtdb() {
+    if (_sdkRtdb) return _sdkRtdb;
+    _sdkRtdb = await import('https://www.gstatic.com/firebasejs/12.13.0/firebase-database.js');
+    return _sdkRtdb;
+  }
+
+  async function _getRtdb() {
+    var config = getFirebaseConfig();
+    if (!config || !config.databaseURL) throw _erro('databaseURL não configurado no projeto Firebase.');
+    var dbSdk = await _carregarSdkRtdb();
+    var app = await getFirebaseApp();
+    if (_rtdbInstancia) return _rtdbInstancia;
+    _rtdbInstancia = dbSdk.getDatabase(app);
+    return _rtdbInstancia;
   }
 
   async function getFirebaseApp() {
@@ -338,6 +356,92 @@ var FirebaseClient = (function () {
     }
   }
 
+  // ---- Preferências do usuário no RTDB -------------------------
+
+  async function savePreferences(uid, prefs) {
+    if (!uid) return false;
+    try {
+      var db = await _getRtdb();
+      var dbSdk = await _carregarSdkRtdb();
+      var r = dbSdk.ref(db, 'users/' + uid + '/preferences');
+      await dbSdk.set(r, Object.assign({}, prefs, { _savedAt: new Date().toISOString() }));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function loadPreferences(uid) {
+    if (!uid) return null;
+    try {
+      var db = await _getRtdb();
+      var dbSdk = await _carregarSdkRtdb();
+      var r = dbSdk.ref(db, 'users/' + uid + '/preferences');
+      var snap = await dbSdk.get(r);
+      if (!snap.exists()) return null;
+      var data = Object.assign({}, snap.val());
+      delete data._savedAt;
+      return data;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // ---- Backups no RTDB ------------------------------------------
+
+  async function criarBackupRtdb(uid, payload) {
+    if (!uid) throw _erro('Usuário não autenticado.');
+    var db = await _getRtdb();
+    var dbSdk = await _carregarSdkRtdb();
+    var id = 'bkp-' + Date.now();
+    var r = dbSdk.ref(db, 'users/' + uid + '/backups/' + id);
+    await dbSdk.set(r, {
+      id: id,
+      createdAt: new Date().toISOString(),
+      appVersion: payload.appVersion || '',
+      label: 'Backup manual',
+      data: payload,
+    });
+    return id;
+  }
+
+  async function listarBackupsRtdb(uid) {
+    if (!uid) return [];
+    try {
+      var db = await _getRtdb();
+      var dbSdk = await _carregarSdkRtdb();
+      var r = dbSdk.ref(db, 'users/' + uid + '/backups');
+      var snap = await dbSdk.get(r);
+      if (!snap.exists()) return [];
+      var val = snap.val() || {};
+      return Object.values(val).sort(function (a, b) {
+        return (b.createdAt || '').localeCompare(a.createdAt || '');
+      });
+    } catch (e) {
+      return [];
+    }
+  }
+
+  async function restaurarBackupRtdb(uid, backupId) {
+    if (!uid || !backupId) throw _erro('Parâmetros inválidos para restauração.');
+    var db = await _getRtdb();
+    var dbSdk = await _carregarSdkRtdb();
+    var r = dbSdk.ref(db, 'users/' + uid + '/backups/' + backupId);
+    var snap = await dbSdk.get(r);
+    if (!snap.exists()) throw _erro('Backup não encontrado.');
+    var bkp = snap.val();
+    return bkp.data || null;
+  }
+
+  async function excluirBackupRtdb(uid, backupId) {
+    if (!uid || !backupId) throw _erro('Parâmetros inválidos para exclusão.');
+    var db = await _getRtdb();
+    var dbSdk = await _carregarSdkRtdb();
+    var r = dbSdk.ref(db, 'users/' + uid + '/backups/' + backupId);
+    await dbSdk.remove(r);
+    return true;
+  }
+
   return {
     getFirebaseConfig: getFirebaseConfig,
     saveFirebaseConfig: saveFirebaseConfig,
@@ -354,5 +458,11 @@ var FirebaseClient = (function () {
     logoutUser: logoutUser,
     onAuthChange: onAuthChange,
     uploadAppState: uploadAppState,
+    savePreferences: savePreferences,
+    loadPreferences: loadPreferences,
+    criarBackupRtdb: criarBackupRtdb,
+    listarBackupsRtdb: listarBackupsRtdb,
+    restaurarBackupRtdb: restaurarBackupRtdb,
+    excluirBackupRtdb: excluirBackupRtdb,
   };
 })();
