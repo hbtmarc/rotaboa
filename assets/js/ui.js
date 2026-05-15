@@ -467,21 +467,29 @@ var UI = (function () {
 
   // ---- Mapa de categoria → emoji + classe CSS ----
   var _catMeta = {
-    deslocamento: { emoji: '🚗', cls: 'cat-deslocamento', label: 'Deslocamento' },
-    hospedagem:   { emoji: '🏨', cls: 'cat-hospedagem',   label: 'Hospedagem'   },
     alimentacao:  { emoji: '🍽️', cls: 'cat-alimentacao',  label: 'Alimentação'  },
-    passeio:      { emoji: '🎡', cls: 'cat-passeio',      label: 'Passeio'      },
-    compra:       { emoji: '🛍️', cls: 'cat-compra',       label: 'Compra'       },
-    livre:        { emoji: '🌴', cls: 'cat-livre',        label: 'Livre'        },
-    descanso:     { emoji: '😴', cls: 'cat-descanso',     label: 'Descanso'     },
-    cultura:      { emoji: '🏛️', cls: 'cat-cultura',      label: 'Cultura'      },
-    natureza:     { emoji: '🌿', cls: 'cat-natureza',     label: 'Natureza'     },
-    noturno:      { emoji: '🌅', cls: 'cat-noturno',      label: 'Noturno'      },
     aventura:     { emoji: '🧗', cls: 'cat-aventura',     label: 'Aventura'     },
+    cachoeira:    { emoji: '💧', cls: 'cat-cachoeira',    label: 'Cachoeira'    },
+    compra:       { emoji: '🛍️', cls: 'cat-compra',       label: 'Compra'       },
+    cultura:      { emoji: '🏛️', cls: 'cat-cultura',      label: 'Cultura'      },
+    descanso:     { emoji: '😴', cls: 'cat-descanso',     label: 'Descanso'     },
+    deslocamento: { emoji: '🚗', cls: 'cat-deslocamento', label: 'Deslocamento' },
+    emergencia:   { emoji: '🚑', cls: 'cat-emergencia',   label: 'Emergência'   },
+    evento:       { emoji: '🎟️', cls: 'cat-evento',       label: 'Evento'       },
+    hospedagem:   { emoji: '🏨', cls: 'cat-hospedagem',   label: 'Hospedagem'   },
+    livre:        { emoji: '🌴', cls: 'cat-livre',        label: 'Livre'        },
+    natureza:     { emoji: '🌿', cls: 'cat-natureza',     label: 'Natureza'     },
+    noturno:      { emoji: '🌇', cls: 'cat-noturno',      label: 'Noturno'      },
     outro:        { emoji: '📌', cls: 'cat-outro',        label: 'Outro'        },
+    passeio:      { emoji: '🎡', cls: 'cat-passeio',      label: 'Passeio'      },
+    praia:        { emoji: '🏖️', cls: 'cat-praia',        label: 'Praia'        },
+    restaurante:  { emoji: '🍽️', cls: 'cat-restaurante',  label: 'Restaurante'  },
+    trilha:       { emoji: '🥾', cls: 'cat-trilha',       label: 'Trilha'       },
   };
 
-  // ---- Helpers de duração e gap temporal ----
+  // ============================================================
+  // Timeline helpers
+  // ============================================================
   function _horaToMin(h) {
     var parts = String(h || '').split(':');
     if (parts.length !== 2) return -1;
@@ -491,6 +499,12 @@ var UI = (function () {
     return hh * 60 + mm;
   }
 
+  function _minToHHMM(min) {
+    if (min == null || min < 0) return '--:--';
+    var m = ((min % 1440) + 1440) % 1440;
+    return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+  }
+
   function _duracaoStr(min) {
     if (!min || min <= 0) return '';
     var h = Math.floor(min / 60);
@@ -498,6 +512,32 @@ var UI = (function () {
     if (h > 0 && m > 0) return h + 'h ' + m + 'min';
     if (h > 0) return h + 'h';
     return m + 'min';
+  }
+
+  // endTime for any timeline item: hora + duracaoMin. Returns { hhmm, nextDay }
+  function _itemEndTime(hora, duracaoMin) {
+    var start = _horaToMin(hora);
+    if (start < 0 || !duracaoMin || duracaoMin <= 0) return null;
+    var end = start + duracaoMin;
+    return { hhmm: _minToHHMM(end), nextDay: end >= 1440, endMin: end };
+  }
+
+  // Build a free-slot label between two timeline items (endMin, nextStartMin both in minutes)
+  function _freeSlotHtml(endMin, nextStartMin) {
+    var gap = nextStartMin - endMin;
+    if (gap < 15) return '';
+    // endMin may be ≥ 1440 (next day), wrap for display
+    var fromHHMM = _minToHHMM(endMin);
+    var toHHMM   = _minToHHMM(nextStartMin);
+    var durLabel = _duracaoStr(gap);
+    return (
+      '<div class="itin-free-slot">' +
+        '<span class="itin-free-dot"></span>' +
+        '<span class="itin-free-label">Livre ' + fromHHMM + ' → ' + toHHMM +
+          '<span class="itin-free-dur"> · ' + durLabel + '</span>' +
+        '</span>' +
+      '</div>'
+    );
   }
 
   // ---- Badge de status de atividade ----
@@ -525,7 +565,7 @@ var UI = (function () {
   }
 
   // ---- Renderiza uma atividade ----
-  // meta: { dur: duracaoMin, gap: minutosAtéPróximo }
+  // meta: { conflito: bool }
   function renderAtividade(ativ, tripId, meta) {
     var catKey = ativ.categoria || 'outro';
     var cat    = _catMeta[catKey] || _catMeta.outro;
@@ -546,35 +586,43 @@ var UI = (function () {
       ? '<div class="itin-activity-obs">' + ativ.observacoes + '</div>'
       : '';
 
-    // Duração e gap para próxima atividade
+    // Duração + calculated end time
     var durStr = _duracaoStr(ativ.duracaoMin);
-    var durHtml = durStr
-      ? '<span class="itin-activity-dur">⏱ ' + durStr + '</span>'
-      : '';
-    var gapHtml = '';
-    if (meta.gap > 0 && meta.gap <= 480) { // só mostra se ≤ 8h e positivo
-      var gapStr = _duracaoStr(meta.gap);
-      gapHtml = '<span class="itin-activity-gap">→ próxima em ' + gapStr + '</span>';
+    var endInfo = _itemEndTime(ativ.hora, ativ.duracaoMin);
+    var timeRowHtml = '';
+    if (durStr || endInfo) {
+      var durSpan = durStr ? '<span class="itin-act-dur">⏱ ' + durStr + '</span>' : '';
+      var endSpan = endInfo
+        ? '<span class="itin-act-end">até ' + endInfo.hhmm + (endInfo.nextDay ? '<span class="itin-act-nextday"> +1 dia</span>' : '') + '</span>'
+        : '';
+      timeRowHtml = '<div class="itin-activity-timerow">' + durSpan + endSpan + '</div>';
     }
-    var timeInfo = (durHtml || gapHtml)
-      ? '<div class="itin-activity-timeinfo">' + durHtml + gapHtml + '</div>'
+
+    // Conflict notice
+    var conflictHtml = meta.conflito
+      ? '<div class="itin-conflict">⚠ Conflito de horário</div>'
       : '';
+
+    // Locked indicator
+    var lockHtml = ativ.locked ? '<span class="itin-lock" title="Horário fixo">🔒</span>' : '';
 
     var details = (local || custo || badge)
       ? '<div class="itin-activity-details">' + local + custo + badge + '</div>'
       : '';
 
-    var doneLabel   = feito ? 'Desfazer' : 'Concluir';
-    var doneEmoji   = feito ? '↩' : '✓';
-    var doneCls     = 'itin-act-btn btn-done';
+    var doneLabel = feito ? 'Desfazer' : 'Concluir';
+    var doneEmoji = feito ? '↩' : '✓';
 
     return (
-      '<div class="itin-activity ' + borderCls + (feito ? ' feito' : '') + '" data-ativ-id="' + ativ.id + '">' +
+      '<div class="itin-activity ' + borderCls + (feito ? ' feito' : '') + (meta.conflito ? ' has-conflict' : '') + '" data-ativ-id="' + ativ.id + '">' +
         '<div class="itin-activity-top">' +
-          '<span class="itin-activity-time">' + (ativ.hora || '--:--') + '</span>' +
+          '<div class="itin-activity-time-block">' +
+            '<span class="itin-activity-time">' + (ativ.hora || '--:--') + '</span>' +
+            lockHtml +
+          '</div>' +
           '<span class="itin-cat-chip ' + chipCls + '">' + cat.emoji + ' ' + cat.label + '</span>' +
           '<div class="itin-activity-actions">' +
-            '<button class="' + doneCls + '" title="' + doneLabel + '" onclick="AtividadeActions.toggle(\'' + tripId + '\',\'' + ativ.id + '\')">' +
+            '<button class="itin-act-btn btn-done ' + (feito ? 'done-active' : '') + '" title="' + doneLabel + '" onclick="AtividadeActions.toggle(\'' + tripId + '\',\'' + ativ.id + '\')">' +
               doneEmoji + '<span class="act-label">' + doneLabel + '</span>' +
             '</button>' +
             '<button class="itin-act-btn" title="Editar" onclick="AtividadeActions.editar(\'' + tripId + '\',\'' + ativ.id + '\')">' +
@@ -585,10 +633,14 @@ var UI = (function () {
             '</button>' +
           '</div>' +
         '</div>' +
+        conflictHtml +
         '<div class="itin-activity-name">' + ativ.nome + '</div>' +
         details +
         obs +
-        timeInfo +
+        timeRowHtml +
+        '<button class="itin-reajustar-btn" title="Reajustar timeline a partir daqui" onclick="ReajustarModal.abrir(\'' + tripId + '\',\'' + ativ.id + '\',\'' + (meta.data || ativ._data || '') + '\')">' +
+          '⟳ Reajustar a partir daqui' +
+        '</button>' +
       '</div>'
     );
   }
@@ -697,77 +749,122 @@ var UI = (function () {
 
   // ---- Renderiza um dia do itinerário ----
   function renderDiaItinerario(dia, numDia, tripId) {
-    var lista = dia.atividades || [];
-    var trechos = dia.trechos || [];
+    var lista    = dia.atividades || [];
+    var trechos  = dia.trechos   || [];
     var hospEntradas = (dia.hospedagem || []).slice();
-    var chegadas = dia.chegadas || [];
+    var chegadas = dia.chegadas  || [];
 
-    // Build unified, time-sorted timeline (hospedagem + rotas + chegadas cross-day)
-    var entries = [];
-    hospEntradas.forEach(function (h) {
-      entries.push({ tipo: 'hosp', hora: h.hora || '00:00', item: h });
+    // ---- Normalise all items into a unified schema ----
+    // { tipo, hora, duracaoMin, flexivel, locked, item }
+    var allItems = [];
+
+    var diaData = dia.data || '';
+
+    lista.forEach(function (a) {
+      allItems.push({
+        tipo: 'atividade',
+        hora: a.hora || '00:00',
+        duracaoMin: a.duracaoMin || 0,
+        flexivel: !a.locked,
+        locked: !!a.locked,
+        item: a,
+      });
     });
+
     trechos.forEach(function (t) {
-      entries.push({ tipo: 'rota', hora: t.horario || '08:00', item: t });
+      var durMin = (function () {
+        var s = String(t.duracaoEstimada || '');
+        var m;
+        m = s.match(/^(\d+)h\s*(\d+)min$/i);  if (m) return +m[1]*60 + +m[2];
+        m = s.match(/^(\d+)h$/i);              if (m) return +m[1]*60;
+        m = s.match(/^(\d+)min$/i);            if (m) return +m[1];
+        m = s.match(/^(\d+):(\d+)$/);          if (m) return +m[1]*60 + +m[2];
+        return 0;
+      }());
+      allItems.push({
+        tipo: 'rota',
+        hora: t.horario || '08:00',
+        duracaoMin: durMin,
+        flexivel: false,
+        locked: true,
+        item: t,
+      });
     });
-    chegadas.forEach(function (t) {
-      entries.push({ tipo: 'chegada', hora: t._chegadaHorario || '00:00', item: t });
+
+    hospEntradas.forEach(function (h) {
+      allItems.push({
+        tipo: 'hosp',
+        hora: h.hora || '00:00',
+        duracaoMin: 0,
+        flexivel: false,
+        locked: true,
+        item: h,
+      });
     });
-    entries.sort(function (a, b) {
+
+    chegadas.forEach(function (c) {
+      allItems.push({
+        tipo: 'chegada',
+        hora: c._chegadaHorario || '00:00',
+        duracaoMin: 0,
+        flexivel: false,
+        locked: true,
+        item: c,
+      });
+    });
+
+    // ---- Sort by hora ----
+    allItems.sort(function (a, b) {
       if (a.hora < b.hora) return -1;
-      if (a.hora > b.hora) return 1;
-      // Same time priority: chegada > rota > hosp
-      var prio = { rota: 0, chegada: 1, hosp: 2 };
-      return (prio[a.tipo] || 0) - (prio[b.tipo] || 0);
+      if (a.hora > b.hora) return  1;
+      var prio = { chegada: 0, hosp: 1, rota: 2, atividade: 3 };
+      return (prio[a.tipo] || 9) - (prio[b.tipo] || 9);
     });
 
-    var totalItens = lista.length + entries.length;
+    // ---- Build unified HTML ----
+    var timelineHtml = '';
+    var prevEndMin = -1; // running end pointer
 
-    var timelineHtml = entries.length
-      ? '<div class="itin-timeline">' +
-          entries.map(function (e) {
-            if (e.tipo === 'hosp') return renderHospedagemEntry(e.item);
-            if (e.tipo === 'chegada') return renderChegadaMilestone(e.item);
-            return renderTrechoNoRoteiro(e.item, tripId);
-          }).join('') +
-        '</div>'
-      : '';
+    allItems.forEach(function (entry, i) {
+      var startMin = _horaToMin(entry.hora);
+      var endMin   = startMin >= 0 ? startMin + (entry.duracaoMin || 0) : startMin;
 
-    // Compute duration + gap-to-next for each atividade
-    var ativSorted = lista.slice().sort(function (a, b) {
-      return (a.hora || '').localeCompare(b.hora || '');
-    });
-    // Build a unified sorted timestamp list (atividades + trechos + hosp entries) for gap reference
-    var allTimestamps = [];
-    ativSorted.forEach(function (a) {
-      var m = _horaToMin(a.hora);
-      if (m >= 0) allTimestamps.push(m);
-    });
-    entries.forEach(function (e) {
-      var m = _horaToMin(e.hora);
-      if (m >= 0) allTimestamps.push(m);
-    });
-    allTimestamps.sort(function (a, b) { return a - b; });
+      // Detect conflict (overlaps with previous item by > 5 min)
+      var conflito = (prevEndMin > 0 && startMin >= 0 && startMin < prevEndMin - 5);
 
-    var gapMap = {};
-    ativSorted.forEach(function (a, i) {
-      var myMin  = _horaToMin(a.hora);
-      var myDur  = (a.duracaoMin > 0) ? a.duracaoMin : 0;
-      var myEnd  = (myMin >= 0 && myDur > 0) ? myMin + myDur : myMin;
-      // Next event is first timestamp strictly after myEnd
-      var nextTs = -1;
-      for (var ti = 0; ti < allTimestamps.length; ti++) {
-        if (allTimestamps[ti] > myEnd + 1) { nextTs = allTimestamps[ti]; break; }
+      // Free-slot pill (only when no conflict and gap ≥ 15 min)
+      if (!conflito && prevEndMin >= 0 && startMin >= 0 && startMin > prevEndMin + 14) {
+        timelineHtml += _freeSlotHtml(prevEndMin, startMin);
       }
-      var gap = (nextTs >= 0 && myEnd >= 0 && nextTs > myEnd) ? nextTs - myEnd : -1;
-      gapMap[a.id] = { dur: myDur, gap: gap };
+
+      // Render the item
+      if (entry.tipo === 'atividade') {
+        timelineHtml += renderAtividade(entry.item, tripId, { conflito: conflito, data: diaData });
+      } else if (entry.tipo === 'hosp') {
+        timelineHtml += renderHospedagemEntry(entry.item);
+      } else if (entry.tipo === 'chegada') {
+        timelineHtml += renderChegadaMilestone(entry.item);
+      } else {
+        timelineHtml += renderTrechoNoRoteiro(entry.item, tripId);
+      }
+
+      // Advance pointer (handle cross-midnight: keep running total)
+      if (startMin >= 0) {
+        prevEndMin = Math.max(prevEndMin, endMin >= 0 ? endMin : startMin);
+      }
     });
 
-    var atividades = lista.map(function (a) {
-      return renderAtividade(a, tripId, gapMap[a.id]);
-    }).join('');
+    // Trailing free-slot hint ("Livre a partir de …") when day still has time left
+    if (prevEndMin >= 0 && prevEndMin < 23 * 60 && prevEndMin < 1440) {
+      timelineHtml += (
+        '<div class="itin-free-slot itin-free-tail">' +
+          '<span class="itin-free-dot"></span>' +
+          '<span class="itin-free-label">Livre a partir de ' + _minToHHMM(prevEndMin) + '</span>' +
+        '</div>'
+      );
+    }
 
-    var vazio = totalItens === 0
+    var vazio = allItems.length === 0
       ? '<div class="itin-empty-day">📭 Sem itens planejados para este dia.</div>'
       : '';
 
@@ -780,9 +877,10 @@ var UI = (function () {
             (dia.titulo ? '<div class="itin-day-titulo">' + dia.titulo + '</div>' : '') +
           '</div>' +
         '</div>' +
-        timelineHtml +
+        (timelineHtml
+          ? '<div class="itin-timeline">' + timelineHtml + '</div>'
+          : '') +
         vazio +
-        atividades +
         '<button class="itin-add-btn" onclick="AtividadeModal.abrir(\'' + tripId + '\',\'' + dia.data + '\')">' +
           '＋ Adicionar atividade' +
         '</button>' +

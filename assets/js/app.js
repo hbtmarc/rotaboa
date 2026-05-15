@@ -278,32 +278,257 @@ var _DTWidget = (function () {
     return y.value + '-' + m.value + '-' + d.value;
   }
 
-  function renderHora(id, valor) {
-    var curH = '', curMin = '';
-    if (valor && /^\d{2}:\d{2}/.test(String(valor))) {
-      curH = String(valor).slice(0, 2);
-      var minN = Math.round(Number(String(valor).slice(3, 5)) / 5) * 5;
-      curMin = _pad(minN >= 60 ? 55 : minN);
-    }
-    var horaOpts = '<option value="">Hora</option>';
-    for (var h = 0; h < 24; h++) { var hv = _pad(h); horaOpts += '<option value="' + hv + '"' + (hv === curH ? ' selected' : '') + '>' + hv + 'h</option>'; }
-    var minOpts = '<option value="">Min</option>';
-    for (var mi = 0; mi < 60; mi += 5) { var mv = _pad(mi); minOpts += '<option value="' + mv + '"' + (mv === curMin ? ' selected' : '') + '>' + mv + '</option>'; }
-    return '<div class="dt-time-widget">' +
-      '<select id="' + id + '-h" class="form-select dt-sel">' + horaOpts + '</select>' +
-      '<span class="dt-time-sep">:</span>' +
-      '<select id="' + id + '-min" class="form-select dt-sel">' + minOpts + '</select>' +
-    '</div>';
+  function renderHora(id, valor, onApplyExpr) {
+    return SmartTimePicker.render(id, valor || '', onApplyExpr || '');
   }
 
   function lerHora(id) {
-    var h = document.getElementById(id + '-h');
-    var m = document.getElementById(id + '-min');
-    if (!h || !m || !h.value || !m.value) return '';
-    return h.value + ':' + m.value;
+    return SmartTimePicker.lerHora(id);
   }
 
-  return { renderData: renderData, lerData: lerData, renderHora: renderHora, lerHora: lerHora };
+  function renderDuracao(id, valorMin) {
+    var txt = (valorMin > 0) ? _durMinParaTexto(valorMin) : '';
+    var chips = ['30min', '1h', '2h', '3h', '4h', '5h', '6h', '8h'];
+    return (
+      '<div class="duration-field">' +
+        '<input type="text" id="' + id + '" class="form-input" placeholder="Ex: 2h, 1h30, 90min, 4:27" value="' + txt + '" autocomplete="off" onblur="_durNormalizarBlur(this)">' +
+        '<div class="dur-chips">' +
+          chips.map(function (c) {
+            return '<button type="button" class="dur-chip" onclick="_durChipClick(\'' + id + '\',\'' + c + '\')">' + c + '</button>';
+          }).join('') +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function lerDuracao(id) {
+    var el = document.getElementById(id);
+    return el ? (_parseDuracaoMin(el.value) || 0) : 0;
+  }
+
+  return { renderData: renderData, lerData: lerData, renderHora: renderHora, lerHora: lerHora, renderDuracao: renderDuracao, lerDuracao: lerDuracao };
+})();
+
+// ---- Helpers globais de duração ----
+function _parseDuracaoMin(txt) {
+  if (!txt) return 0;
+  var s = String(txt).trim().toLowerCase();
+  var hm = s.match(/^(\d+)\s*h\s*(\d+)\s*(?:min|m)?$/);
+  if (hm) return parseInt(hm[1], 10) * 60 + parseInt(hm[2], 10);
+  var ho = s.match(/^(\d+)\s*h$/);
+  if (ho) return parseInt(ho[1], 10) * 60;
+  var mi = s.match(/^(\d+)\s*(?:min|m)$/);
+  if (mi) return parseInt(mi[1], 10);
+  var col = s.match(/^(\d+)[:]?(\d{2})$/);
+  if (col) return parseInt(col[1], 10) * 60 + parseInt(col[2], 10);
+  var n = parseInt(s, 10);
+  return (!isNaN(n) && n > 0) ? n : 0;
+}
+
+function _durMinParaTexto(min) {
+  if (!min || min <= 0) return '';
+  var h = Math.floor(min / 60);
+  var m = min % 60;
+  if (h > 0 && m > 0) return h + 'h ' + m + 'min';
+  if (h > 0) return h + 'h';
+  return m + 'min';
+}
+
+function _durChipClick(id, chip) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.value = chip;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.focus();
+}
+
+function _durNormalizarBlur(el) {
+  var min = _parseDuracaoMin(el.value);
+  if (min > 0) {
+    var novo = _durMinParaTexto(min);
+    if (novo !== el.value) {
+      el.value = novo;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
+}
+
+// ================================================================
+// SmartTimePicker — Custom time picker (popover + bottom-sheet)
+// ================================================================
+var SmartTimePicker = (function () {
+  var _overlay  = null;
+  var _activeId = null;
+  var _tempH    = 8;
+  var _tempM    = 0;
+  var _CHIPS    = ['06:00','08:00','10:00','12:00','14:00','15:00','18:00','20:00','22:00'];
+
+  function _pad(n) { return n < 10 ? '0' + n : String(n); }
+
+  function _parseHM(str) {
+    if (!str) return null;
+    var s = String(str).replace(/[^\d:]/g, '');
+    if (!/[:]/.test(s) && s.length === 4) s = s.slice(0, 2) + ':' + s.slice(2);
+    var m = s.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    var h = parseInt(m[1], 10), mi = parseInt(m[2], 10);
+    if (h > 23 || mi > 59) return null;
+    return { h: h, m: mi };
+  }
+
+  function _buildOverlay() {
+    var div = document.createElement('div');
+    div.id = 'stp-overlay';
+    div.className = 'stp-overlay';
+    div.innerHTML = (
+      '<div class="stp-sheet" role="dialog" aria-label="Selecionar horário" aria-modal="true">' +
+        '<div class="stp-handle"></div>' +
+        '<div class="stp-title">Selecionar horário</div>' +
+        '<div class="stp-chips" id="stp-chips">' +
+          _CHIPS.map(function (c) {
+            return '<button type="button" class="stp-chip" data-val="' + c + '" onclick="SmartTimePicker._chipClick(\'' + c + '\')">' + c + '</button>';
+          }).join('') +
+        '</div>' +
+        '<div class="stp-manual">' +
+          '<button type="button" class="stp-adj-btn" onclick="SmartTimePicker._adj(-15)">−15min</button>' +
+          '<input id="stp-input" class="stp-input" type="text" inputmode="numeric" maxlength="5" placeholder="HH:mm" autocomplete="off">' +
+          '<button type="button" class="stp-adj-btn" onclick="SmartTimePicker._adj(15)">+15min</button>' +
+        '</div>' +
+        '<div class="stp-error" id="stp-error"></div>' +
+        '<div class="stp-actions">' +
+          '<button type="button" class="btn btn-ghost" onclick="SmartTimePicker.fechar()">Cancelar</button>' +
+          '<button type="button" class="btn btn-primary" onclick="SmartTimePicker._apply()">Aplicar</button>' +
+        '</div>' +
+      '</div>'
+    );
+    div.addEventListener('click', function (e) { if (e.target === div) SmartTimePicker.fechar(); });
+    div.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') SmartTimePicker.fechar();
+      if (e.key === 'Enter' && document.activeElement === document.getElementById('stp-input')) {
+        SmartTimePicker._apply();
+      }
+    });
+    document.body.appendChild(div);
+    _overlay = div;
+    var inp = document.getElementById('stp-input');
+    inp.addEventListener('input', function () { SmartTimePicker._onInputChange(); });
+  }
+
+  function _setDisplay(h, m) {
+    _tempH = ((h % 24) + 24) % 24;
+    _tempM = ((m % 60) + 60) % 60;
+    var inp = document.getElementById('stp-input');
+    if (inp) inp.value = _pad(_tempH) + ':' + _pad(_tempM);
+    var chipVal = _pad(_tempH) + ':' + _pad(_tempM);
+    if (_overlay) {
+      _overlay.querySelectorAll('.stp-chip').forEach(function (c) {
+        c.classList.toggle('active', c.getAttribute('data-val') === chipVal);
+      });
+    }
+    var err = document.getElementById('stp-error');
+    if (err) err.textContent = '';
+  }
+
+  function _commit(finalVal) {
+    var hidden = _activeId ? document.getElementById(_activeId) : null;
+    if (!hidden) return;
+    hidden.value = finalVal;
+    var btn = document.getElementById('stp-btn-' + _activeId);
+    if (btn) {
+      var span = btn.querySelector('.stp-value');
+      if (span) span.textContent = finalVal;
+      btn.classList.remove('stp-empty');
+    }
+    var cb = hidden.getAttribute('data-onapply');
+    if (cb) { try { (new Function(cb))(); } catch (e) { console.warn('stp callback:', e); } }
+    try { hidden.dispatchEvent(new Event('input',  { bubbles: true })); } catch (e) {}
+    try { hidden.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
+  }
+
+  return {
+    _chipClick: function (val) {
+      var p = _parseHM(val);
+      if (p) _setDisplay(p.h, p.m);
+    },
+
+    _adj: function (delta) {
+      var total = _tempH * 60 + _tempM + delta;
+      total = ((total % 1440) + 1440) % 1440;
+      _setDisplay(Math.floor(total / 60), total % 60);
+    },
+
+    _onInputChange: function () {
+      var inp = document.getElementById('stp-input');
+      if (!inp) return;
+      var v = inp.value;
+      if (/^\d{4}$/.test(v)) { inp.value = v.slice(0, 2) + ':' + v.slice(2); v = inp.value; }
+      var p = _parseHM(v);
+      if (p) { _tempH = p.h; _tempM = p.m; }
+      var chipVal = p ? (_pad(p.h) + ':' + _pad(p.m)) : '';
+      if (_overlay) {
+        _overlay.querySelectorAll('.stp-chip').forEach(function (c) {
+          c.classList.toggle('active', chipVal !== '' && c.getAttribute('data-val') === chipVal);
+        });
+      }
+    },
+
+    _apply: function () {
+      var inp = document.getElementById('stp-input');
+      var v = inp ? inp.value.trim() : '';
+      if (/^\d{4}$/.test(v)) v = v.slice(0, 2) + ':' + v.slice(2);
+      var p = _parseHM(v);
+      if (!p) {
+        var err = document.getElementById('stp-error');
+        if (err) err.textContent = 'Horário inválido. Use HH:mm (ex: 20:00).';
+        if (inp) inp.focus();
+        return;
+      }
+      _commit(_pad(p.h) + ':' + _pad(p.m));
+      SmartTimePicker.fechar();
+    },
+
+    _open: function (id) {
+      _activeId = id;
+      if (!_overlay) _buildOverlay();
+      var hidden = document.getElementById(id);
+      var p = _parseHM(hidden ? hidden.value : '') || { h: 8, m: 0 };
+      _setDisplay(p.h, p.m);
+      _overlay.classList.add('aberto');
+      document.body.style.overflow = 'hidden';
+      setTimeout(function () {
+        var inp = document.getElementById('stp-input');
+        if (inp) inp.focus();
+      }, 80);
+    },
+
+    fechar: function () {
+      if (_overlay) _overlay.classList.remove('aberto');
+      document.body.style.overflow = '';
+      _activeId = null;
+    },
+
+    render: function (id, valor, onApplyExpr) {
+      var v = (_parseHM(valor) ? String(valor).slice(0, 5) : '');
+      var emptyClass = v ? '' : ' stp-empty';
+      var display = v || 'Selecionar horário';
+      var cbAttr = onApplyExpr ? ' data-onapply="' + onApplyExpr.replace(/"/g, '&quot;') + '"' : '';
+      return (
+        '<div class="stp-wrap">' +
+          '<button type="button" class="stp-btn' + emptyClass + '" id="stp-btn-' + id + '" onclick="SmartTimePicker._open(\'' + id + '\')">' +
+            '<span class="stp-icon">🕐</span>' +
+            '<span class="stp-value">' + display + '</span>' +
+            '<span class="stp-chevron">▾</span>' +
+          '</button>' +
+          '<input type="hidden" id="' + id + '" value="' + v + '"' + cbAttr + '>' +
+        '</div>'
+      );
+    },
+
+    lerHora: function (id) {
+      var el = document.getElementById(id);
+      return el ? (el.value || '') : '';
+    },
+  };
 })();
 
 function _lerPreferencias() {
@@ -1533,11 +1758,11 @@ function paginaConfiguracoes(params, container) {
           '<div class="cfg-grid">' +
             '<div class="form-group">' +
               '<label class="form-label" for="pref-ci-hora">Horário padrão de check-in</label>' +
-              '<input id="pref-ci-hora" class="form-input" type="time" value="' + _esc(prefs.checkInPadrao || '14:00') + '">' +
+              SmartTimePicker.render('pref-ci-hora', prefs.checkInPadrao || '14:00') +
             '</div>' +
             '<div class="form-group">' +
               '<label class="form-label" for="pref-co-hora">Horário padrão de check-out</label>' +
-              '<input id="pref-co-hora" class="form-input" type="time" value="' + _esc(prefs.checkOutPadrao || '12:00') + '">' +
+              SmartTimePicker.render('pref-co-hora', prefs.checkOutPadrao || '12:00') +
             '</div>' +
             '<div class="form-group">' +
               '<label class="form-label" for="pref-route-tipo">Tipo padrão de trecho</label>' +
@@ -2627,29 +2852,259 @@ var TripSwitcher = (function () {
 })();
 
 // ================================================================
-// AtividadeModal — Criação e edição de atividades do roteiro
+// Categorias de atividade/despesa — lista centralizada
 // ================================================================
+var _APP_CATS = [
+  ['alimentacao', 'Alimentação',  '🍽️'],
+  ['aventura',    'Aventura',     '🧗'],
+  ['cachoeira',   'Cachoeira',    '💧'],
+  ['compra',      'Compra',       '🛍️'],
+  ['cultura',     'Cultura',      '🏛️'],
+  ['descanso',    'Descanso',     '😴'],
+  ['deslocamento','Deslocamento', '🚗'],
+  ['emergencia',  'Emergência',   '🚑'],
+  ['evento',      'Evento',       '🎟️'],
+  ['hospedagem',  'Hospedagem',   '🏨'],
+  ['livre',       'Livre',        '🌴'],
+  ['natureza',    'Natureza',     '🌿'],
+  ['noturno',     'Noturno',      '🌇'],
+  ['outro',       'Outro',        '📌'],
+  ['passeio',     'Passeio',      '🎡'],
+  ['praia',       'Praia',        '🏖️'],
+  ['restaurante', 'Restaurante',  '🍽️'],
+  ['trilha',      'Trilha',       '🥾'],
+];
+
+// ================================================================
+// CustomSelect — Custom dropdown that replaces native <select>
+// ================================================================
+var CustomSelect = (function () {
+  var _currentId  = null;   // id of the select currently open
+  var _optsMap    = {};     // id → [[slug, label, emoji], ...]
+  var _overlayEl  = null;   // single shared overlay element
+
+  /* ── Build / retrieve the shared overlay DOM node ── */
+  function _getOverlay() {
+    if (_overlayEl) return _overlayEl;
+    _overlayEl = document.createElement('div');
+    _overlayEl.id        = 'csel-overlay';
+    _overlayEl.className = 'csel-overlay';
+    _overlayEl.setAttribute('role', 'dialog');
+    _overlayEl.setAttribute('aria-modal', 'true');
+    // Backdrop tap → close
+    _overlayEl.addEventListener('click', function (e) {
+      if (e.target === _overlayEl) CustomSelect._closeAll();
+    });
+    // ESC key anywhere
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && _currentId) CustomSelect._closeAll();
+    });
+    document.body.appendChild(_overlayEl);
+    return _overlayEl;
+  }
+
+  /* ── Refresh the button face after a selection ── */
+  function _updateBtn(id, val) {
+    var btn = document.getElementById('csel-btn-' + id);
+    if (!btn) return;
+    var lbl  = btn.querySelector('.csel-label');
+    if (!lbl) return;
+    var opts = _optsMap[id] || [];
+    var found = null;
+    for (var i = 0; i < opts.length; i++) {
+      if (opts[i][0] === val) { found = opts[i]; break; }
+    }
+    if (found && val) {
+      lbl.innerHTML = '<span class="csel-emoji">' + found[2] + '</span><span class="csel-lbl-text">' + found[1] + '</span>';
+      btn.classList.remove('csel-placeholder');
+    } else {
+      lbl.innerHTML = '<span class="csel-ph">' + (btn.getAttribute('data-ph') || 'Selecione...') + '</span>';
+      btn.classList.add('csel-placeholder');
+    }
+  }
+
+  /* ── Populate the grid inside the open sheet ── */
+  function _buildGrid(id, filter) {
+    var sheet = _overlayEl && _overlayEl.querySelector('.csel-sheet');
+    var grid  = sheet && sheet.querySelector('.csel-grid');
+    if (!grid) return;
+    var opts   = _optsMap[id] || [];
+    var hidden = document.getElementById(id);
+    var curVal = hidden ? hidden.value : '';
+    var q = (filter || '').toLowerCase().trim();
+    var html = '';
+    var count = 0;
+    for (var i = 0; i < opts.length; i++) {
+      var o = opts[i], slug = o[0], lbl = o[1], emoji = o[2];
+      if (q && lbl.toLowerCase().indexOf(q) === -1 && slug.indexOf(q) === -1) continue;
+      var isSel = slug === curVal;
+      html += '<button type="button" class="csel-item' + (isSel ? ' csel-item-sel' : '') + '"' +
+              ' data-val="' + slug + '"' +
+              ' onclick="CustomSelect._select(\'' + id + '\',\'' + slug + '\')"' +
+              ' onkeydown="CustomSelect._kItem(event,\'' + id + '\')">' +
+              '<span class="csel-item-emoji">' + emoji + '</span>' +
+              '<span class="csel-item-lbl">' + lbl + '</span>' +
+              (isSel ? '<span class="csel-item-check">✓</span>' : '') +
+              '</button>';
+      count++;
+    }
+    if (!count) {
+      html = '<p class="csel-empty">Nenhuma categoria encontrada</p>';
+    }
+    grid.innerHTML = html;
+    if (!filter) {
+      setTimeout(function () {
+        var sel = grid.querySelector('.csel-item-sel');
+        if (sel) sel.scrollIntoView({ block: 'nearest' });
+      }, 60);
+    }
+  }
+
+  return {
+    /* ── render() — side-effect: caches opts; returns HTML string ── */
+    render: function (id, opts, selectedVal, placeholder, onchangeExpr) {
+      _optsMap[id] = opts;  // cache for _toggle
+      selectedVal  = selectedVal  || '';
+      placeholder  = placeholder  || 'Selecione...';
+      var found = null;
+      for (var i = 0; i < opts.length; i++) {
+        if (opts[i][0] === selectedVal) { found = opts[i]; break; }
+      }
+      var labelHtml = found
+        ? '<span class="csel-emoji">' + found[2] + '</span><span class="csel-lbl-text">' + found[1] + '</span>'
+        : '<span class="csel-ph">' + placeholder + '</span>';
+      return (
+        '<div class="csel-wrap" id="csel-wrap-' + id + '">' +
+          '<button type="button" class="csel-btn' + (found ? '' : ' csel-placeholder') + '"' +
+            ' id="csel-btn-' + id + '"' +
+            ' data-ph="' + placeholder + '"' +
+            ' aria-haspopup="dialog" aria-expanded="false"' +
+            ' onclick="CustomSelect._toggle(\'' + id + '\')">' +
+            '<span class="csel-label">' + labelHtml + '</span>' +
+            '<span class="csel-arrow" aria-hidden="true">▾</span>' +
+          '</button>' +
+          '<input type="hidden" id="' + id + '" value="' + selectedVal + '"' +
+            (onchangeExpr ? ' data-onchange="' + onchangeExpr.replace(/"/g, '&quot;') + '"' : '') + '>' +
+        '</div>'
+      );
+    },
+
+    /* ── Open the bottom-sheet overlay for the given select ── */
+    _toggle: function (id) {
+      if (_currentId === id) { CustomSelect._closeAll(); return; }
+      if (_currentId) CustomSelect._closeAll();
+      var ov = _getOverlay();
+      ov.innerHTML =
+        '<div class="csel-sheet" id="csel-sheet">' +
+          '<div class="csel-handle"></div>' +
+          '<p class="csel-title">Selecione a categoria</p>' +
+          '<div class="csel-search-wrap">' +
+            '<span class="csel-search-ico">🔍</span>' +
+            '<input type="text" class="csel-search" placeholder="Buscar…" autocomplete="off"' +
+              ' oninput="CustomSelect._filter(\'' + id + '\',this.value)"' +
+              ' onkeydown="CustomSelect._kSearch(event,\'' + id + '\')">' +
+          '</div>' +
+          '<div class="csel-grid" role="listbox"></div>' +
+        '</div>';
+      _buildGrid(id, '');
+      ov.classList.add('csel-open');
+      _currentId = id;
+      var btn = document.getElementById('csel-btn-' + id);
+      if (btn) btn.setAttribute('aria-expanded', 'true');
+      var searchEl = ov.querySelector('.csel-search');
+      if (searchEl) setTimeout(function () { searchEl.focus(); }, 60);
+    },
+
+    /* ── Live search filter ── */
+    _filter: function (id, q) { _buildGrid(id, q); },
+
+    /* ── Keyboard: search input ── */
+    _kSearch: function (e, id) {
+      if (e.key === 'Escape') { e.preventDefault(); CustomSelect._closeAll(); return; }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        var first = _overlayEl && _overlayEl.querySelector('.csel-item');
+        if (first) first.focus();
+      }
+    },
+
+    /* ── Keyboard: grid items ── */
+    _kItem: function (e, id) {
+      var items = _overlayEl
+        ? Array.prototype.slice.call(_overlayEl.querySelectorAll('.csel-item'))
+        : [];
+      var idx = items.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (items[idx + 1]) items[idx + 1].focus();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (idx <= 0) {
+          var s = _overlayEl && _overlayEl.querySelector('.csel-search');
+          if (s) s.focus();
+        } else { items[idx - 1].focus(); }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        CustomSelect._closeAll();
+      }
+    },
+
+    /* ── Confirm a selection ── */
+    _select: function (id, val) {
+      var hidden = document.getElementById(id);
+      if (!hidden) return;
+      hidden.value = val;
+      _updateBtn(id, val);
+      var cb = hidden.getAttribute('data-onchange') || '';
+      if (cb) { try { (new Function(cb))(); } catch (ex) { console.warn('csel cb:', ex); } }
+      try { hidden.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+      CustomSelect._closeAll();
+      var btn = document.getElementById('csel-btn-' + id);
+      if (btn) { btn.focus(); }
+    },
+
+    /* ── Close overlay ── */
+    _closeAll: function () {
+      if (!_currentId) return;
+      var ov  = _overlayEl;
+      var btn = document.getElementById('csel-btn-' + _currentId);
+      if (ov)  ov.classList.remove('csel-open');
+      if (btn) { btn.classList.remove('csel-open'); btn.setAttribute('aria-expanded', 'false'); }
+      _currentId = null;
+    },
+
+    // Legacy shim — some inline onkeydown="CustomSelect._key(...)" may still exist
+    _key: function (e, id) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); CustomSelect._toggle(id); }
+      if (e.key === 'Escape') CustomSelect._closeAll();
+    }
+  };
+})();
+
+
+/* ================================================================
+   _scrollToSaved — scroll suave até o elemento recém-criado / editado
+   selector: CSS selector do elemento alvo
+   ================================================================ */
+function _scrollToSaved(selector) {
+  // Re-render is synchronous after hashchange; give the browser one paint
+  setTimeout(function () {
+    var el = document.querySelector(selector);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Flash highlight so the user sees exactly which item was saved
+    el.classList.add('just-saved');
+    setTimeout(function () { el.classList.remove('just-saved'); }, 1800);
+  }, 80);
+}
+
 var AtividadeModal = (function () {
   var _overlay     = null;
   var _tripId      = null;
   var _atividadeId = null;  // null = criar, string = editar
   var _dataPresel  = null;  // data pré-selecionada (vinda do botão do dia)
 
-  // Mapa categoria → label
-  var _cats = [
-    ['deslocamento', 'Deslocamento 🚗'],
-    ['hospedagem',   'Hospedagem 🏨'],
-    ['alimentacao',  'Alimentação 🍽️'],
-    ['passeio',      'Passeio 🎡'],
-    ['compra',       'Compra 🛍️'],
-    ['livre',        'Livre 🌴'],
-    ['descanso',     'Descanso 😴'],
-    ['cultura',      'Cultura 🏛️'],
-    ['natureza',     'Natureza 🌿'],
-    ['noturno',      'Noturno 🌅'],
-    ['aventura',     'Aventura 🧗'],
-    ['outro',        'Outro 📌'],
-  ];
+  // Usa lista centralizada _APP_CATS
 
   var _statusOpts = [
     ['planejado',  'Planejado'],
@@ -2738,14 +3193,9 @@ var AtividadeModal = (function () {
       '<div class="form-row">' +
         // Horário
         '<div class="form-group">' +
-          '<label class="form-label form-label-required">Horário</label>' +
+          '<label class="form-label form-label-required" for="af-hora">Horário</label>' +
           _DTWidget.renderHora('af-hora', ativ.hora) +
           '<span class="form-error" id="ae-hora">Informe o horário.</span>' +
-        '</div>' +
-        // Duração
-        '<div class="form-group">' +
-          '<label class="form-label" for="af-dur">Duração (min)</label>' +
-          '<input id="af-dur" class="form-input" type="number" min="0" step="15" placeholder="ex: 90" value="' + _esc(ativ.duracaoMin > 0 ? ativ.duracaoMin : '') + '">' +
         '</div>' +
         // Status
         '<div class="form-group">' +
@@ -2754,6 +3204,12 @@ var AtividadeModal = (function () {
             _statusOpts.map(function (s) { return _opt(s[0], s[1], ativ.status || 'planejado'); }).join('') +
           '</select>' +
         '</div>' +
+      '</div>' +
+
+      // Duração
+      '<div class="form-group">' +
+        '<label class="form-label" for="af-dur">Duração (opcional)</label>' +
+        _DTWidget.renderDuracao('af-dur', ativ.duracaoMin || 0) +
       '</div>' +
 
       // Nome
@@ -2766,10 +3222,7 @@ var AtividadeModal = (function () {
       // Categoria
       '<div class="form-group">' +
         '<label class="form-label form-label-required" for="af-cat">Categoria</label>' +
-        '<select id="af-cat" class="form-select">' +
-          '<option value="">Selecione...</option>' +
-          _cats.map(function (c) { return _opt(c[0], c[1], ativ.categoria); }).join('') +
-        '</select>' +
+        CustomSelect.render('af-cat', _APP_CATS, ativ.categoria, 'Selecione...', 'AtividadeModal._onCatChange()') +
         '<span class="form-error" id="ae-cat">Selecione uma categoria.</span>' +
       '</div>' +
 
@@ -2817,19 +3270,19 @@ var AtividadeModal = (function () {
                     '<span class="form-error" id="ae-ci-data">Selecione o dia.</span>' +
                   '</div>' +
                   '<div class="form-group">' +
-                    '<label class="form-label form-label-required">Check-in · hora</label>' +
+                    '<label class="form-label form-label-required" for="af-ci-hora">Check-in · hora</label>' +
                     _DTWidget.renderHora('af-ci-hora', h.checkInTime || _lerPreferencias().checkInPadrao || '14:00') +
                     '<span class="form-error" id="ae-ci-hora">Informe o horário.</span>' +
                   '</div>' +
                 '</div>' +
                 '<div class="form-row">' +
                   '<div class="form-group">' +
-                    '<label class="form-label form-label-required">Check-out · dia</label>' +
+                    '<label class="form-label form-label-required" for="af-co-data">Check-out · dia</label>' +
                     '<select id="af-co-data" class="form-select">' + _optsHospDia(itin, coDataPre, ultimoDia) + '</select>' +
                     '<span class="form-error" id="ae-co-data">Selecione o dia.</span>' +
                   '</div>' +
                   '<div class="form-group">' +
-                    '<label class="form-label form-label-required">Check-out · hora</label>' +
+                    '<label class="form-label form-label-required" for="af-co-hora">Check-out · hora</label>' +
                     _DTWidget.renderHora('af-co-hora', h.checkOutTime || _lerPreferencias().checkOutPadrao || '12:00') +
                     '<span class="form-error" id="ae-co-hora">Informe o horário.</span>' +
                   '</div>' +
@@ -2977,7 +3430,7 @@ var AtividadeModal = (function () {
         nome:           document.getElementById('af-nome').value.trim(),
         categoria:      document.getElementById('af-cat').value,
         local:          document.getElementById('af-local').value.trim(),
-        duracaoMin:     Math.max(0, parseInt(document.getElementById('af-dur').value, 10) || 0) || null,
+        duracaoMin:     _DTWidget.lerDuracao('af-dur') || null,
         custoEstimado:  Number(document.getElementById('af-custo').value) || 0,
         status:         document.getElementById('af-status').value,
         observacoes:    document.getElementById('af-obs').value.trim(),
@@ -3046,14 +3499,18 @@ var AtividadeModal = (function () {
         // linkedDespesaId kept intentionally to avoid orphan — user must manage via Financeiro
       }
 
+      var savedId;
       if (_atividadeId) {
         Store.editarAtividade(_tripId, _atividadeId, dados);
+        savedId = _atividadeId;
       } else {
-        Store.adicionarAtividade(_tripId, dados.data, dados);
+        var criada = Store.adicionarAtividade(_tripId, dados.data, dados);
+        savedId = criada ? criada.id : null;
       }
 
       AtividadeModal.fechar();
       window.dispatchEvent(new HashChangeEvent('hashchange'));
+      if (savedId) _scrollToSaved('[data-ativ-id="' + savedId + '"]');
     },
 
     _onCatChange: function () {
@@ -3118,21 +3575,204 @@ var AtividadeActions = {
 };
 
 // ================================================================
-// DespesaModal — Criação e edição de despesas financeiras
+// ReajustarModal — Replan timeline from a given activity
 // ================================================================
+var ReajustarModal = (function () {
+  var _overlay   = null;
+  var _tripId    = null;
+  var _atividadeId = null;
+  var _dataISO   = null;
+  var _horaOriginal = '08:00';
+
+  function _pad(n) { return n < 10 ? '0' + n : String(n); }
+
+  function _horaToMin(h) {
+    var p = String(h || '').split(':');
+    return p.length === 2 ? parseInt(p[0], 10) * 60 + parseInt(p[1], 10) : -1;
+  }
+
+  function _minToHHMM(m) {
+    m = ((m % 1440) + 1440) % 1440;
+    return _pad(Math.floor(m / 60)) + ':' + _pad(m % 60);
+  }
+
+  function _shiftHora(hora, deltaMin) {
+    var m = _horaToMin(hora);
+    if (m < 0) return hora;
+    return _minToHHMM(m + deltaMin);
+  }
+
+  function _calcDelta() {
+    var novaHora = SmartTimePicker.lerHora('rj-nova-hora') || _horaOriginal;
+    var orig = _horaToMin(_horaOriginal);
+    var nova = _horaToMin(novaHora);
+    if (orig < 0 || nova < 0) return 0;
+    return nova - orig;
+  }
+
+  function _updateDeltaPreview() {
+    var delta = _calcDelta();
+    var el = document.getElementById('rj-delta');
+    if (!el) return;
+    if (delta === 0) { el.textContent = ''; return; }
+    var sign = delta > 0 ? '+' : '';
+    var h = Math.floor(Math.abs(delta) / 60);
+    var m = Math.abs(delta) % 60;
+    var str = sign + (delta < 0 ? '-' : '') + (h > 0 ? h + 'h' : '') + (m > 0 ? (h > 0 ? ' ' : '') + m + 'min' : '');
+    el.textContent = str;
+    el.className = 'rj-delta-badge ' + (delta > 0 ? 'pos' : 'neg');
+  }
+
+  function _buildOverlay() {
+    var div = document.createElement('div');
+    div.id = 'rj-overlay';
+    div.className = 'modal-overlay';
+    div.innerHTML = (
+      '<div class="modal-card rj-card" role="dialog" aria-modal="true" aria-label="Reajustar timeline">' +
+        '<div class="modal-header">' +
+          '<h2 class="modal-title">⟳ Reajustar a partir daqui</h2>' +
+          '<button class="modal-close" onclick="ReajustarModal.fechar()">×</button>' +
+        '</div>' +
+        '<div class="modal-body rj-body">' +
+          '<div class="rj-time-row">' +
+            '<div class="form-group">' +
+              '<label class="form-label">Horário planejado</label>' +
+              '<div id="rj-hora-original" class="rj-hora-display"></div>' +
+            '</div>' +
+            '<div class="rj-arrow">→</div>' +
+            '<div class="form-group">' +
+              '<label class="form-label">Novo horário real</label>' +
+              '<div id="rj-nova-hora-wrap"></div>' +
+            '</div>' +
+            '<div id="rj-delta" class="rj-delta-badge"></div>' +
+          '</div>' +
+          '<div class="rj-warn" id="rj-warn" style="display:none">⚠ Alguns itens ultrapassariam o fim do dia.</div>' +
+          '<div class="form-group">' +
+            '<label class="form-label">O que fazer com os próximos itens?</label>' +
+            '<div class="rj-options">' +
+              '<label class="rj-opt"><input type="radio" name="rj-modo" value="dia" checked> Ajustar próximos itens do dia</label>' +
+              '<label class="rj-opt"><input type="radio" name="rj-modo" value="viagem"> Ajustar próximos itens da viagem</label>' +
+              '<label class="rj-opt"><input type="radio" name="rj-modo" value="fixar"> Manter demais itens fixos</label>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="modal-footer">' +
+          '<button class="btn btn-ghost" onclick="ReajustarModal.fechar()">Cancelar</button>' +
+          '<button class="btn btn-primary" onclick="ReajustarModal._aplicar()">Aplicar</button>' +
+        '</div>' +
+      '</div>'
+    );
+    div.addEventListener('click', function (e) { if (e.target === div) ReajustarModal.fechar(); });
+    div.addEventListener('keydown', function (e) { if (e.key === 'Escape') ReajustarModal.fechar(); });
+    document.body.appendChild(div);
+    _overlay = div;
+  }
+
+  return {
+    abrir: function (tripId, atividadeId, dataISO) {
+      _tripId = tripId;
+      _atividadeId = atividadeId;
+
+      // Locate the activity to get its current hora
+      var itin = Store.getItinerario(tripId);
+      if (!itin) return;
+      var ativ = null;
+      itin.dias.forEach(function (d) {
+        d.atividades.forEach(function (a) {
+          if (a.id === atividadeId) { ativ = a; if (!dataISO) dataISO = d.data; }
+        });
+      });
+      if (!ativ) return;
+      _dataISO = dataISO || '';
+      _horaOriginal = ativ.hora || '08:00';
+
+      if (!_overlay) _buildOverlay();
+
+      document.getElementById('rj-hora-original').textContent = _horaOriginal;
+      var wrap = document.getElementById('rj-nova-hora-wrap');
+      wrap.innerHTML = SmartTimePicker.render('rj-nova-hora', _horaOriginal, 'ReajustarModal._onHoraChange()');
+
+      document.getElementById('rj-warn').style.display = 'none';
+      document.getElementById('rj-delta').textContent = '';
+      document.getElementById('rj-delta').className = 'rj-delta-badge';
+
+      _overlay.style.display = 'flex';
+      document.body.style.overflow = 'hidden';
+    },
+
+    fechar: function () {
+      if (_overlay) _overlay.style.display = 'none';
+      document.body.style.overflow = '';
+    },
+
+    _onHoraChange: function () {
+      _updateDeltaPreview();
+    },
+
+    _aplicar: function () {
+      var delta = _calcDelta();
+      var modoEl = _overlay.querySelector('input[name="rj-modo"]:checked');
+      var modo = modoEl ? modoEl.value : 'dia';
+
+      var itin = Store.getItinerario(_tripId);
+      if (!itin) return;
+
+      // Always update the selected activity itself
+      Store.editarAtividade(_tripId, _atividadeId, { hora: _minToHHMM(_horaToMin(_horaOriginal) + delta) });
+
+      if (modo === 'fixar' || delta === 0) {
+        ReajustarModal.fechar();
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+        return;
+      }
+
+      // Sort days by date
+      var dias = itin.dias.slice().sort(function (a, b) { return a.data < b.data ? -1 : 1; });
+      var pastSelected = false;
+      var warn = false;
+
+      dias.forEach(function (d) {
+        if (modo === 'dia' && d.data !== _dataISO) return;
+        if (modo === 'viagem' && d.data < _dataISO) return;
+
+        d.atividades.forEach(function (a) {
+          if (a.id === _atividadeId) { pastSelected = true; return; }
+          if (!pastSelected) return;
+          if (a.locked) return; // fixed — skip
+
+          var m = _horaToMin(a.hora || '');
+          if (m < 0) return;
+          var shifted = m + delta;
+          if (shifted < 0 || shifted >= 1440) warn = true;
+          Store.editarAtividade(_tripId, a.id, { hora: _minToHHMM(shifted) });
+        });
+
+        // Reset pastSelected between days only for 'viagem' mode over multiple days
+        if (modo === 'viagem' && d.data !== _dataISO) pastSelected = true;
+      });
+
+      if (warn) {
+        var warnEl = document.getElementById('rj-warn');
+        if (warnEl) warnEl.style.display = 'block';
+        setTimeout(function () {
+          ReajustarModal.fechar();
+          window.dispatchEvent(new HashChangeEvent('hashchange'));
+        }, 1500);
+      } else {
+        ReajustarModal.fechar();
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      }
+    },
+  };
+})();
+
+
 var DespesaModal = (function () {
   var _overlay   = null;
   var _tripId    = null;
   var _despesaId = null;
 
-  var _cats = [
-    ['transporte',  'Transporte 🚗'],
-    ['hospedagem',  'Hospedagem 🏨'],
-    ['alimentacao', 'Alimentação 🍽️'],
-    ['passeios',    'Passeios 🎡'],
-    ['compras',     'Compras 🛍️'],
-    ['outros',      'Outros 📌'],
-  ];
+  // Usa lista centralizada _APP_CATS
 
   function _inject() {
     var div = document.createElement('div');
@@ -3269,10 +3909,7 @@ var DespesaModal = (function () {
         '</div>' +
         '<div class="form-group">' +
           '<label class="form-label form-label-required" for="df-cat">Categoria</label>' +
-          '<select id="df-cat" class="form-select" onchange="DespesaModal._onCatChange()">' +
-            '<option value="">Selecione...</option>' +
-            _cats.map(function (c) { return _opt(c[0], c[1], desp.categoria); }).join('') +
-          '</select>' +
+          CustomSelect.render('df-cat', _APP_CATS, desp.categoria, 'Selecione...', 'DespesaModal._onCatChange()') +
           '<span class="form-error" id="de-cat">Selecione uma categoria.</span>' +
         '</div>' +
       '</div>' +
@@ -3352,19 +3989,19 @@ var DespesaModal = (function () {
                 '<span class="form-error" id="de-ci-data">Selecione o dia do check-in.</span>' +
               '</div>' +
               '<div class="form-group">' +
-                '<label class="form-label form-label-required">Check-in · hora</label>' +
+                '<label class="form-label form-label-required" for="df-ci-hora">Check-in · hora</label>' +
                 _DTWidget.renderHora('df-ci-hora', h.checkInTime || _lerPreferencias().checkInPadrao || '14:00') +
                 '<span class="form-error" id="de-ci-hora">Informe o horário.</span>' +
               '</div>' +
             '</div>' +
             '<div class="desp-form-grid">' +
               '<div class="form-group">' +
-                '<label class="form-label form-label-required">Check-out · dia</label>' +
+                '<label class="form-label form-label-required" for="df-co-data">Check-out · dia</label>' +
                 '<select id="df-co-data" class="form-select">' + _optsHospDia(itin, coDataPre, ultimoDia) + '</select>' +
                 '<span class="form-error" id="de-co-data">Selecione o dia do check-out.</span>' +
               '</div>' +
               '<div class="form-group">' +
-                '<label class="form-label form-label-required">Check-out · hora</label>' +
+                '<label class="form-label form-label-required" for="df-co-hora">Check-out · hora</label>' +
                 _DTWidget.renderHora('df-co-hora', h.checkOutTime || _lerPreferencias().checkOutPadrao || '12:00') +
                 '<span class="form-error" id="de-co-hora">Informe o horário.</span>' +
               '</div>' +
@@ -3554,13 +4191,17 @@ var DespesaModal = (function () {
         dados.hospedagem = null;
       }
 
+      var savedDespId;
       if (_despesaId) {
         Store.editarDespesa(_tripId, _despesaId, dados);
+        savedDespId = _despesaId;
       } else {
-        Store.adicionarDespesa(_tripId, dados);
+        var despCriada2 = Store.adicionarDespesa(_tripId, dados);
+        savedDespId = despCriada2 ? despCriada2.id : null;
       }
       DespesaModal.fechar();
       window.dispatchEvent(new HashChangeEvent('hashchange'));
+      if (savedDespId) _scrollToSaved('[data-desp-id="' + savedDespId + '"]');
     },
 
     _onCatChange: function () {
@@ -3748,7 +4389,7 @@ var TrechoModal = (function () {
     var horarioSecSel = (
       '<div class="form-group" style="margin-bottom:var(--space-3)">' +
         '<label class="form-label" for="rf-horario">Horário da partida</label>' +
-        '<input id="rf-horario" class="form-input" type="time" value="' + _esc(horarioPadrao) + '" style="max-width:140px" oninput="TrechoModal._updateArrivalPreview()">' +
+        SmartTimePicker.render('rf-horario', horarioPadrao, 'TrechoModal._updateArrivalPreview()') +
       '</div>' +
       '<div id="rf-chegada-preview" class="rota-arrival-preview" style="display:none"></div>'
     );
@@ -3788,7 +4429,14 @@ var TrechoModal = (function () {
       '<div class="form-row">' +
         '<div class="form-group">' +
           '<label class="form-label" for="rf-dur">Duração estimada</label>' +
-          '<input id="rf-dur" class="form-input" type="text" maxlength="40" placeholder="Ex: 2h 30min" value="' + _esc(t.duracaoEstimada) + '" oninput="TrechoModal._updateArrivalPreview()">' +
+          '<div class="duration-field">' +
+            '<input id="rf-dur" class="form-input" type="text" maxlength="40" placeholder="Ex: 2h, 1h30, 4:27" value="' + _esc(t.duracaoEstimada) + '" oninput="TrechoModal._updateArrivalPreview()" onblur="_durNormalizarBlur(this)">' +
+            '<div class="dur-chips">' +
+              ['30min','1h','2h','3h','4h','5h','6h','8h'].map(function(c){
+                return '<button type="button" class="dur-chip" onclick="_durChipClick(\'rf-dur\',\'' + c + '\');TrechoModal._updateArrivalPreview()">' + c + '</button>';
+              }).join('') +
+            '</div>' +
+          '</div>' +
         '</div>' +
         '<div class="form-group">' +
           '<label class="form-label" for="rf-consumo">Consumo médio (km/L)</label>' +
@@ -3835,7 +4483,7 @@ var TrechoModal = (function () {
                '</div>' +
                '<div class="form-group" style="margin-bottom:var(--space-3)">' +
                  '<label class="form-label" for="rf-volta-horario">Horário da volta</label>' +
-                 '<input id="rf-volta-horario" class="form-input" type="time" value="16:00" style="max-width:140px" oninput="TrechoModal._updateVoltaArrivalPreview()">' +
+                 SmartTimePicker.render('rf-volta-horario', '16:00', 'TrechoModal._updateVoltaArrivalPreview()') +
                '</div>' +
                '<div id="rf-volta-chegada-preview" class="rota-arrival-preview" style="display:none"></div>' +
                '<div class="rota-volta-preview" id="rf-volta-preview" style="display:none"></div>' +
