@@ -283,6 +283,7 @@ var BagagemPage = (function () {
   var _tripId   = null;
   var _viagem   = null;
   var _filter   = 'todos';
+  var _tplDraft  = null;
   var _search   = '';
 
   // ---- Store bridge -----------------------------------
@@ -956,6 +957,7 @@ var BagagemPage = (function () {
           '<div class="bag-tpl-acts">' +
             '<button class="btn btn-primary btn-xs" onclick="BagagemPage.aplicarTemplate(\'' + t.id + '\')">Aplicar</button>' +
             '<button class="btn btn-ghost btn-xs" onclick="BagagemPage.duplicarTemplate(\'' + t.id + '\')">Duplicar</button>' +
+            (!t.builtin ? '<button class="btn btn-outline btn-xs" onclick="BagagemPage.editarTemplate(\'' + t.id + '\')">✏️ Editar</button>' : '') +
             (!t.builtin ? '<button class="btn btn-ghost btn-xs bag-tpl-del" onclick="BagagemPage.excluirTemplate(\'' + t.id + '\')">🗑️</button>' : '') +
           '</div>' +
         '</div>'
@@ -982,6 +984,190 @@ var BagagemPage = (function () {
     var div = document.createElement('div');
     div.innerHTML = html;
     document.body.appendChild(div.firstChild);
+  }
+
+  // ---- Template editor ----------------------------
+  function _abrirTemplateEditor(tplId) {
+    var custom = Store.getBagagemTemplates();
+    var tpl = custom.find(function (t) { return t.id === tplId; });
+    if (!tpl) return;
+    _tplDraft = JSON.parse(JSON.stringify(tpl));
+    var existing = document.getElementById('bag-tpl-editor');
+    if (existing) existing.remove();
+    var div = document.createElement('div');
+    div.className = 'bag-modal-overlay';
+    div.id = 'bag-tpl-editor';
+    div.innerHTML = _buildTplEditorHtml();
+    document.body.appendChild(div);
+  }
+
+  function _buildTplEditorHtml() {
+    var containersHtml = (_tplDraft.containers || []).map(function (c, ci) {
+      var gruposHtml = (c.grupos || []).map(function (g, gi) {
+        var itensHtml = (g.itens || []).map(function (it, ii) {
+          return (
+            '<div class="tpled-item-row">' +
+              '<input class="input input-sm tpled-item-nome" value="' + _esc(it.nome) + '" placeholder="Nome do item">' +
+              '<input class="input input-sm tpled-item-qtd" type="number" min="1" value="' + (it.qtd || 1) + '">' +
+              '<button class="btn btn-ghost btn-xs tpled-remove-item" title="Remover item" onclick="BagagemPage._tplEdRemoveItem(' + ci + ',' + gi + ',' + ii + ')">🗑️</button>' +
+            '</div>'
+          );
+        }).join('');
+        return (
+          '<div class="tpled-grupo">' +
+            '<div class="tpled-grupo-hdr">' +
+              '<input class="input input-sm tpled-grupo-nome" value="' + _esc(g.nome) + '" placeholder="Nome do grupo">' +
+              '<button class="btn btn-ghost btn-xs" title="Remover grupo" onclick="BagagemPage._tplEdRemoveGrupo(' + ci + ',' + gi + ')">✕</button>' +
+            '</div>' +
+            '<div class="tpled-itens">' + itensHtml + '</div>' +
+            '<button class="btn btn-ghost btn-xs tpled-add-item" onclick="BagagemPage._tplEdAddItem(' + ci + ',' + gi + ')">+ item</button>' +
+          '</div>'
+        );
+      }).join('');
+      return (
+        '<div class="tpled-container">' +
+          '<div class="tpled-cont-hdr">' +
+            '<input class="input input-sm tpled-cont-emoji" value="' + _esc(c.emoji || '📦') + '" maxlength="4" placeholder="🧳">' +
+            '<input class="input input-sm tpled-cont-nome" value="' + _esc(c.nome) + '" placeholder="Nome da seção">' +
+            '<button class="btn btn-ghost btn-xs tpled-remove-cont" title="Remover seção" onclick="BagagemPage._tplEdRemoveContainer(' + ci + ')">✕</button>' +
+          '</div>' +
+          '<div class="tpled-grupos">' + gruposHtml + '</div>' +
+          '<button class="btn btn-ghost btn-xs tpled-add-grupo" onclick="BagagemPage._tplEdAddGrupo(' + ci + ')">+ grupo</button>' +
+        '</div>'
+      );
+    }).join('');
+    return (
+      '<div class="bag-modal bag-modal-lg">' +
+        '<div class="bag-modal-hdr">' +
+          '<span>✏️ Editar template</span>' +
+          '<button class="modal-close" onclick="BagagemPage._tplEdFechar()">✕</button>' +
+        '</div>' +
+        '<div class="bag-modal-body" id="tpled-body">' +
+          '<div class="tpled-meta">' +
+            '<input class="input" id="tpled-nome" value="' + _esc(_tplDraft.nome) + '" placeholder="Nome do template">' +
+            '<input class="input" id="tpled-desc" value="' + _esc(_tplDraft.descricao || '') + '" placeholder="Descrição">' +
+          '</div>' +
+          '<div id="tpled-containers">' + containersHtml + '</div>' +
+          '<button class="btn btn-outline btn-sm" onclick="BagagemPage._tplEdAddContainer()">+ seção</button>' +
+        '</div>' +
+        '<div class="bag-modal-footer">' +
+          '<button class="btn btn-ghost" onclick="BagagemPage._tplEdFechar()">Cancelar</button>' +
+          '<button class="btn btn-primary" onclick="BagagemPage._tplEdSalvar()">Salvar template</button>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function _tplEdCollect() {
+    // Sync current DOM values into _tplDraft before any structural change
+    var nomeEl = document.getElementById('tpled-nome');
+    var descEl = document.getElementById('tpled-desc');
+    if (nomeEl) _tplDraft.nome = nomeEl.value.trim();
+    if (descEl) _tplDraft.descricao = descEl.value.trim();
+    var contEls = document.querySelectorAll('#tpled-containers .tpled-container');
+    contEls.forEach(function (cEl, ci) {
+      var c = (_tplDraft.containers || [])[ci];
+      if (!c) return;
+      var emojiEl = cEl.querySelector('.tpled-cont-emoji');
+      var cNomeEl = cEl.querySelector('.tpled-cont-nome');
+      if (emojiEl) c.emoji = emojiEl.value || '📦';
+      if (cNomeEl) c.nome = cNomeEl.value.trim() || c.nome;
+      var grpEls = cEl.querySelectorAll('.tpled-grupo');
+      grpEls.forEach(function (gEl, gi) {
+        var g = (c.grupos || [])[gi];
+        if (!g) return;
+        var gNomeEl = gEl.querySelector('.tpled-grupo-nome');
+        if (gNomeEl) g.nome = gNomeEl.value.trim() || g.nome;
+        var itemEls = gEl.querySelectorAll('.tpled-item-row');
+        itemEls.forEach(function (iEl, ii) {
+          var it = (g.itens || [])[ii];
+          if (!it) return;
+          var iNomeEl = iEl.querySelector('.tpled-item-nome');
+          var iQtdEl  = iEl.querySelector('.tpled-item-qtd');
+          if (iNomeEl) it.nome = iNomeEl.value.trim() || it.nome;
+          if (iQtdEl)  it.qtd  = parseInt(iQtdEl.value, 10) || 1;
+        });
+      });
+    });
+  }
+
+  function _tplEdRerender() {
+    var editor = document.getElementById('bag-tpl-editor');
+    if (!editor) return;
+    editor.innerHTML = _buildTplEditorHtml();
+  }
+
+  function _tplEdAddContainer() {
+    _tplEdCollect();
+    if (!_tplDraft.containers) _tplDraft.containers = [];
+    _tplDraft.containers.push({ id: _bagId(), nome: 'Nova seção', emoji: '📦', descricao: '', grupos: [] });
+    _tplEdRerender();
+  }
+
+  function _tplEdRemoveContainer(ci) {
+    _tplEdCollect();
+    if (!_tplDraft.containers) return;
+    _tplDraft.containers.splice(ci, 1);
+    _tplEdRerender();
+  }
+
+  function _tplEdAddGrupo(ci) {
+    _tplEdCollect();
+    var c = (_tplDraft.containers || [])[ci];
+    if (!c) return;
+    if (!c.grupos) c.grupos = [];
+    c.grupos.push({ id: _bagId(), nome: 'Novo grupo', itens: [] });
+    _tplEdRerender();
+  }
+
+  function _tplEdRemoveGrupo(ci, gi) {
+    _tplEdCollect();
+    var c = (_tplDraft.containers || [])[ci];
+    if (!c || !c.grupos) return;
+    c.grupos.splice(gi, 1);
+    _tplEdRerender();
+  }
+
+  function _tplEdAddItem(ci, gi) {
+    _tplEdCollect();
+    var c = (_tplDraft.containers || [])[ci];
+    if (!c) return;
+    var g = (c.grupos || [])[gi];
+    if (!g) return;
+    if (!g.itens) g.itens = [];
+    g.itens.push({ id: _bagId(), nome: '', qtd: 1, observacao: '', checked: false, obrigatorio: false, origem: 'template' });
+    _tplEdRerender();
+  }
+
+  function _tplEdRemoveItem(ci, gi, ii) {
+    _tplEdCollect();
+    var c = (_tplDraft.containers || [])[ci];
+    if (!c) return;
+    var g = (c.grupos || [])[gi];
+    if (!g || !g.itens) return;
+    g.itens.splice(ii, 1);
+    _tplEdRerender();
+  }
+
+  function _tplEdFechar() {
+    var el = document.getElementById('bag-tpl-editor');
+    if (el) el.remove();
+    _tplDraft = null;
+  }
+
+  function _tplEdSalvar() {
+    _tplEdCollect();
+    if (!_tplDraft.nome) { alert('O template precisa de um nome.'); return; }
+    // Remove items with empty names
+    (_tplDraft.containers || []).forEach(function (c) {
+      (c.grupos || []).forEach(function (g) {
+        g.itens = (g.itens || []).filter(function (it) { return it.nome.trim() !== ''; });
+      });
+    });
+    Store.saveBagagemTemplate(_tplDraft);
+    _tplEdFechar();
+    fecharTemplateModal();
+    _abrirTemplateModal();
   }
 
   // ---- Modal: suggestions -----------------------------
@@ -1224,6 +1410,8 @@ var BagagemPage = (function () {
     _refreshContainers();
   }
 
+  function editarTemplate(tplId) { _abrirTemplateEditor(tplId); }
+
   function abrirTemplateModal() { _abrirTemplateModal(); }
   function fecharTemplateModal() { var el = document.getElementById('bag-tpl-modal'); if (el) el.remove(); }
 
@@ -1231,56 +1419,171 @@ var BagagemPage = (function () {
     var all = BAG_BUILT_IN_TEMPLATES.concat(Store.getBagagemTemplates());
     var tpl = all.find(function (t) { return t.id === tplId; });
     if (!tpl) return;
-    if (!confirm('Aplicar "' + tpl.nome + '"? A lista atual será substituída.')) return;
-    // Deep clone template containers, assign new IDs
-    var containers = JSON.parse(JSON.stringify(tpl.containers || []));
-    containers.forEach(function (c) {
-      (c.grupos || []).forEach(function (g) {
-        (g.itens || []).forEach(function (it) { it.id = _bagId(); it.checked = false; });
-      });
-    });
-    _saveBag({ version: 2, templateId: tplId, containers: containers });
-    fecharTemplateModal();
-    render(_viagem, document.getElementById('page-container'));
+    _abrirConfirmModal(
+      'Aplicar "' + _esc(tpl.nome) + '"?',
+      'A lista atual de bagagem será substituída pelo template.',
+      'Aplicar',
+      function () {
+        var containers = JSON.parse(JSON.stringify(tpl.containers || []));
+        containers.forEach(function (c) {
+          (c.grupos || []).forEach(function (g) {
+            (g.itens || []).forEach(function (it) { it.id = _bagId(); it.checked = false; });
+          });
+        });
+        _saveBag({ version: 2, templateId: tplId, containers: containers });
+        fecharTemplateModal();
+        render(_viagem, document.getElementById('page-container'));
+      }
+    );
   }
 
   function duplicarTemplate(tplId) {
     var all = BAG_BUILT_IN_TEMPLATES.concat(Store.getBagagemTemplates());
     var tpl = all.find(function (t) { return t.id === tplId; });
     if (!tpl) return;
-    var nome = prompt('Nome do novo template:', tpl.nome + ' (cópia)');
-    if (!nome) return;
-    var clone = JSON.parse(JSON.stringify(tpl));
-    clone.id   = _bagId();
-    clone.nome = nome.trim();
-    clone.builtin = false;
-    Store.saveBagagemTemplate(clone);
-    fecharTemplateModal();
-    _abrirTemplateModal();
+    _abrirDuplicarModal(tplId, tpl.nome);
   }
 
   function excluirTemplate(tplId) {
-    if (!confirm('Excluir este template?')) return;
-    Store.deleteBagagemTemplate(tplId);
+    var custom = Store.getBagagemTemplates();
+    var tpl = custom.find(function (t) { return t.id === tplId; });
+    if (!tpl) return;
+    _abrirConfirmModal(
+      'Excluir "' + _esc(tpl.nome) + '"?',
+      'Esta ação não pode ser desfeita.',
+      'Excluir',
+      function () {
+        Store.deleteBagagemTemplate(tplId);
+        fecharTemplateModal();
+        _abrirTemplateModal();
+      },
+      true
+    );
+  }
+
+  function salvarComoTemplate() { _abrirSalvarComoModal(); }
+
+  // --- Mini modal helpers ---
+  function _abrirConfirmModal(titulo, msg, labelOk, onConfirm, isDanger) {
+    _fecharMiniModais();
+    var div = document.createElement('div');
+    div.className = 'bag-modal-overlay bag-mini-modal-wrap';
+    div.id = 'bag-mini-modal';
+    div.innerHTML = (
+      '<div class="bag-modal bag-modal-sm">' +
+        '<div class="bag-modal-hdr">' +
+          '<span>' + titulo + '</span>' +
+          '<button class="modal-close" onclick="BagagemPage._fecharMiniModais()">✕</button>' +
+        '</div>' +
+        '<div class="bag-modal-body">' +
+          '<p style="font-size:var(--text-sm);color:var(--color-text-secondary)">' + msg + '</p>' +
+        '</div>' +
+        '<div class="bag-modal-footer">' +
+          '<button class="btn btn-ghost" onclick="BagagemPage._fecharMiniModais()">Cancelar</button>' +
+          '<button class="btn ' + (isDanger ? 'btn-danger' : 'btn-primary') + '" id="bag-mini-ok">' + labelOk + '</button>' +
+        '</div>' +
+      '</div>'
+    );
+    document.body.appendChild(div);
+    document.getElementById('bag-mini-ok').onclick = function () { _fecharMiniModais(); onConfirm(); };
+  }
+
+  function _abrirDuplicarModal(tplId, nomeOrigem) {
+    _fecharMiniModais();
+    var div = document.createElement('div');
+    div.className = 'bag-modal-overlay bag-mini-modal-wrap';
+    div.id = 'bag-mini-modal';
+    div.innerHTML = (
+      '<div class="bag-modal bag-modal-sm">' +
+        '<div class="bag-modal-hdr">' +
+          '<span>Duplicar template</span>' +
+          '<button class="modal-close" onclick="BagagemPage._fecharMiniModais()">✕</button>' +
+        '</div>' +
+        '<div class="bag-modal-body">' +
+          '<label class="label" for="bag-dup-nome">Nome do novo template</label>' +
+          '<input id="bag-dup-nome" class="input" value="' + _esc(nomeOrigem) + ' (cópia)">' +
+        '</div>' +
+        '<div class="bag-modal-footer">' +
+          '<button class="btn btn-ghost" onclick="BagagemPage._fecharMiniModais()">Cancelar</button>' +
+          '<button class="btn btn-primary" onclick="BagagemPage._confirmarDuplicar(\'' + tplId + '\')">Duplicar</button>' +
+        '</div>' +
+      '</div>'
+    );
+    document.body.appendChild(div);
+    setTimeout(function () { var el = document.getElementById('bag-dup-nome'); if (el) { el.focus(); el.select(); } }, 50);
+  }
+
+  function _confirmarDuplicar(tplId) {
+    var el = document.getElementById('bag-dup-nome');
+    var nome = el ? el.value.trim() : '';
+    if (!nome) { if (el) el.focus(); return; }
+    var all = BAG_BUILT_IN_TEMPLATES.concat(Store.getBagagemTemplates());
+    var tpl = all.find(function (t) { return t.id === tplId; });
+    if (!tpl) return;
+    var clone = JSON.parse(JSON.stringify(tpl));
+    clone.id = _bagId();
+    clone.nome = nome;
+    clone.builtin = false;
+    Store.saveBagagemTemplate(clone);
+    _fecharMiniModais();
     fecharTemplateModal();
     _abrirTemplateModal();
   }
 
-  function salvarComoTemplate() {
-    var nome = prompt('Nome do template:');
-    if (!nome) return;
+  function _abrirSalvarComoModal() {
+    var bag = _getBag();
+    if (!bag.containers || !bag.containers.length) {
+      _abrirConfirmModal('Lista vazia', 'Adicione itens à lista antes de salvar como template.', 'Ok', function () {});
+      return;
+    }
+    _fecharMiniModais();
+    var div = document.createElement('div');
+    div.className = 'bag-modal-overlay bag-mini-modal-wrap';
+    div.id = 'bag-mini-modal';
+    div.innerHTML = (
+      '<div class="bag-modal bag-modal-sm">' +
+        '<div class="bag-modal-hdr">' +
+          '<span>💾 Salvar como template</span>' +
+          '<button class="modal-close" onclick="BagagemPage._fecharMiniModais()">✕</button>' +
+        '</div>' +
+        '<div class="bag-modal-body">' +
+          '<label class="label" for="bag-sc-nome">Nome</label>' +
+          '<input id="bag-sc-nome" class="input" placeholder="Ex.: Viagem para a praia">' +
+          '<label class="label" for="bag-sc-desc" style="margin-top:var(--space-2)">Descrição</label>' +
+          '<input id="bag-sc-desc" class="input" placeholder="Breve descrição (opcional)">' +
+        '</div>' +
+        '<div class="bag-modal-footer">' +
+          '<button class="btn btn-ghost" onclick="BagagemPage._fecharMiniModais()">Cancelar</button>' +
+          '<button class="btn btn-primary" onclick="BagagemPage._confirmarSalvarComo()">Salvar</button>' +
+        '</div>' +
+      '</div>'
+    );
+    document.body.appendChild(div);
+    setTimeout(function () { var el = document.getElementById('bag-sc-nome'); if (el) el.focus(); }, 50);
+  }
+
+  function _confirmarSalvarComo() {
+    var nomeEl = document.getElementById('bag-sc-nome');
+    var descEl = document.getElementById('bag-sc-desc');
+    var nome = nomeEl ? nomeEl.value.trim() : '';
+    if (!nome) { if (nomeEl) nomeEl.focus(); return; }
+    var desc = descEl ? descEl.value.trim() : '';
     var bag  = _getBag();
-    var desc = prompt('Descrição breve (opcional):') || '';
     var clone = JSON.parse(JSON.stringify({ containers: bag.containers || [] }));
-    // Reset checked state in template
     (clone.containers || []).forEach(function (c) {
       (c.grupos || []).forEach(function (g) {
         (g.itens || []).forEach(function (it) { it.checked = false; it.id = _bagId(); });
       });
     });
-    Store.saveBagagemTemplate({ id: _bagId(), nome: nome.trim(), descricao: desc, tags: [], builtin: false, containers: clone.containers });
-    alert('Template "' + nome.trim() + '" salvo com sucesso!');
+    Store.saveBagagemTemplate({ id: _bagId(), nome: nome, descricao: desc, tags: [], builtin: false, containers: clone.containers });
+    _fecharMiniModais();
     fecharTemplateModal();
+    _abrirTemplateModal();
+  }
+
+  function _fecharMiniModais() {
+    var el = document.getElementById('bag-mini-modal');
+    if (el) el.remove();
   }
 
   function abrirSugModal() { _abrirSugModal(); }
@@ -1345,10 +1648,22 @@ var BagagemPage = (function () {
     excluirItem:         excluirItem,
     abrirTemplateModal:  abrirTemplateModal,
     fecharTemplateModal: fecharTemplateModal,
+    editarTemplate:      editarTemplate,
     aplicarTemplate:     aplicarTemplate,
     duplicarTemplate:    duplicarTemplate,
     excluirTemplate:     excluirTemplate,
     salvarComoTemplate:  salvarComoTemplate,
+    _confirmarDuplicar:  _confirmarDuplicar,
+    _confirmarSalvarComo: _confirmarSalvarComo,
+    _fecharMiniModais:   _fecharMiniModais,
+    _tplEdAddContainer:  _tplEdAddContainer,
+    _tplEdRemoveContainer: _tplEdRemoveContainer,
+    _tplEdAddGrupo:      _tplEdAddGrupo,
+    _tplEdRemoveGrupo:   _tplEdRemoveGrupo,
+    _tplEdAddItem:       _tplEdAddItem,
+    _tplEdRemoveItem:    _tplEdRemoveItem,
+    _tplEdFechar:        _tplEdFechar,
+    _tplEdSalvar:        _tplEdSalvar,
     abrirSugModal:       abrirSugModal,
     fecharSugModal:      fecharSugModal,
     adicionarSugestao:   adicionarSugestao,
