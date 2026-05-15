@@ -2643,6 +2643,11 @@ var AtividadeModal = (function () {
     ['passeio',      'Passeio 🎡'],
     ['compra',       'Compra 🛍️'],
     ['livre',        'Livre 🌴'],
+    ['descanso',     'Descanso 😴'],
+    ['cultura',      'Cultura 🏛️'],
+    ['natureza',     'Natureza 🌿'],
+    ['noturno',      'Noturno 🌅'],
+    ['aventura',     'Aventura 🧗'],
     ['outro',        'Outro 📌'],
   ];
 
@@ -2736,6 +2741,11 @@ var AtividadeModal = (function () {
           '<label class="form-label form-label-required">Horário</label>' +
           _DTWidget.renderHora('af-hora', ativ.hora) +
           '<span class="form-error" id="ae-hora">Informe o horário.</span>' +
+        '</div>' +
+        // Duração
+        '<div class="form-group">' +
+          '<label class="form-label" for="af-dur">Duração (min)</label>' +
+          '<input id="af-dur" class="form-input" type="number" min="0" step="15" placeholder="ex: 90" value="' + _esc(ativ.duracaoMin > 0 ? ativ.duracaoMin : '') + '">' +
         '</div>' +
         // Status
         '<div class="form-group">' +
@@ -2967,6 +2977,7 @@ var AtividadeModal = (function () {
         nome:           document.getElementById('af-nome').value.trim(),
         categoria:      document.getElementById('af-cat').value,
         local:          document.getElementById('af-local').value.trim(),
+        duracaoMin:     Math.max(0, parseInt(document.getElementById('af-dur').value, 10) || 0) || null,
         custoEstimado:  Number(document.getElementById('af-custo').value) || 0,
         status:         document.getElementById('af-status').value,
         observacoes:    document.getElementById('af-obs').value.trim(),

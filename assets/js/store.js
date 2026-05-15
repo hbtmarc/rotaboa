@@ -1117,11 +1117,11 @@ var Store = (function () {
 
     // Edita atividade — suporta mover de dia se dados.data mudar
     editarAtividade: function (tripId, atividadeId, dados) {
-      var itin = this.getItinerario(tripId);
-      if (!itin) return false;
+      var raw = _itinerarios[tripId];
+      if (!raw) return false;
       var diaOrigem = null, idxOrigem = -1;
-      itin.dias.forEach(function (d) {
-        var i = d.atividades.findIndex(function (a) { return a.id === atividadeId; });
+      raw.dias.forEach(function (d) {
+        var i = (d.atividades || []).findIndex(function (a) { return a.id === atividadeId; });
         if (i !== -1) { diaOrigem = d; idxOrigem = i; }
       });
       if (!diaOrigem) return false;
@@ -1130,8 +1130,9 @@ var Store = (function () {
       if (novaData && novaData !== diaOrigem.data) {
         // Move para outro dia
         diaOrigem.atividades.splice(idxOrigem, 1);
-        var diaDestino = itin.dias.find(function (d) { return d.data === novaData; });
+        var diaDestino = raw.dias.find(function (d) { return d.data === novaData; });
         if (diaDestino) {
+          if (!diaDestino.atividades) diaDestino.atividades = [];
           diaDestino.atividades.push(Object.assign({}, ativOriginal, dados));
           diaDestino.atividades.sort(function (a, b) { return (a.hora || '').localeCompare(b.hora || ''); });
         }
@@ -1146,10 +1147,10 @@ var Store = (function () {
 
     // Exclui atividade (busca em todos os dias)
     excluirAtividade: function (tripId, atividadeId) {
-      var itin = this.getItinerario(tripId);
-      if (!itin) return false;
-      itin.dias.forEach(function (d) {
-        d.atividades = d.atividades.filter(function (a) { return a.id !== atividadeId; });
+      var raw = _itinerarios[tripId];
+      if (!raw) return false;
+      raw.dias.forEach(function (d) {
+        d.atividades = (d.atividades || []).filter(function (a) { return a.id !== atividadeId; });
       });
       _salvarItinerarios();
       _marcarSyncPendente();

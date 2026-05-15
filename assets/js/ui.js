@@ -473,8 +473,32 @@ var UI = (function () {
     passeio:      { emoji: '🎡', cls: 'cat-passeio',      label: 'Passeio'      },
     compra:       { emoji: '🛍️', cls: 'cat-compra',       label: 'Compra'       },
     livre:        { emoji: '🌴', cls: 'cat-livre',        label: 'Livre'        },
+    descanso:     { emoji: '😴', cls: 'cat-descanso',     label: 'Descanso'     },
+    cultura:      { emoji: '🏛️', cls: 'cat-cultura',      label: 'Cultura'      },
+    natureza:     { emoji: '🌿', cls: 'cat-natureza',     label: 'Natureza'     },
+    noturno:      { emoji: '🌅', cls: 'cat-noturno',      label: 'Noturno'      },
+    aventura:     { emoji: '🧗', cls: 'cat-aventura',     label: 'Aventura'     },
     outro:        { emoji: '📌', cls: 'cat-outro',        label: 'Outro'        },
   };
+
+  // ---- Helpers de duração e gap temporal ----
+  function _horaToMin(h) {
+    var parts = String(h || '').split(':');
+    if (parts.length !== 2) return -1;
+    var hh = parseInt(parts[0], 10);
+    var mm = parseInt(parts[1], 10);
+    if (isNaN(hh) || isNaN(mm)) return -1;
+    return hh * 60 + mm;
+  }
+
+  function _duracaoStr(min) {
+    if (!min || min <= 0) return '';
+    var h = Math.floor(min / 60);
+    var m = min % 60;
+    if (h > 0 && m > 0) return h + 'h ' + m + 'min';
+    if (h > 0) return h + 'h';
+    return m + 'min';
+  }
 
   // ---- Badge de status de atividade ----
   function badgeAtividade(status) {
@@ -501,12 +525,14 @@ var UI = (function () {
   }
 
   // ---- Renderiza uma atividade ----
-  function renderAtividade(ativ, tripId) {
+  // meta: { dur: duracaoMin, gap: minutosAtéPróximo }
+  function renderAtividade(ativ, tripId, meta) {
     var catKey = ativ.categoria || 'outro';
     var cat    = _catMeta[catKey] || _catMeta.outro;
     var feito  = ativ.status === 'feito';
     var borderCls = 'cat-border-' + catKey;
     var chipCls   = 'cat-' + catKey;
+    meta = meta || {};
 
     var local = ativ.local
       ? '<span class="itin-activity-local">📍 ' + ativ.local + '</span>'
@@ -519,6 +545,21 @@ var UI = (function () {
     var obs = ativ.observacoes
       ? '<div class="itin-activity-obs">' + ativ.observacoes + '</div>'
       : '';
+
+    // Duração e gap para próxima atividade
+    var durStr = _duracaoStr(ativ.duracaoMin);
+    var durHtml = durStr
+      ? '<span class="itin-activity-dur">⏱ ' + durStr + '</span>'
+      : '';
+    var gapHtml = '';
+    if (meta.gap > 0 && meta.gap <= 480) { // só mostra se ≤ 8h e positivo
+      var gapStr = _duracaoStr(meta.gap);
+      gapHtml = '<span class="itin-activity-gap">→ próxima em ' + gapStr + '</span>';
+    }
+    var timeInfo = (durHtml || gapHtml)
+      ? '<div class="itin-activity-timeinfo">' + durHtml + gapHtml + '</div>'
+      : '';
+
     var details = (local || custo || badge)
       ? '<div class="itin-activity-details">' + local + custo + badge + '</div>'
       : '';
@@ -547,6 +588,7 @@ var UI = (function () {
         '<div class="itin-activity-name">' + ativ.nome + '</div>' +
         details +
         obs +
+        timeInfo +
       '</div>'
     );
   }
@@ -691,8 +733,38 @@ var UI = (function () {
         '</div>'
       : '';
 
+    // Compute duration + gap-to-next for each atividade
+    var ativSorted = lista.slice().sort(function (a, b) {
+      return (a.hora || '').localeCompare(b.hora || '');
+    });
+    // Build a unified sorted timestamp list (atividades + trechos + hosp entries) for gap reference
+    var allTimestamps = [];
+    ativSorted.forEach(function (a) {
+      var m = _horaToMin(a.hora);
+      if (m >= 0) allTimestamps.push(m);
+    });
+    entries.forEach(function (e) {
+      var m = _horaToMin(e.hora);
+      if (m >= 0) allTimestamps.push(m);
+    });
+    allTimestamps.sort(function (a, b) { return a - b; });
+
+    var gapMap = {};
+    ativSorted.forEach(function (a, i) {
+      var myMin  = _horaToMin(a.hora);
+      var myDur  = (a.duracaoMin > 0) ? a.duracaoMin : 0;
+      var myEnd  = (myMin >= 0 && myDur > 0) ? myMin + myDur : myMin;
+      // Next event is first timestamp strictly after myEnd
+      var nextTs = -1;
+      for (var ti = 0; ti < allTimestamps.length; ti++) {
+        if (allTimestamps[ti] > myEnd + 1) { nextTs = allTimestamps[ti]; break; }
+      }
+      var gap = (nextTs >= 0 && myEnd >= 0 && nextTs > myEnd) ? nextTs - myEnd : -1;
+      gapMap[a.id] = { dur: myDur, gap: gap };
+    });
+
     var atividades = lista.map(function (a) {
-      return renderAtividade(a, tripId);
+      return renderAtividade(a, tripId, gapMap[a.id]);
     }).join('');
 
     var vazio = totalItens === 0

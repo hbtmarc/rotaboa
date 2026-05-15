@@ -1277,6 +1277,11 @@
 .itin-activity.cat-border-passeio      { border-left-color: #10b981; }
 .itin-activity.cat-border-compra       { border-left-color: #ec4899; }
 .itin-activity.cat-border-livre        { border-left-color: #14b8a6; }
+.itin-activity.cat-border-descanso     { border-left-color: #8b5cf6; }
+.itin-activity.cat-border-cultura      { border-left-color: #d97706; }
+.itin-activity.cat-border-natureza     { border-left-color: #16a34a; }
+.itin-activity.cat-border-noturno      { border-left-color: #f97316; }
+.itin-activity.cat-border-aventura     { border-left-color: #dc2626; }
 .itin-activity.cat-border-outro        { border-left-color: #94a3b8; }
 
 /* ---- Linha do topo: hora + chip de categoria + ações ---- */
@@ -1315,6 +1320,11 @@
 .itin-cat-chip.cat-passeio      { background: #10b981; }
 .itin-cat-chip.cat-compra       { background: #ec4899; }
 .itin-cat-chip.cat-livre        { background: #14b8a6; }
+.itin-cat-chip.cat-descanso     { background: #8b5cf6; }
+.itin-cat-chip.cat-cultura      { background: #d97706; }
+.itin-cat-chip.cat-natureza     { background: #16a34a; }
+.itin-cat-chip.cat-noturno      { background: #f97316; }
+.itin-cat-chip.cat-aventura     { background: #dc2626; }
 .itin-cat-chip.cat-outro        { background: #94a3b8; }
 
 /* ---- Botões de ação ---- */
@@ -1419,6 +1429,34 @@
   padding-top: var(--space-2);
 }
 
+/* ---- Informações de tempo (duração + gap até próxima) ---- */
+.itin-activity-timeinfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--color-border-light);
+}
+.itin-activity-dur {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.itin-activity-gap {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  opacity: 0.8;
+}
+
 /* ---- Cores por categoria (dot legado — não mais usado em cards) ---- */
 .cat-deslocamento  { background: #6366f1; }
 .cat-hospedagem    { background: #0ea5e9; }
@@ -1426,6 +1464,11 @@
 .cat-passeio       { background: #10b981; }
 .cat-compra        { background: #ec4899; }
 .cat-livre         { background: #14b8a6; }
+.cat-descanso      { background: #8b5cf6; }
+.cat-cultura       { background: #d97706; }
+.cat-natureza      { background: #16a34a; }
+.cat-noturno       { background: #f97316; }
+.cat-aventura      { background: #dc2626; }
 .cat-outro         { background: #94a3b8; }
 
 /* ---- Estado vazio por dia ---- */
