@@ -1824,11 +1824,51 @@ function paginaFinanceiro(params, container) {
       '</div>'
     );
   } else {
-    listaDesp = (
-      '<div class="desp-list">' +
-        desp.map(function (d) { return UI.renderDespesaItem(d, viagem.id); }).join('') +
-      '</div>'
-    );
+    // Agrupa por data (asc), exibindo cabeçalho de dia igual ao roteiro
+    var _semana = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+    var _inicioMs = viagem.dataInicio ? new Date(viagem.dataInicio + 'T12:00:00').getTime() : null;
+    function _numDiaDesp(iso) {
+      if (!_inicioMs || !iso) return null;
+      var ms = new Date(iso + 'T12:00:00').getTime();
+      return Math.round((ms - _inicioMs) / 86400000) + 1;
+    }
+    function _fmtDiaHeader(iso) {
+      if (!iso) return '';
+      var p = iso.split('-');
+      var d = new Date(iso + 'T12:00:00');
+      return p[2] + '/' + p[1] + '/' + p[0] + ' · ' + _semana[d.getDay()];
+    }
+    // Monta grupos por data
+    var _grupos = [];
+    var _grupoMap = {};
+    desp.forEach(function (d) {
+      var k = d.data || '';
+      if (!_grupoMap[k]) {
+        _grupoMap[k] = { data: k, items: [] };
+        _grupos.push(_grupoMap[k]);
+      }
+      _grupoMap[k].items.push(d);
+    });
+    _grupos.sort(function (a, b) { return (a.data || '').localeCompare(b.data || ''); });
+    var _despHtml = _grupos.map(function (g) {
+      var numDia = _numDiaDesp(g.data);
+      var numLabel = numDia !== null && numDia >= 1 ? String(numDia) : '—';
+      return (
+        '<div class="itin-day" style="margin-bottom:var(--space-4)">' +
+          '<div class="itin-day-header">' +
+            '<span class="itin-day-num">' + numLabel + '</span>' +
+            '<div class="itin-day-info">' +
+              '<div class="itin-day-date">' + _fmtDiaHeader(g.data) + '</div>' +
+            '</div>' +
+            '<span class="text-xs text-muted">' + g.items.length + ' despesa' + (g.items.length !== 1 ? 's' : '') + '</span>' +
+          '</div>' +
+          '<div class="desp-list" style="margin-top:var(--space-2)">' +
+            g.items.map(function (d) { return UI.renderDespesaItem(d, viagem.id); }).join('') +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
+    listaDesp = '<div class="fin-desp-grouped">' + _despHtml + '</div>';
   }
 
   var html = (

@@ -1380,7 +1380,7 @@ var Store = (function () {
       var merged = manuais.concat(virtuais).map(function (d) {
         return _enriquecerDespesaComNomes(tripId, d);
       });
-      merged.sort(function (a, b) { return (b.data || '').localeCompare(a.data || ''); });
+      merged.sort(function (a, b) { return (a.data || '').localeCompare(b.data || ''); });
       return merged;
     },
 
