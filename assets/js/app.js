@@ -780,6 +780,23 @@ function _nomeUsuarioAuth(user) {
   return user.displayName || user.email || 'Usuário';
 }
 
+// Retorna o nome de exibição do usuário, priorizando:
+// 1. prefs.nomeUsuario ("Seu nome" em Config.)
+// 2. Firebase displayName
+// 3. email prefix
+// 4. "Usuário"
+function _getDisplayUserName() {
+  var prefs = _lerPreferencias();
+  if (prefs && prefs.nomeUsuario && prefs.nomeUsuario.trim()) {
+    return prefs.nomeUsuario.trim();
+  }
+  if (RB_AUTH_STATE.user) {
+    if (RB_AUTH_STATE.user.displayName) return RB_AUTH_STATE.user.displayName;
+    if (RB_AUTH_STATE.user.email) return RB_AUTH_STATE.user.email.split('@')[0];
+  }
+  return 'Usuário';
+}
+
 function _renderAvisoSincronizacao() {
   if (RB_AUTH_STATE.offlineMode) return '';
   if (!_firebaseConfigurado() || RB_AUTH_STATE.user) return '';
@@ -842,7 +859,7 @@ function atualizarHeaderAuthUI() {
   if (RB_AUTH_STATE.offlineMode) {
     slot.innerHTML = '<a href="#/config" class="nav-link">Offline</a>';
   } else if (RB_AUTH_STATE.user) {
-    var nome = _nomeUsuarioAuth(RB_AUTH_STATE.user);
+    var nome = _getDisplayUserName();
     slot.innerHTML = (
       '<span class="badge badge-neutral" title="Usuário autenticado">' + nome + '</span>' +
       '<button type="button" class="btn btn-ghost btn-sm" onclick="AuthActions.sair()">Sair</button>'
@@ -1167,7 +1184,7 @@ function paginaInicio(params, container) {
   var html = (
     '<div class="hero-banner dashboard-hero">' +
       '<div class="hero-eyebrow">Painel</div>' +
-      '<h1 class="hero-title">Olá, ' + (config.nomeUsuario || 'viajante') + ' 👋</h1>' +
+      '<h1 class="hero-title">Olá, ' + _getDisplayUserName() + ' 👋</h1>' +
       '<p class="hero-subtitle">Viagem selecionada: <strong>' + viagem.nome + '</strong></p>' +
       '<div class="hero-actions">' +
         '<button class="btn btn-white" onclick="TripSwitcher.abrir()">Trocar viagem</button>' +
@@ -2121,7 +2138,7 @@ function paginaConfiguracoes(params, container) {
           '<div>' +
             (RB_AUTH_STATE.offlineMode
               ? '<div class="font-semibold text-sm">Modo offline</div><div class="text-xs text-secondary">Dados salvos neste dispositivo</div>'
-              : '<div class="font-semibold text-sm">' + _esc(_nomeUsuarioAuth(RB_AUTH_STATE.user)) + '</div><div class="text-xs text-secondary">' + _esc((RB_AUTH_STATE.user && RB_AUTH_STATE.user.email) || '') + '</div>') +
+              : '<div class="font-semibold text-sm">' + _esc(_getDisplayUserName()) + '</div><div class="text-xs text-secondary">' + _esc((RB_AUTH_STATE.user && RB_AUTH_STATE.user.email) || '') + '</div>') +
           '</div>' +
         '</div>' +
         '<div style="display:flex;gap:var(--space-2)">' +
@@ -2626,6 +2643,7 @@ var ConfigActions = {
     if (window.Store && typeof Store.setConfigDefaults === 'function') {
       Store.setConfigDefaults(prefs);
     }
+    atualizarHeaderAuthUI(); // atualiza nome exibido no header imediatamente
     _aplicarDensidade();
 
     if (syncAuto || syncInt) {
