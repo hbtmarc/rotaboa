@@ -2096,8 +2096,8 @@ function _renderDiagnosticosHtml() {
     _linha('Última sincronização', ultimaSync) +
     (erroSync ? _linha('Erro RTDB', erroSync, 'var(--color-danger)') : '') +
     '<div style="margin-top:var(--space-2);display:flex;gap:var(--space-2);flex-wrap:wrap">' +
-      '<button class="btn btn-ghost btn-sm" onclick="_atualizarDiagnosticosConfig()">Atualizar</button>' +
-      (uid ? '<button class="btn btn-ghost btn-sm" onclick="ConfigActions.sincronizarAgora()">Sincronizar agora</button>' : '') +
+      '<button class="icon-btn icon-btn--ghost" aria-label="Atualizar diagnósticos" title="Atualizar diagnósticos" onclick="_atualizarDiagnosticosConfig()">' + rbIcon('refresh-cw') + '<span class="icon-btn-label">Atualizar</span></button>' +
+      (uid ? '<button class="icon-btn icon-btn--ghost" aria-label="Sincronizar agora" title="Sincronizar agora" onclick="ConfigActions.sincronizarAgora()">' + rbIcon('refresh-cw') + '<span class="icon-btn-label">Sincronizar agora</span></button>' : '') +
     '</div>'
   );
 }
@@ -2446,8 +2446,8 @@ var ConfigActions = {
               '<div class="text-xs text-muted">' + qtdViagens + ' viagem(s) &middot; v' + String(b.appVersion || '—') + '</div>' +
             '</div>' +
             '<div style="display:flex;gap:var(--space-2)">' +
-              '<button class="btn btn-secondary btn-sm" onclick="ConfigActions.restaurarBackup(\'' + bId + '\')">Restaurar</button>' +
-              '<button class="btn btn-ghost btn-sm" style="color:var(--color-danger)" onclick="ConfigActions.excluirBackup(\'' + bId + '\')">Excluir</button>' +
+              '<button class="icon-btn icon-btn--ghost" aria-label="Restaurar backup" title="Restaurar backup" onclick="ConfigActions.restaurarBackup(\'' + bId + '\')">' + rbIcon('history') + '<span class="icon-btn-label">Restaurar</span></button>' +
+              '<button class="icon-btn icon-btn--ghost icon-btn--danger" aria-label="Excluir backup" title="Excluir backup" onclick="ConfigActions.excluirBackup(\'' + bId + '\')">' + rbIcon('trash') + '</button>' +
             '</div>' +
           '</div>'
         );

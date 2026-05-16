@@ -374,8 +374,8 @@ var BagagemPage = (function () {
           (item.observacao ? '<span class="bag-item-obs">' + _esc(item.observacao) + '</span>' : '') +
         '</div>' +
         '<div class="bag-item-actions">' +
-          '<button class="bag-act-btn" title="Editar" onclick="BagagemPage.editarItem(\'' + cId + '\',\'' + gId + '\',\'' + item.id + '\')">✏️</button>' +
-          '<button class="bag-act-btn bag-act-del" title="Excluir" onclick="BagagemPage.excluirItem(\'' + cId + '\',\'' + gId + '\',\'' + item.id + '\')">🗑️</button>' +
+          '<button class="bag-act-btn" aria-label="Editar item" title="Editar item" onclick="BagagemPage.editarItem(\'' + cId + '\',\'' + gId + '\',\'' + item.id + '\')"> ' + rbIcon('pencil') + ' </button>' +
+          '<button class="bag-act-btn bag-act-del" aria-label="Excluir item" title="Excluir item" onclick="BagagemPage.excluirItem(\'' + cId + '\',\'' + gId + '\',\'' + item.id + '\')"> ' + rbIcon('trash') + ' </button>' +
         '</div>' +
       '</div>'
     );
@@ -395,11 +395,11 @@ var BagagemPage = (function () {
           '<span class="bag-grupo-meta">' + r.done + '/' + r.total + '</span>' +
           _inlineBar(pct) +
           '<span class="bag-grupo-actions" onclick="event.stopPropagation()">' +
-            '<button class="btn btn-ghost btn-xs bag-sec-btn" onclick="BagagemPage.marcarTudo(\'' + c.id + '\',\'' + grp.id + '\')">' +
-              (r.done === r.total ? 'Desmarcar' : 'Marcar tudo') +
+            '<button class="icon-btn icon-btn--ghost bag-sec-marcar" aria-label="' + (r.done === r.total ? 'Desmarcar tudo' : 'Marcar tudo') + '" title="' + (r.done === r.total ? 'Desmarcar tudo' : 'Marcar tudo') + '" onclick="BagagemPage.marcarTudo(\'' + c.id + '\',\'' + grp.id + '\')">' +
+              rbIcon(r.done === r.total ? 'rotate-ccw' : 'check-check') +
             '</button>' +
-            '<button class="btn btn-ghost btn-xs bag-sec-btn" onclick="BagagemPage.limparSecao(\'' + c.id + '\',\'' + grp.id + '\')">Limpar</button>' +
-            '<button class="btn btn-ghost btn-xs bag-sec-btn bag-sec-add" onclick="BagagemPage.abrirItemModal(\'' + c.id + '\',\'' + grp.id + '\')">+ Item</button>' +
+            '<button class="icon-btn icon-btn--ghost icon-btn--danger" aria-label="Limpar seção" title="Limpar seção" onclick="BagagemPage.limparSecao(\'' + c.id + '\',\'' + grp.id + '\')">' + rbIcon('eraser') + '</button>' +
+            '<button class="icon-btn icon-btn--primary" aria-label="Adicionar item" title="Adicionar item" onclick="BagagemPage.abrirItemModal(\'' + c.id + '\',\'' + grp.id + '\')">' + rbIcon('plus') + '</button>' +
           '</span>' +
         '</summary>' +
         '<div class="bag-grupo-itens">' + itensHtml + '</div>' +
@@ -477,9 +477,9 @@ var BagagemPage = (function () {
         '</div>' +
         _bag_bar(pct, true) +
         '<div class="bag-hero-actions">' +
-          '<button class="btn btn-ghost btn-xs bag-hero-act-btn" onclick="BagagemPage.abrirItemModal(null,null)">+ Adicionar item</button>' +
-          '<button class="btn btn-ghost btn-xs bag-hero-act-btn" onclick="BagagemPage.abrirTemplateModal()">📋 Templates</button>' +
-          '<button class="btn btn-ghost btn-xs bag-hero-act-btn" onclick="BagagemPage.abrirSugModal()">💡 Sugestões</button>' +
+          '<button class="icon-btn icon-btn--ghost bag-hero-act-btn" aria-label="Adicionar item" title="Adicionar item" onclick="BagagemPage.abrirItemModal(null,null)">' + rbIcon('plus') + '<span class="icon-btn-label">Adicionar</span></button>' +
+          '<button class="icon-btn icon-btn--ghost bag-hero-act-btn" aria-label="Templates de bagagem" title="Templates de bagagem" onclick="BagagemPage.abrirTemplateModal()">' + rbIcon('layers') + '<span class="icon-btn-label">Templates</span></button>' +
+          '<button class="icon-btn icon-btn--ghost bag-hero-act-btn" aria-label="Sugestões de itens" title="Sugestões de itens" onclick="BagagemPage.abrirSugModal()">' + rbIcon('lightbulb') + '<span class="icon-btn-label">Sugestões</span></button>' +
         '</div>' +
       '</div>' +
       // Toolbar
@@ -499,7 +499,7 @@ var BagagemPage = (function () {
       _modoDeUso() +
       // Reset button
       '<div class="bag-global-actions">' +
-        '<button class="btn btn-ghost btn-sm bag-reset-btn" onclick="BagagemPage.resetarLista()">🔄 Resetar lista da viagem</button>' +
+        '<button class="icon-btn icon-btn--ghost bag-reset-btn" aria-label="Resetar lista da viagem" title="Resetar lista da viagem" onclick="BagagemPage.resetarLista()">' + rbIcon('rotate-ccw') + '<span class="icon-btn-label">Resetar lista</span></button>' +
       '</div>'
     );
   }
@@ -997,8 +997,8 @@ var BagagemPage = (function () {
           '<div class="bag-tpl-acts">' +
             '<button class="btn btn-primary btn-xs" onclick="BagagemPage.aplicarTemplate(\'' + t.id + '\')">Aplicar</button>' +
             '<button class="btn btn-ghost btn-xs" onclick="BagagemPage.duplicarTemplate(\'' + t.id + '\')">Duplicar</button>' +
-            ((!t.builtin || (typeof _lerPreferencias === 'function' && _lerPreferencias().templatesEditaveis.indexOf(t.id) >= 0)) ? '<button class="btn btn-outline btn-xs" onclick="BagagemPage.editarTemplate(\'' + t.id + '\')">✏️ Editar</button>' : '') +
-            (!t.builtin ? '<button class="btn btn-ghost btn-xs bag-tpl-del" onclick="BagagemPage.excluirTemplate(\'' + t.id + '\')">🗑️</button>' : '') +
+            ((!t.builtin || (typeof _lerPreferencias === 'function' && _lerPreferencias().templatesEditaveis.indexOf(t.id) >= 0)) ? '<button class="icon-btn icon-btn--ghost" aria-label="Editar template" title="Editar template" onclick="BagagemPage.editarTemplate(\'' + t.id + '\')">' + rbIcon('pencil') + '<span class="icon-btn-label">Editar</span></button>' : '') +
+            (!t.builtin ? '<button class="icon-btn icon-btn--ghost icon-btn--danger bag-tpl-del" aria-label="Excluir template" title="Excluir template" onclick="BagagemPage.excluirTemplate(\'' + t.id + '\')">' + rbIcon('trash') + '</button>' : '') +
           '</div>' +
         '</div>'
       );
@@ -1530,8 +1530,13 @@ var BagagemPage = (function () {
       if (meta) meta.textContent = r.done + '/' + r.total;
       var f2 = detEl.querySelector('.bag-inline-fill');
       if (f2) f2.style.width = pct + '%';
-      var btn = detEl.querySelector('.bag-sec-btn');
-      if (btn) btn.textContent = r.done === r.total ? 'Desmarcar' : 'Marcar tudo';
+      var btn = detEl.querySelector('.bag-sec-marcar');
+      if (btn) {
+        var isDone = r.done === r.total;
+        btn.setAttribute('aria-label', isDone ? 'Desmarcar tudo' : 'Marcar tudo');
+        btn.setAttribute('title', isDone ? 'Desmarcar tudo' : 'Marcar tudo');
+        btn.innerHTML = rbIcon(isDone ? 'rotate-ccw' : 'check-check');
+      }
     }
     // Patch container counts
     var cr = _cntContainer(c);

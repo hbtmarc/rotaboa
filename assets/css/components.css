@@ -79,6 +79,101 @@
   width: 100%;
 }
 
+/* ===== SISTEMA DE BOTÕES ÍCONE (icon-btn) ===== */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 5px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg, 8px);
+  background: transparent;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition: background 0.15s, color 0.15s, border-color 0.15s, opacity 0.15s;
+  line-height: 1;
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: var(--text-xs, 11px);
+  font-weight: 500;
+}
+
+.icon-btn svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+/* Rótulo curto dentro do botão; some em 429px e abaixo */
+.icon-btn-label {
+  font-size: var(--text-xs, 11px);
+  white-space: nowrap;
+}
+
+@media (max-width: 429px) {
+  .icon-btn .icon-btn-label { display: none; }
+}
+
+.icon-btn:hover {
+  background: var(--color-bg-alt);
+  color: var(--color-text);
+}
+
+.icon-btn--ghost {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+}
+
+.icon-btn--ghost:hover {
+  background: var(--color-bg-alt);
+  border-color: #cbd5e1;
+  color: var(--color-text);
+}
+
+.icon-btn--primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.icon-btn--primary:hover {
+  opacity: 0.85;
+}
+
+.icon-btn--danger {
+  color: var(--color-danger, #dc2626);
+}
+
+.icon-btn--danger:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: var(--color-danger, #dc2626);
+}
+
+.icon-btn--success {
+  color: var(--color-success, #16a34a);
+}
+
+.icon-btn--success:hover {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #15803d;
+}
+
+/* Linha de ações padronizada */
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  flex-wrap: wrap;
+}
+
+.action-row--compact {
+  gap: var(--space-1, 4px);
+}
+
 /* ---- Card ---- */
 .card {
   background: var(--color-surface);

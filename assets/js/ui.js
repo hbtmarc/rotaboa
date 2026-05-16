@@ -123,8 +123,8 @@ var UI = (function () {
         '</div>' +
         '<div class="card-footer">' +
           '<a href="#/viagem/' + viagem.id + '" class="btn btn-primary btn-sm" onclick="TripActions.abrirDetalhes(\'' + viagem.id + '\');return false;">Detalhes</a>' +
-          '<button class="btn btn-ghost btn-sm" onclick="TripActions.editar(\'' + viagem.id + '\');event.stopPropagation()">Editar</button>' +
-          '<button class="btn btn-ghost btn-sm" style="color:var(--color-danger)" onclick="TripActions.excluir(\'' + viagem.id + '\');event.stopPropagation()">Excluir</button>' +
+          '<button class="icon-btn icon-btn--ghost" aria-label="Editar viagem" title="Editar viagem" onclick="TripActions.editar(\'' + viagem.id + '\');event.stopPropagation()">' + rbIcon('pencil') + '</button>' +
+          '<button class="icon-btn icon-btn--ghost icon-btn--danger" aria-label="Excluir viagem" title="Excluir viagem" onclick="TripActions.excluir(\'' + viagem.id + '\');event.stopPropagation()">' + rbIcon('trash') + '</button>' +
         '</div>' +
       '</div>'
     );
@@ -254,9 +254,9 @@ var UI = (function () {
         '</div>' +
         detalheParcelas +
         (desp.observacoes ? '<div class="desp-obs">' + desp.observacoes + '</div>' : '') +
-        '<div class="desp-actions">' +
-          '<button class="desp-btn" onclick="DespesaActions.editar(\'' + tripId + '\',\'' + desp.id + '\')">✏️ <span>' + acaoEditar + '</span></button>' +
-          '<button class="desp-btn desp-btn-delete" onclick="DespesaActions.excluir(\'' + tripId + '\',\'' + desp.id + '\')">🗑️ <span>' + acaoExcluir + '</span></button>' +
+        '<div class="desp-actions action-row--compact">' +
+          '<button class="icon-btn icon-btn--ghost" aria-label="' + acaoEditar + '" title="' + acaoEditar + '" onclick="DespesaActions.editar(\'' + tripId + '\',\'' + desp.id + '\')"><span class="icon-btn-label">' + acaoEditar + '</span>' + rbIcon('pencil') + '</button>' +
+          '<button class="icon-btn icon-btn--ghost icon-btn--danger" aria-label="' + acaoExcluir + '" title="' + acaoExcluir + '" onclick="DespesaActions.excluir(\'' + tripId + '\',\'' + desp.id + '\')">' + rbIcon('trash') + '</button>' +
         '</div>' +
       '</div>'
     );
@@ -418,9 +418,9 @@ var UI = (function () {
           '<span>👥 ' + formatarMoeda(trecho.custoPorPessoa || 0) + '/pessoa</span>' +
         '</div>' +
         (trecho.observacoes ? '<div class="rota-obs">' + trecho.observacoes + '</div>' : '') +
-        '<div class="rota-actions">' +
-          '<button class="desp-btn" onclick="TrechoActions.editar(\'' + tripId + '\',\'' + trecho.id + '\')">✏️ <span>Editar</span></button>' +
-          '<button class="desp-btn desp-btn-delete" onclick="TrechoActions.excluir(\'' + tripId + '\',\'' + trecho.id + '\')">🗑️ <span>Excluir</span></button>' +
+        '<div class="rota-actions action-row--compact">' +
+          '<button class="icon-btn icon-btn--ghost" aria-label="Editar trecho" title="Editar trecho" onclick="TrechoActions.editar(\'' + tripId + '\',\'' + trecho.id + '\')">' + rbIcon('pencil') + '<span class="icon-btn-label">Editar</span></button>' +
+          '<button class="icon-btn icon-btn--ghost icon-btn--danger" aria-label="Excluir trecho" title="Excluir trecho" onclick="TrechoActions.excluir(\'' + tripId + '\',\'' + trecho.id + '\')">' + rbIcon('trash') + '</button>' +
         '</div>' +
       '</div>'
     );
@@ -671,7 +671,6 @@ var UI = (function () {
       : '';
 
     var doneLabel = feito ? 'Desfazer' : 'Concluir';
-    var doneEmoji = feito ? '↩' : '✓';
 
     return (
       '<div class="itin-activity ' + borderCls + (feito ? ' feito' : '') + (meta.conflito ? ' has-conflict' : '') + '" data-ativ-id="' + ativ.id + '">' +
@@ -682,14 +681,14 @@ var UI = (function () {
           '</div>' +
           '<span class="itin-cat-chip ' + chipCls + '">' + cat.emoji + ' ' + cat.label + '</span>' +
           '<div class="itin-activity-actions">' +
-            '<button class="itin-act-btn btn-done ' + (feito ? 'done-active' : '') + '" title="' + doneLabel + '" onclick="AtividadeActions.toggle(\'' + tripId + '\',\'' + ativ.id + '\')">' +
-              doneEmoji + '<span class="act-label">' + doneLabel + '</span>' +
+            '<button class="itin-act-btn btn-done ' + (feito ? 'done-active' : '') + '" aria-label="' + doneLabel + '" title="' + doneLabel + '" onclick="AtividadeActions.toggle(\'' + tripId + '\',\'' + ativ.id + '\')">' +
+              rbIcon(feito ? 'rotate-ccw' : 'check') + '<span class="act-label">' + doneLabel + '</span>' +
             '</button>' +
-            '<button class="itin-act-btn" title="Editar" onclick="AtividadeActions.editar(\'' + tripId + '\',\'' + ativ.id + '\')">' +
-              '✏️<span class="act-label">Editar</span>' +
+            '<button class="itin-act-btn" aria-label="Editar atividade" title="Editar atividade" onclick="AtividadeActions.editar(\'' + tripId + '\',\'' + ativ.id + '\')">' +
+              rbIcon('pencil') + '<span class="act-label">Editar</span>' +
             '</button>' +
-            '<button class="itin-act-btn btn-delete" title="Excluir" onclick="AtividadeActions.excluir(\'' + tripId + '\',\'' + ativ.id + '\')">' +
-              '🗑️<span class="act-label">Excluir</span>' +
+            '<button class="itin-act-btn btn-delete" aria-label="Excluir atividade" title="Excluir atividade" onclick="AtividadeActions.excluir(\'' + tripId + '\',\'' + ativ.id + '\')">' +
+              rbIcon('trash') + '<span class="act-label">Excluir</span>' +
             '</button>' +
           '</div>' +
         '</div>' +
