@@ -1953,6 +1953,106 @@ gmp-place-autocomplete::part(input)::placeholder {
 }
 .itin-activity-link--facebook .link-handle { color: #1d4ed8; }
 
+/* Booking / Airbnb */
+.itin-activity-link--booking {
+  background: #f0f9ff;
+  border-color: #bae6fd;
+  box-shadow: 0 1px 3px rgba(14,165,233,.1), inset 0 1px 0 rgba(255,255,255,.8);
+}
+.itin-activity-link--booking .link-badge {
+  background: linear-gradient(135deg, #7dd3fc 0%, #0ea5e9 100%);
+}
+.itin-activity-link--booking .link-handle { color: #0369a1; }
+.itin-activity-link--booking .link-ext-svg { color: #7dd3fc; }
+.itin-activity-link--booking:hover {
+  background: #e0f2fe;
+  border-color: #7dd3fc;
+}
+
+/* WhatsApp */
+.itin-activity-link--whatsapp {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  box-shadow: 0 1px 3px rgba(34,197,94,.1), inset 0 1px 0 rgba(255,255,255,.8);
+}
+.itin-activity-link--whatsapp .link-badge {
+  background: linear-gradient(135deg, #86efac 0%, #22c55e 100%);
+}
+.itin-activity-link--whatsapp .link-handle { color: #166534; }
+.itin-activity-link--whatsapp .link-ext-svg { color: #86efac; }
+.itin-activity-link--whatsapp:hover {
+  background: #dcfce7;
+  border-color: #86efac;
+}
+
+/* Generic site / link */
+.itin-activity-link--site,
+.itin-activity-link--link,
+.itin-activity-link--other {
+  background: #f8faff;
+  border-color: #c7d8ff;
+}
+.itin-activity-link--site .link-badge,
+.itin-activity-link--link .link-badge,
+.itin-activity-link--other .link-badge {
+  background: linear-gradient(135deg, #bfdbfe 0%, #60a5fa 100%);
+}
+
+/* Multi-link wrap for cards */
+.itin-links-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: var(--space-2);
+}
+.itin-links-wrap .itin-activity-link {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+/* ---- Activity modal link section ---- */
+.af-links-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.af-link-row-inputs {
+  display: grid;
+  grid-template-columns: 1fr 2fr 120px 36px;
+  gap: 6px;
+  align-items: start;
+}
+@media (max-width: 530px) {
+  .af-link-row-inputs {
+    grid-template-columns: 1fr 36px;
+    grid-template-rows: auto auto auto;
+  }
+  .af-link-row-inputs .af-link-label  { grid-column: 1; grid-row: 1; }
+  .af-link-row-inputs .af-link-url-wrap { grid-column: 1; grid-row: 2; }
+  .af-link-row-inputs .af-link-type   { grid-column: 1; grid-row: 3; }
+  .af-link-row-inputs .af-link-remove-btn { grid-column: 2; grid-row: 1; align-self: center; }
+}
+.af-link-url-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.af-link-url-err {
+  display: none;
+  font-size: 0.75rem;
+  color: var(--color-danger, #dc2626);
+  margin-top: 2px;
+}
+.af-links-hint {
+  font-size: 0.75rem;
+  color: var(--text-2, #6b7280);
+  margin-top: 4px;
+  margin-bottom: 0;
+}
+.af-links-add-btn {
+  align-self: flex-start;
+}
+
 
 .itin-activity {
   display: flex;

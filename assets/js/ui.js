@@ -608,42 +608,62 @@ var UI = (function () {
         }())
       : '';
 
-    // Link externo (site, Instagram, Maps…)
+    // Links externos (multi-link, com retrocompatibilidade)
     var linkHtml = '';
-    if (ativ.link) {
-      var _lurl = String(ativ.link);
-      var _ldomain = '';
-      try { _ldomain = new URL(_lurl).hostname.replace(/^www\./, ''); } catch(e) { _ldomain = _lurl.replace(/^https?:\/\/(www\.)?/,'').split('/')[0]; }
-      var _licon = '🔗';
-      var _lplatform = 'link';
-      if (_ldomain.indexOf('instagram.com') !== -1)         { _licon = '📷'; _lplatform = 'instagram'; }
-      else if (_ldomain.indexOf('facebook.com') !== -1)     { _licon = '👥'; _lplatform = 'facebook'; }
-      else if (_ldomain.indexOf('maps.app.goo') !== -1 || _ldomain.indexOf('google.com/maps') !== -1 || _ldomain.indexOf('maps.google') !== -1) { _licon = '🗺️'; _lplatform = 'maps'; }
-      else if (_ldomain.indexOf('tripadvisor') !== -1)      { _licon = '🦉'; _lplatform = 'tripadvisor'; }
-      else if (_ldomain.indexOf('ifood') !== -1)            { _licon = '🛵'; _lplatform = 'ifood'; }
-      else if (_ldomain.indexOf('rappi') !== -1)            { _licon = '🛵'; _lplatform = 'rappi'; }
-      var _llabel = _ldomain || 'Ver link';
-      if (_lplatform === 'instagram') {
-        var _igSlug = _lurl.replace(/.*instagram\.com\//, '').replace(/[\/\?#].*/, '');
-        if (_igSlug) _llabel = '@' + _igSlug;
-      }
-      var _lname = _lplatform.charAt(0).toUpperCase() + _lplatform.slice(1);
-      linkHtml = (
-        '<div class="itin-link-row">' +
-          '<a href="' + _lurl + '" target="_blank" rel="noopener noreferrer" ' +
-             'class="itin-activity-link itin-activity-link--' + _lplatform + '" ' +
-             'title="' + _llabel.replace(/"/g,'&quot;') + '">' +
-            '<span class="link-badge">' + _licon + '</span>' +
+    var _links = (typeof normalizeActivityLinks === 'function') ? normalizeActivityLinks(ativ) : [];
+    if (_links.length > 0) {
+      var _typeIconMap = {
+        instagram: '📷', maps: '🗺️', booking: '🏨', whatsapp: '💬',
+        site: '🔗', other: '🔗'
+      };
+      var _typeCssMap = {
+        instagram: 'instagram', maps: 'maps', booking: 'booking',
+        whatsapp: 'whatsapp', site: 'site', other: 'link'
+      };
+      var _chips = _links.map(function (lnk) {
+        var url = lnk.url;
+        var type = lnk.type || inferLinkType(url);
+        var icon = _typeIconMap[type] || '🔗';
+        var cssType = _typeCssMap[type] || 'link';
+        // Derive display label and platform name
+        var label = '';
+        if (lnk.label && lnk.label.trim()) {
+          label = lnk.label.trim();
+        } else {
+          var typeLabels = { site: 'Site', instagram: 'Instagram', maps: 'Maps',
+            booking: 'Reserva', whatsapp: 'WhatsApp', other: 'Link' };
+          if (type !== 'site' && type !== 'other' && typeLabels[type]) {
+            label = typeLabels[type];
+          } else {
+            try {
+              var dom = new URL(url).hostname.replace(/^www\./, '');
+              if (type === 'instagram') {
+                var slug = url.replace(/.*instagram\.com\//, '').replace(/[\/\?#].*/, '');
+                label = slug ? '@' + slug : 'Instagram';
+              } else {
+                var part = dom.split('.')[0];
+                label = part.charAt(0).toUpperCase() + part.slice(1);
+              }
+            } catch(e) { label = 'Ver link'; }
+          }
+        }
+        var safeLabel = label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        var safeUrl   = url.replace(/"/g, '&quot;');
+        return (
+          '<a href="' + safeUrl + '" target="_blank" rel="noopener noreferrer" ' +
+             'class="itin-activity-link itin-activity-link--' + cssType + '" ' +
+             'title="' + safeLabel + '">' +
+            '<span class="link-badge">' + icon + '</span>' +
             '<span class="link-body">' +
-              '<span class="link-platform-name">' + _lname + '</span>' +
-              '<span class="link-handle">' + _llabel.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' +
+              '<span class="link-handle">' + safeLabel + '</span>' +
             '</span>' +
             '<svg class="link-ext-svg" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">' +
               '<path d="M2 10L10 2M10 2H5M10 2V7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>' +
             '</svg>' +
-          '</a>' +
-        '</div>'
-      );
+          '</a>'
+        );
+      }).join('');
+      linkHtml = '<div class="itin-links-wrap">' + _chips + '</div>';
     }
 
     // Duração + calculated end time

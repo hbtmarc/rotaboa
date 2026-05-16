@@ -3718,6 +3718,78 @@ function _encontrarOrigemAtividade(tripId, dadosAtiv) {
   return null;
 }
 
+// =====================================================================
+// Link utilities (global – also used by ui.js)
+// =====================================================================
+function validateHttpUrl(url) {
+  if (!url || !url.trim()) return false;
+  var s = url.trim();
+  if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+  try {
+    var u = new URL(s);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch (e) { return false; }
+}
+
+function inferLinkType(url) {
+  if (!url) return 'other';
+  var u = url.toLowerCase();
+  if (u.indexOf('instagram.com') !== -1) return 'instagram';
+  if (u.indexOf('maps.app.goo') !== -1 || u.indexOf('maps.google') !== -1 ||
+      u.indexOf('google.com/maps') !== -1 || u.indexOf('goo.gl/maps') !== -1) return 'maps';
+  if (u.indexOf('booking.com') !== -1 || u.indexOf('airbnb') !== -1) return 'booking';
+  if (u.indexOf('wa.me') !== -1 || u.indexOf('api.whatsapp.com') !== -1 ||
+      u.indexOf('whatsapp.com') !== -1) return 'whatsapp';
+  return 'site';
+}
+
+function formatLinkLabel(link) {
+  if (link.label && link.label.trim()) return link.label.trim();
+  var typeLabels = { site: 'Site', instagram: 'Instagram', maps: 'Maps',
+    booking: 'Reserva', whatsapp: 'WhatsApp', other: 'Link' };
+  if (link.type && typeLabels[link.type] && link.type !== 'other' && link.type !== 'site') {
+    return typeLabels[link.type];
+  }
+  if (link.url) {
+    try {
+      var dom = new URL(link.url).hostname.replace(/^www\./, '');
+      var part = dom.split('.')[0];
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    } catch (e) {}
+  }
+  return typeLabels[link.type] || 'Link';
+}
+
+function normalizeActivityLinks(ativ) {
+  if (Array.isArray(ativ.links) && ativ.links.length > 0) {
+    return ativ.links.filter(function (l) { return l && l.url; });
+  }
+  // Migrate legacy single-link string
+  if (ativ.link && typeof ativ.link === 'string' && ativ.link.trim()) {
+    var url = ativ.link.trim();
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    return [{ id: 'leg-1', label: '', url: url, type: inferLinkType(url) }];
+  }
+  return [];
+}
+
+function parsePastedLinks(text) {
+  if (!text) return [];
+  var candidates = text.split(/[\n,]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+  if (candidates.length === 1 && candidates[0].indexOf(' ') !== -1) {
+    candidates = candidates[0].split(/\s+/).filter(Boolean);
+  }
+  var results = [];
+  candidates.forEach(function (s) {
+    if (validateHttpUrl(s)) {
+      var u = /^https?:\/\//i.test(s) ? s : 'https://' + s;
+      results.push({ url: u, type: inferLinkType(u), label: '' });
+    }
+  });
+  return results;
+}
+// =====================================================================
+
 var AtividadeModal = (function () {
   var _overlay       = null;
   var _tripId        = null;
@@ -3902,10 +3974,12 @@ var AtividadeModal = (function () {
         '<textarea id="af-obs" class="form-textarea" maxlength="2000" placeholder="Detalhes, dicas...">' + _esc(ativ.observacoes) + '</textarea>' +
       '</div>' +
 
-      // Link externo
-      '<div class="form-group">' +
-        '<label class="form-label" for="af-link">Link (site, Instagram, Maps…)</label>' +
-        '<input id="af-link" class="form-input" type="url" maxlength="500" placeholder="Ex: instagram.com/restaurante ou https://maps.app.goo.gl/..." value="' + _esc(ativ.link || '') + '">' +
+      // Links externos (multi-link)
+      '<div class="form-group af-links-section">' +
+        '<label class="form-label">Links</label>' +
+        '<div id="af-links-list" class="af-links-list"></div>' +
+        '<button type="button" class="btn btn-ghost btn-sm af-links-add-btn" onclick="AtividadeModal._addLinkRow()" style="margin-top:8px">+ Adicionar link</button>' +
+        '<p class="form-hint af-links-hint">Cole múltiplos links separados por vírgula ou quebra de linha.</p>' +
       '</div>' +
 
       // Bloco Hospedagem (aparece quando categoria = hospedagem)
@@ -4026,11 +4100,109 @@ var AtividadeModal = (function () {
       }
     }
 
+    // Validate link URLs (non-empty rows must be valid http/https)
+    if (_coletarLinks() === null) { ok = false; }
+
     return ok;
+  }
+
+  // ---- Link management ----
+  var _linkRowCounter = 0;
+
+  function _renderLinksSection(links) {
+    var list = document.getElementById('af-links-list');
+    if (!list) return;
+    list.innerHTML = '';
+    _linkRowCounter = 0;
+    if (links && links.length > 0) {
+      links.forEach(function (l) { _addLinkRow(l); });
+    }
+  }
+
+  function _addLinkRow(linkObj) {
+    var list = document.getElementById('af-links-list');
+    if (!list) return;
+    _linkRowCounter++;
+    var idx = _linkRowCounter;
+    var lobj = linkObj || {};
+    var row = document.createElement('div');
+    row.className = 'af-link-row';
+    row.dataset.rowIdx = idx;
+    row.innerHTML =
+      '<div class="af-link-row-inputs">' +
+        '<input type="text" class="form-input af-link-label" maxlength="60" placeholder="Rótulo (ex: Site oficial)" value="' + _esc(lobj.label || '') + '">' +
+        '<div class="af-link-url-wrap">' +
+          '<input type="url" class="form-input af-link-url" maxlength="800" placeholder="https://..." value="' + _esc(lobj.url || '') + '">' +
+          '<span class="form-error af-link-url-err">URL inválida. Use http:// ou https://.</span>' +
+        '</div>' +
+        '<select class="form-select af-link-type">' +
+          '<option value="site"' + ((!lobj.type || lobj.type === 'site') ? ' selected' : '') + '>Site</option>' +
+          '<option value="instagram"' + (lobj.type === 'instagram' ? ' selected' : '') + '>Instagram</option>' +
+          '<option value="maps"' + (lobj.type === 'maps' ? ' selected' : '') + '>Maps</option>' +
+          '<option value="booking"' + (lobj.type === 'booking' ? ' selected' : '') + '>Reserva</option>' +
+          '<option value="whatsapp"' + (lobj.type === 'whatsapp' ? ' selected' : '') + '>WhatsApp</option>' +
+          '<option value="other"' + (lobj.type === 'other' ? ' selected' : '') + '>Outro</option>' +
+        '</select>' +
+        '<button type="button" class="icon-btn icon-btn--danger af-link-remove-btn" title="Remover link">' + rbIcon('trash') + '</button>' +
+      '</div>';
+    // Paste handler: detect multi-URL paste and expand
+    var urlInput = row.querySelector('.af-link-url');
+    urlInput.addEventListener('paste', function (e) {
+      var text = (e.clipboardData || window.clipboardData).getData('text');
+      var parsed = parsePastedLinks(text);
+      if (parsed.length > 1) {
+        e.preventDefault();
+        // Fill current row with first URL, add rest
+        urlInput.value = parsed[0].url;
+        row.querySelector('.af-link-type').value = parsed[0].type;
+        for (var i = 1; i < parsed.length; i++) {
+          _addLinkRow(parsed[i]);
+        }
+      }
+    });
+    // Remove handler
+    row.querySelector('.af-link-remove-btn').addEventListener('click', function () {
+      row.parentNode.removeChild(row);
+    });
+    list.appendChild(row);
+  }
+
+  function _coletarLinks() {
+    var list = document.getElementById('af-links-list');
+    if (!list) return [];
+    var rows = list.querySelectorAll('.af-link-row');
+    var result = [];
+    var hasError = false;
+    rows.forEach(function (row) {
+      var urlInput  = row.querySelector('.af-link-url');
+      var labelInput = row.querySelector('.af-link-label');
+      var typeSelect = row.querySelector('.af-link-type');
+      var errSpan   = row.querySelector('.af-link-url-err');
+      var raw = urlInput.value.trim();
+      if (!raw) { errSpan.style.display = ''; errSpan.style.display = 'none'; return; } // skip empty
+      var url = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw;
+      if (!validateHttpUrl(url)) {
+        errSpan.style.display = 'block';
+        hasError = true;
+        return;
+      }
+      errSpan.style.display = 'none';
+      result.push({
+        id: 'lnk-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+        label: labelInput.value.trim(),
+        url: url,
+        type: typeSelect.value || inferLinkType(url)
+      });
+    });
+    if (hasError) return null; // signals validation failure
+    return result;
   }
 
   return {
     init: _inject,
+    _addLinkRow: _addLinkRow,
+    _renderLinksSection: _renderLinksSection,
+    _coletarLinks: _coletarLinks,
 
     // Criar: tripId obrigatório, dataISO pode ser null (usuário escolhe no select)
     abrir: function (tripId, dataISO) {
@@ -4045,6 +4217,7 @@ var AtividadeModal = (function () {
       document.getElementById('ativ-modal-save').disabled     = false; // garante botão habilitado ao abrir
       document.getElementById('ativ-modal-body').innerHTML    = _renderForm(itin, { categoria: 'outro' });
       this._onCatChange();
+      _renderLinksSection([]);
 
       _overlay.classList.add('aberto');
       document.body.style.overflow = 'hidden';
@@ -4079,6 +4252,7 @@ var AtividadeModal = (function () {
       document.getElementById('ativ-modal-save').disabled     = false; // garante botão habilitado ao editar
       document.getElementById('ativ-modal-body').innerHTML    = _renderForm(itin, ativ);
       this._onCatChange();
+      _renderLinksSection(normalizeActivityLinks(ativ));
 
       _overlay.classList.add('aberto');
       document.body.style.overflow = 'hidden';
@@ -4119,11 +4293,8 @@ var AtividadeModal = (function () {
         custoEstimado:  Number(document.getElementById('af-custo').value) || 0,
         status:         document.getElementById('af-status').value,
         observacoes:    document.getElementById('af-obs').value.trim(),
-        link:           (function () {
-          var raw = (document.getElementById('af-link') ? document.getElementById('af-link').value.trim() : '');
-          if (!raw) return '';
-          return /^https?:\/\//i.test(raw) ? raw : 'https://' + raw;
-        }()),
+        links:          (function () { return _coletarLinks() || []; }()),
+        link:           '',  // legacy field cleared; data lives in links[]
       };
 
       // Merge place data into dados (all DOM-readable, do now before any async)
