@@ -1689,88 +1689,173 @@ gmp-place-autocomplete::part(input)::placeholder {
 }
 
 /* ---- Link externo da atividade (Instagram, Maps, site…) ---- */
+/* ---- Link de atividade ---- */
+.itin-link-row {
+  display: flex;
+  margin-top: var(--space-2);
+}
+
 .itin-activity-link {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  margin-top: var(--space-2);
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: #1d4ed8;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  border-radius: 8px;
-  padding: 6px 14px 6px 10px;
+  gap: 10px;
+  padding: 7px 12px 7px 7px;
+  border-radius: 12px;
   text-decoration: none;
   max-width: 100%;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
-  box-shadow: 0 1px 2px rgba(0,0,0,.04);
-  line-height: 1.4;
-}
-
-.itin-activity-link .link-icon {
-  font-size: 1rem;
-  flex-shrink: 0;
-}
-
-.itin-activity-link .link-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.itin-activity-link .link-arrow {
-  margin-left: auto;
-  flex-shrink: 0;
-  opacity: 0.5;
-  font-size: 0.7rem;
+  background: #f8faff;
+  border: 1.5px solid #c7d8ff;
+  box-shadow: 0 1px 3px rgba(37,99,235,.08), inset 0 1px 0 rgba(255,255,255,.8);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.15s, border-color 0.15s;
+  cursor: pointer;
 }
 
 .itin-activity-link:hover {
-  background: #dbeafe;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(37,99,235,.16), inset 0 1px 0 rgba(255,255,255,.9);
+  background: #eef4ff;
   border-color: #93c5fd;
-  box-shadow: 0 2px 6px rgba(37,99,235,.12);
+  text-decoration: none;
+}
+
+.link-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  font-size: 1rem;
+  flex-shrink: 0;
+  background: #dbeafe;
+  box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+
+.link-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.link-platform-name {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6b7280;
+  line-height: 1;
+}
+
+.link-handle {
+  font-size: 0.82rem;
+  font-weight: 600;
   color: #1e40af;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
 }
 
-/* Variantes por plataforma */
+.link-ext-svg {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  color: #93c5fd;
+  margin-left: 2px;
+  transition: color 0.15s;
+}
+.itin-activity-link:hover .link-ext-svg {
+  color: #3b82f6;
+}
+
+/* Instagram */
 .itin-activity-link--instagram {
-  color: #9333ea;
-  background: #faf5ff;
-  border-color: #d8b4fe;
+  background: #fdf4ff;
+  border-color: #e9d5ff;
+  box-shadow: 0 1px 3px rgba(147,51,234,.1), inset 0 1px 0 rgba(255,255,255,.8);
 }
+.itin-activity-link--instagram .link-badge {
+  background: linear-gradient(135deg, #f9a8d4 0%, #c084fc 100%);
+}
+.itin-activity-link--instagram .link-handle { color: #7e22ce; }
+.itin-activity-link--instagram .link-ext-svg { color: #c084fc; }
 .itin-activity-link--instagram:hover {
-  background: #f3e8ff;
-  border-color: #c084fc;
-  box-shadow: 0 2px 6px rgba(147,51,234,.12);
-  color: #7e22ce;
+  background: #f5e9ff;
+  border-color: #d8b4fe;
+  box-shadow: 0 4px 12px rgba(147,51,234,.15), inset 0 1px 0 rgba(255,255,255,.9);
 }
+.itin-activity-link--instagram:hover .link-ext-svg { color: #9333ea; }
 
+/* Google Maps */
 .itin-activity-link--maps {
-  color: #dc2626;
-  background: #fff7f7;
-  border-color: #fecaca;
+  background: #fff7f5;
+  border-color: #fecdd3;
+  box-shadow: 0 1px 3px rgba(239,68,68,.1), inset 0 1px 0 rgba(255,255,255,.8);
 }
+.itin-activity-link--maps .link-badge {
+  background: linear-gradient(135deg, #fca5a5 0%, #f87171 100%);
+}
+.itin-activity-link--maps .link-handle { color: #b91c1c; }
+.itin-activity-link--maps .link-ext-svg { color: #fca5a5; }
 .itin-activity-link--maps:hover {
-  background: #fee2e2;
-  border-color: #f87171;
-  box-shadow: 0 2px 6px rgba(220,38,38,.12);
-  color: #b91c1c;
+  background: #fff1f0;
+  border-color: #fca5a5;
+  box-shadow: 0 4px 12px rgba(239,68,68,.14), inset 0 1px 0 rgba(255,255,255,.9);
+}
+.itin-activity-link--maps:hover .link-ext-svg { color: #ef4444; }
+
+/* TripAdvisor */
+.itin-activity-link--tripadvisor {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  box-shadow: 0 1px 3px rgba(22,163,74,.1), inset 0 1px 0 rgba(255,255,255,.8);
+}
+.itin-activity-link--tripadvisor .link-badge {
+  background: linear-gradient(135deg, #86efac 0%, #4ade80 100%);
+}
+.itin-activity-link--tripadvisor .link-handle { color: #15803d; }
+.itin-activity-link--tripadvisor .link-ext-svg { color: #86efac; }
+.itin-activity-link--tripadvisor:hover {
+  background: #dcfce7;
+  border-color: #86efac;
+  box-shadow: 0 4px 12px rgba(22,163,74,.14), inset 0 1px 0 rgba(255,255,255,.9);
 }
 
-.itin-activity-link--food {
-  color: #d97706;
+/* iFood / Rappi */
+.itin-activity-link--ifood,
+.itin-activity-link--rappi {
   background: #fffbeb;
   border-color: #fde68a;
+  box-shadow: 0 1px 3px rgba(245,158,11,.1), inset 0 1px 0 rgba(255,255,255,.8);
 }
-.itin-activity-link--food:hover {
+.itin-activity-link--ifood .link-badge,
+.itin-activity-link--rappi .link-badge {
+  background: linear-gradient(135deg, #fcd34d 0%, #f59e0b 100%);
+}
+.itin-activity-link--ifood .link-handle,
+.itin-activity-link--rappi .link-handle { color: #92400e; }
+.itin-activity-link--ifood .link-ext-svg,
+.itin-activity-link--rappi .link-ext-svg { color: #fcd34d; }
+.itin-activity-link--ifood:hover,
+.itin-activity-link--rappi:hover {
   background: #fef3c7;
   border-color: #fcd34d;
-  box-shadow: 0 2px 6px rgba(217,119,6,.12);
-  color: #b45309;
+  box-shadow: 0 4px 12px rgba(245,158,11,.14), inset 0 1px 0 rgba(255,255,255,.9);
 }
+
+/* Facebook */
+.itin-activity-link--facebook {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+.itin-activity-link--facebook .link-badge {
+  background: linear-gradient(135deg, #93c5fd 0%, #3b82f6 100%);
+}
+.itin-activity-link--facebook .link-handle { color: #1d4ed8; }
 
 
 .itin-activity {

@@ -593,23 +593,35 @@ var UI = (function () {
       var _ldomain = '';
       try { _ldomain = new URL(_lurl).hostname.replace(/^www\./, ''); } catch(e) { _ldomain = _lurl.replace(/^https?:\/\/(www\.)?/,'').split('/')[0]; }
       var _licon = '🔗';
-      var _lvariant = '';
-      if (_ldomain.indexOf('instagram.com') !== -1)       { _licon = '📷'; _lvariant = 'itin-activity-link--instagram'; }
-      else if (_ldomain.indexOf('facebook.com') !== -1)   { _licon = '👥'; }
-      else if (_ldomain.indexOf('maps.app.goo') !== -1 || _ldomain.indexOf('google.com/maps') !== -1 || _ldomain.indexOf('maps.google') !== -1) { _licon = '🗺️'; _lvariant = 'itin-activity-link--maps'; }
-      else if (_ldomain.indexOf('tripadvisor') !== -1)    { _licon = '🦉'; }
-      else if (_ldomain.indexOf('ifood') !== -1 || _ldomain.indexOf('rappi') !== -1) { _licon = '🛵'; _lvariant = 'itin-activity-link--food'; }
+      var _lplatform = 'link';
+      if (_ldomain.indexOf('instagram.com') !== -1)         { _licon = '📷'; _lplatform = 'instagram'; }
+      else if (_ldomain.indexOf('facebook.com') !== -1)     { _licon = '👥'; _lplatform = 'facebook'; }
+      else if (_ldomain.indexOf('maps.app.goo') !== -1 || _ldomain.indexOf('google.com/maps') !== -1 || _ldomain.indexOf('maps.google') !== -1) { _licon = '🗺️'; _lplatform = 'maps'; }
+      else if (_ldomain.indexOf('tripadvisor') !== -1)      { _licon = '🦉'; _lplatform = 'tripadvisor'; }
+      else if (_ldomain.indexOf('ifood') !== -1)            { _licon = '🛵'; _lplatform = 'ifood'; }
+      else if (_ldomain.indexOf('rappi') !== -1)            { _licon = '🛵'; _lplatform = 'rappi'; }
       var _llabel = _ldomain || 'Ver link';
-      // Para instagram.com/username exibe só @username
-      if (_ldomain.indexOf('instagram.com') !== -1) {
+      if (_lplatform === 'instagram') {
         var _igSlug = _lurl.replace(/.*instagram\.com\//, '').replace(/[\/\?#].*/, '');
         if (_igSlug) _llabel = '@' + _igSlug;
       }
-      linkHtml = '<a href="' + _lurl + '" target="_blank" rel="noopener noreferrer" class="itin-activity-link ' + _lvariant + '" title="Abrir: ' + _llabel.replace(/"/g,'&quot;') + '">' +
-        '<span class="link-icon">' + _licon + '</span>' +
-        '<span class="link-label">' + _llabel.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' +
-        '<span class="link-arrow">&#8599;</span>' +
-      '</a>';
+      var _lname = _lplatform.charAt(0).toUpperCase() + _lplatform.slice(1);
+      linkHtml = (
+        '<div class="itin-link-row">' +
+          '<a href="' + _lurl + '" target="_blank" rel="noopener noreferrer" ' +
+             'class="itin-activity-link itin-activity-link--' + _lplatform + '" ' +
+             'title="' + _llabel.replace(/"/g,'&quot;') + '">' +
+            '<span class="link-badge">' + _licon + '</span>' +
+            '<span class="link-body">' +
+              '<span class="link-platform-name">' + _lname + '</span>' +
+              '<span class="link-handle">' + _llabel.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' +
+            '</span>' +
+            '<svg class="link-ext-svg" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+              '<path d="M2 10L10 2M10 2H5M10 2V7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>' +
+            '</svg>' +
+          '</a>' +
+        '</div>'
+      );
     }
 
     // Duração + calculated end time
