@@ -554,6 +554,24 @@ var FirebaseClient = (function () {
     return true;
   }
 
+  // Assinatura em tempo real do estado principal (onValue).
+  // callback(data) é chamado imediatamente com o valor atual e a cada mudança remota.
+  // Retorna Promise<unsubscribeFn>.
+  async function subscribeAppState(uid, callback) {
+    if (!uid || typeof callback !== 'function') return function () {};
+    try {
+      var db    = await _getRtdb();
+      var dbSdk = await _carregarSdkRtdb();
+      var r     = dbSdk.ref(db, 'users/' + uid + '/appState/main');
+      var unsub = dbSdk.onValue(r, function (snap) {
+        callback(snap.exists() ? snap.val() : null);
+      });
+      return unsub;
+    } catch (e) {
+      return function () {};
+    }
+  }
+
   // Escuta .info/connected para detectar conectividade RTDB em tempo real.
   // Retorna função unsubscribe ou função vazia em caso de erro.
   async function onConnectedChange(callback) {
@@ -595,6 +613,7 @@ var FirebaseClient = (function () {
     excluirBackupRtdb: excluirBackupRtdb,
     loadAppStateRtdb: loadAppStateRtdb,
     saveAppStateRtdb: saveAppStateRtdb,
+    subscribeAppState: subscribeAppState,
     onConnectedChange: onConnectedChange,
   };
 })();

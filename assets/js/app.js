@@ -87,7 +87,10 @@ var SyncService = (function () {
   var _isSyncing  = false;
   var _dirtyTimer = null;
   var _lastToastAt = { ok: 0, pending: 0, offline: 0 };
-  var _connectedUnsubscribe = null;
+  var _connectedUnsubscribe  = null;
+  var _rtdbSubUnsubscribe    = null;  // listener onValue
+  var _rtdbSubUid            = null;  // uid do listener ativo
+  var _ignoreNextRtdbUpdate  = false; // evita eco após push local
 
   // ---- Chaves isoladas por UID ----
   function _cacheKey(uid)   { return 'rotaboa.cache.'   + uid + '.v1'; }
@@ -170,6 +173,8 @@ var SyncService = (function () {
         _status.lastSyncAt = new Date().toISOString();
         _status.lastError  = '';
         _salvarSyncStatus(_status);
+        // O próximo onValue do subscription vai ecoar esses mesmos dados — ignora
+        _ignoreNextRtdbUpdate = true;
         return { ok: true, hasData: true };
       }
       return { ok: true, hasData: false };
@@ -211,6 +216,8 @@ var SyncService = (function () {
 
     try {
       var payload = _payloadAtual();
+      // Sinaliza que o próximo disparo do onValue é eco deste push — não re-aplicar
+      _ignoreNextRtdbUpdate = true;
       await FirebaseClient.saveAppStateRtdb(uid, payload);
       _salvarCacheUid(uid, payload);
       _status.pending    = false;
@@ -266,21 +273,97 @@ var SyncService = (function () {
       try { _connectedUnsubscribe(); } catch (e) {}
       _connectedUnsubscribe = null;
     }
+    if (_rtdbSubUnsubscribe) {
+      try { _rtdbSubUnsubscribe(); } catch (e) {}
+      _rtdbSubUnsubscribe = null;
+      _rtdbSubUid = null;
+    }
+  }
+
+  // ---- Assinatura em tempo real do RTDB (onValue) ---------------
+  // Substitui o pull de boot + polling. O callback é chamado imediatamente
+  // com o estado atual (= pull) e a cada mudança remota (= sync live).
+  function _startRtdbSubscription(uid) {
+    if (!uid) return;
+    if (_rtdbSubUid === uid && _rtdbSubUnsubscribe) return; // já assinado
+
+    // Cancela assinatura anterior se uid mudou
+    if (_rtdbSubUnsubscribe) {
+      try { _rtdbSubUnsubscribe(); } catch (e) {}
+      _rtdbSubUnsubscribe = null;
+      _rtdbSubUid = null;
+    }
+
+    if (!window.FirebaseClient || typeof FirebaseClient.subscribeAppState !== 'function') return;
+
+    FirebaseClient.subscribeAppState(uid, function (rtdbData) {
+      // Eco: logo após um push local, o Firebase dispara onValue com os
+      // mesmos dados que acabamos de enviar — ignoramos para evitar loop.
+      if (_ignoreNextRtdbUpdate) {
+        _ignoreNextRtdbUpdate = false;
+        return;
+      }
+
+      if (!rtdbData || typeof rtdbData !== 'object') return;
+
+      // Compara timestamps para só aplicar se o RTDB for mais recente
+      var rtdbTs  = rtdbData._savedAt  || rtdbData.updatedAt  || '';
+      var localTs = _status.lastSyncAt || '';
+
+      // Salva no cache por UID (sempre)
+      _salvarCacheUid(uid, rtdbData);
+
+      // Aplica no Store
+      if (window.Store && typeof Store.carregarEstadoCompleto === 'function') {
+        Store.carregarEstadoCompleto(rtdbData);
+      }
+
+      _status.lastSyncAt = rtdbTs || new Date().toISOString();
+      _status.lastError  = '';
+      _status.pending    = false;
+      _salvarSyncStatus(_status);
+
+      // Re-renderiza a página atual sem piscar (só se o app já estiver pronto)
+      if (typeof _renderPaginaAtual === 'function') {
+        try { _renderPaginaAtual(); } catch (_e) {}
+      } else {
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      }
+    }).then(function (unsub) {
+      _rtdbSubUnsubscribe = unsub;
+      _rtdbSubUid = uid;
+    }).catch(function () {});
   }
 
   function startAutoSync() {
     stopAutoSync();
     var uid = RB_AUTH_STATE.user && RB_AUTH_STATE.user.uid;
     if (!uid && !RB_AUTH_STATE.offlineMode) return;
-    // Flush pending push se online
-    if (uid && _status.pending && navigator.onLine) {
-      pushToRtdb(uid, { silent: true, source: 'start' });
+
+    if (uid && navigator.onLine) {
+      // Assinatura em tempo real — substitui pull + polling de uma vez
+      _startRtdbSubscription(uid);
+    } else if (uid && _status.pending) {
+      // Offline: flush quando reconectar
     }
+
     // Listener .info/connected para reagir a reconexões
     if (uid && window.FirebaseClient && typeof FirebaseClient.onConnectedChange === 'function') {
       FirebaseClient.onConnectedChange(function (isConnected) {
-        if (isConnected && _status.pending) {
-          pushToRtdb(uid, { silent: true, source: 'reconnect' });
+        if (isConnected) {
+          // Reconectou: inicia (ou re-inicia) assinatura
+          _startRtdbSubscription(uid);
+          // Flush push pendente
+          if (_status.pending) {
+            pushToRtdb(uid, { silent: true, source: 'reconnect' });
+          }
+        } else {
+          // Ficou offline: cancela assinatura (evita erros de rede)
+          if (_rtdbSubUnsubscribe) {
+            try { _rtdbSubUnsubscribe(); } catch (e) {}
+            _rtdbSubUnsubscribe = null;
+            _rtdbSubUid = null;
+          }
         }
       }).then(function (unsub) {
         _connectedUnsubscribe = unsub;

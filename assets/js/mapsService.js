@@ -104,6 +104,10 @@ var MapsService = (function () {
         if (inputElement.className)   pac.className = inputElement.className;
         pac.style.cssText = inputElement.style.cssText;
 
+        // Mantém o MESMO id para que getElementById() continue funcionando
+        var _origId = inputElement.id;
+        if (_origId) pac.id = _origId;
+
         // Substitui o input no DOM
         if (inputElement.parentNode) {
           inputElement.parentNode.replaceChild(pac, inputElement);
@@ -112,25 +116,50 @@ var MapsService = (function () {
         // Adaptador que mantém a interface do Autocomplete antigo
         var _callbacks  = {};
         var _lastPlace  = null;
+        var _textValue  = inputElement.value || '';
+
+        // Rastreia o texto digitado via evento 'input' do componente
+        pac.addEventListener('input', function (e) {
+          _textValue  = (e && e.target && e.target.value != null) ? String(e.target.value) : _textValue;
+          _lastPlace  = null;  // usuário digitou manualmente → invalida placeId
+        });
+
+        // Expõe .value/.id como um input normal para compatibilidade retroativa
+        try {
+          Object.defineProperty(pac, 'value', {
+            get: function () { return _textValue; },
+            set: function (v) { _textValue = String(v == null ? '' : v); },
+            configurable: true,
+          });
+        } catch (_e) { /* custom elements podem restringir defineProperty — sem problema */ }
 
         pac.addEventListener('gmp-placeselect', function (event) {
           var place = event.place;
           if (!place) return;
-          place.fetchFields({ fields: ['formattedAddress', 'id', 'displayName'] })
+          place.fetchFields({ fields: ['formattedAddress', 'id', 'displayName', 'location'] })
             .then(function () {
+              var lat = place.location ? place.location.lat  : null;
+              var lng = place.location ? place.location.lng  : null;
+              // shim de geometria no formato da API antiga (lat/lng como funções)
+              var geomShim = (lat != null && lng != null) ? {
+                location: {
+                  lat: function () { return lat; },
+                  lng: function () { return lng; },
+                }
+              } : null;
+              var displayName = place.displayName || place.formattedAddress || '';
+              _textValue  = displayName;
               _lastPlace = {
                 formatted_address: place.formattedAddress || '',
                 place_id:          place.id               || '',
-                name:              place.displayName       || place.formattedAddress || '',
+                name:              displayName,
+                geometry:          geomShim,
               };
               var cbs = _callbacks['place_changed'] || [];
               for (var i = 0; i < cbs.length; i++) cbs[i]();
             })
             .catch(function () { _lastPlace = null; });
         });
-
-        // Limpa placeId quando o usuário edita o texto manualmente
-        pac.addEventListener('input', function () { _lastPlace = null; });
 
         return {
           addListener: function (evtName, cb) {
