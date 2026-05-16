@@ -63,7 +63,7 @@ var MapsService = (function () {
       if (!window.google || !window.google.maps || !window.google.maps.places) return null;
       try {
         return new google.maps.places.Autocomplete(inputElement, {
-          fields: ['formatted_address', 'place_id', 'name'],
+          fields: ['formatted_address', 'place_id', 'name', 'geometry'],
         });
       } catch (e) {
         _lastError = 'Autocomplete indisponível.';

@@ -1667,6 +1667,20 @@
   animation: just-saved-flash 1.6s ease-out forwards;
 }
 
+/* Itinerary-to-Route: route calculation status indicator */
+.af-route-status {
+  min-height: 0;
+  transition: min-height 0.15s;
+}
+.af-route-calculating {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs, 0.75rem);
+  color: var(--text-muted, #9ca3af);
+  padding: 4px 0;
+}
+
 .itin-activity:last-of-type {
   margin-bottom: var(--space-2);
 }

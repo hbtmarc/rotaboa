@@ -1588,7 +1588,20 @@ function paginaRotas(params, container) {
   }
 
   var resumo = Store.getResumoRotas(viagem.id);
-  var trechosAtivos = Store.getRotas(viagem.id);
+  var trechosAtivos = Store.getRotas(viagem.id).slice().sort(function (a, b) {
+    // Primary: data (YYYY-MM-DD string comparison)
+    var da = a.data || '';
+    var db = b.data || '';
+    if (da < db) return -1;
+    if (da > db) return 1;
+    // Secondary: horario (HH:MM) — use chegadaHorario as tiebreaker
+    var ha = a.horario || a.chegadaHorario || '00:00';
+    var hb = b.horario || b.chegadaHorario || '00:00';
+    if (ha < hb) return -1;
+    if (ha > hb) return 1;
+    // Tertiary: creation order preserved (stable sort in modern engines)
+    return 0;
+  });
   var loc = viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '';
   var avisoSync = _renderAvisoSincronizacao();
 
@@ -3098,11 +3111,119 @@ function _scrollToSaved(selector) {
   }, 80);
 }
 
+/* ----------------------------------------------------------------
+   Helpers globais de hora/duração (usados por AtividadeModal + rota)
+   ---------------------------------------------------------------- */
+function _horaToMinG(h) {
+  var p = String(h || '').split(':');
+  return p.length === 2 ? parseInt(p[0], 10) * 60 + parseInt(p[1], 10) : -1;
+}
+function _minToHHMMG(m) {
+  m = ((Math.round(m) % 1440) + 1440) % 1440;
+  var hh = Math.floor(m / 60), mm = m % 60;
+  return (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+}
+function _parseDurMinG(str) {
+  var s = String(str || '');
+  var m;
+  m = s.match(/^(\d+)h\s*(\d+)min$/i); if (m) return +m[1] * 60 + +m[2];
+  m = s.match(/^(\d+)h$/i);            if (m) return +m[1] * 60;
+  m = s.match(/^(\d+)min$/i);          if (m) return +m[1];
+  return 0;
+}
+
+/* ----------------------------------------------------------------
+   _encontrarOrigemAtividade — resolve o melhor ponto de partida
+   para uma atividade com placeId, na ordem:
+     1. Atividade anterior com localização no mesmo dia
+     2. Hospedagem ativa com localização
+     3. Destino principal da viagem (texto)
+   ---------------------------------------------------------------- */
+function _encontrarOrigemAtividade(tripId, dadosAtiv) {
+  var itin = Store.getItinerario(tripId);
+  if (!itin) return null;
+
+  // 1. Atividade anterior (mesmo dia, com placeId, hora ≤ hora da atividade)
+  var diaDados = null;
+  itin.dias.forEach(function (d) { if (d.data === dadosAtiv.data) diaDados = d; });
+  if (diaDados) {
+    var anteriores = (diaDados.atividades || []).filter(function (a) {
+      return a.id !== dadosAtiv.id &&
+             a.placeId &&
+             (a.localEndereco || a.localNome) &&
+             (a.hora || '') <= (dadosAtiv.hora || '');
+    });
+    anteriores.sort(function (a, b) { return (b.hora || '').localeCompare(a.hora || ''); });
+    if (anteriores.length > 0) {
+      var prev = anteriores[0];
+      return { label: prev.localEndereco || prev.localNome || '', placeId: prev.placeId || '' };
+    }
+  }
+
+  // 2. Hospedagem ativa com placeId (mais recente até a data da atividade)
+  var hospAtiv = null;
+  itin.dias.forEach(function (d) {
+    (d.atividades || []).forEach(function (a) {
+      if (a.categoria === 'hospedagem' && a.placeId && (a.localEndereco || a.localNome)) {
+        if (!hospAtiv || (d.data <= dadosAtiv.data && d.data >= (hospAtiv._data || ''))) {
+          hospAtiv = Object.assign({ _data: d.data }, a);
+        }
+      }
+    });
+  });
+  if (hospAtiv) {
+    return { label: hospAtiv.localEndereco || hospAtiv.localNome || '', placeId: hospAtiv.placeId || '' };
+  }
+
+  // 3. Destino principal da viagem (sem placeId — geocodificação por texto)
+  var viagens = Store.getViagens ? Store.getViagens() : [];
+  var viagem = viagens.find(function (v) { return v.id === tripId; });
+  if (viagem) {
+    var dest = viagem.destinoPrincipal || viagem.destino || viagem.localizacaoCurta || '';
+    if (dest) return { label: dest, placeId: '' };
+  }
+
+  return null;
+}
+
 var AtividadeModal = (function () {
-  var _overlay     = null;
-  var _tripId      = null;
-  var _atividadeId = null;  // null = criar, string = editar
-  var _dataPresel  = null;  // data pré-selecionada (vinda do botão do dia)
+  var _overlay       = null;
+  var _tripId        = null;
+  var _atividadeId   = null;  // null = criar, string = editar
+  var _dataPresel    = null;  // data pré-selecionada (vinda do botão do dia)
+  var _localPlace    = null;  // { nome, endereco, placeId, lat, lng } ou null
+  var _calculandoRota = false; // bloqueia duplo-clique durante cálculo async
+
+  // ---- Autocomplete no campo Local ----
+  function _setupLocalAutocomplete(existingPlace) {
+    _localPlace = existingPlace || null;
+    MapsService.setupAutocomplete(document.getElementById('af-local')).then(function (ac) {
+      if (!ac) return;
+      ac.addListener('place_changed', function () {
+        var p  = ac.getPlace();
+        var nome  = String(p && p.name || '').trim();
+        var end   = String(p && p.formatted_address || '').trim();
+        var pid   = String(p && p.place_id || '').trim();
+        var lat   = p && p.geometry && p.geometry.location ? p.geometry.location.lat() : null;
+        var lng   = p && p.geometry && p.geometry.location ? p.geometry.location.lng() : null;
+        if (pid) {
+          _localPlace = { nome: nome, endereco: end, placeId: pid, lat: lat, lng: lng };
+          // Update the visible input to show the place name
+          var inp = document.getElementById('af-local');
+          if (inp && nome) inp.value = nome;
+        } else {
+          _localPlace = null;
+        }
+      });
+    });
+    var inputEl = document.getElementById('af-local');
+    if (inputEl) {
+      inputEl.addEventListener('input', function () {
+        // If user types manually after a place was selected, clear place data
+        _localPlace = null;
+      });
+    }
+  }
 
   // Usa lista centralizada _APP_CATS
 
@@ -3230,7 +3351,10 @@ var AtividadeModal = (function () {
         // Local
         '<div class="form-group">' +
           '<label class="form-label" for="af-local">Local</label>' +
-          '<input id="af-local" class="form-input" type="text" maxlength="100" placeholder="Ex: Cosme Velho" value="' + _esc(ativ.local) + '">' +
+          '<input id="af-local" class="form-input" type="text" maxlength="200" autocomplete="off"' +
+            ' placeholder="Busque endereço, pousada, restaurante, praça..."' +
+            ' value="' + _esc(ativ.localNome || ativ.local) + '">' +
+          '<div id="af-route-status" class="af-route-status"></div>' +
         '</div>' +
         // Custo
         '<div class="form-group">' +
@@ -3386,6 +3510,7 @@ var AtividadeModal = (function () {
       document.body.style.overflow = 'hidden';
       var f = document.getElementById('af-nome');
       if (f) setTimeout(function () { f.focus(); }, 300);
+      setTimeout(function () { _setupLocalAutocomplete(null); }, 50);
     },
 
     // Editar
@@ -3413,15 +3538,23 @@ var AtividadeModal = (function () {
 
       _overlay.classList.add('aberto');
       document.body.style.overflow = 'hidden';
+      // Restore existing place data so we don't clear the linked route if user doesn't re-pick
+      var existingPlace = (ativ.placeId)
+        ? { nome: ativ.localNome || '', endereco: ativ.localEndereco || '', placeId: ativ.placeId, lat: ativ.lat || null, lng: ativ.lng || null }
+        : null;
+      setTimeout(function () { _setupLocalAutocomplete(existingPlace); }, 50);
     },
 
     fechar: function () {
       _overlay.classList.remove('aberto');
       document.body.style.overflow = '';
       _tripId = _atividadeId = _dataPresel = null;
+      _localPlace = null;
+      _calculandoRota = false;
     },
 
     salvar: function () {
+      if (_calculandoRota) return;
       if (!_validar()) return;
 
       var dados = {
@@ -3436,7 +3569,20 @@ var AtividadeModal = (function () {
         observacoes:    document.getElementById('af-obs').value.trim(),
       };
 
-      // --- Hospedagem: collect extra fields and link to Financeiro ---
+      // Merge place data into dados (all DOM-readable, do now before any async)
+      if (_localPlace && _localPlace.placeId) {
+        dados.local         = _localPlace.nome || _localPlace.endereco || dados.local;
+        dados.localNome     = _localPlace.nome     || '';
+        dados.localEndereco = _localPlace.endereco || '';
+        dados.placeId       = _localPlace.placeId  || '';
+        dados.lat           = _localPlace.lat  != null ? _localPlace.lat  : null;
+        dados.lng           = _localPlace.lng  != null ? _localPlace.lng  : null;
+      } else {
+        dados.localNome = dados.localEndereco = dados.placeId = '';
+        dados.lat = dados.lng = null;
+      }
+
+      // --- Hospedagem: collect extra fields and link to Financeiro (synchronous) ---
       if (_isHospAtiv()) {
         var ciData = _lerDiaSelect('af-ci-data');
         var ciHora = _DTWidget.lerHora('af-ci-hora');
@@ -3453,7 +3599,6 @@ var AtividadeModal = (function () {
         dados.linkedActivityType = 'hospedagem';
         dados.origemModulo       = 'roteiro';
 
-        // Build expense payload
         var viagem = Store.getViagens().find(function (v) { return v.id === _tripId; }) || {};
         var partAtivos = (Array.isArray(viagem.participantes)
           ? viagem.participantes.filter(function (p) { return p && p.ativo !== false; })
@@ -3472,7 +3617,6 @@ var AtividadeModal = (function () {
           origemModulo:           'roteiro',
         };
 
-        // Find existing linked despesa id (only relevant when editing)
         var linkedId = null;
         if (_atividadeId) {
           var itin = Store.getItinerario(_tripId);
@@ -3493,19 +3637,102 @@ var AtividadeModal = (function () {
           if (despCriada && despCriada.id) dados.linkedDespesaId = despCriada.id;
         }
       } else {
-        // Se havia hospedagem vinculada antes e categoria mudou: limpar
-        dados.hospedagem        = null;
+        dados.hospedagem         = null;
         dados.linkedActivityType = null;
-        // linkedDespesaId kept intentionally to avoid orphan — user must manage via Financeiro
       }
 
+      // --- Rota vinculada: calcular antes de persistir ---
+      if (_localPlace && _localPlace.placeId) {
+        var origemRota = _encontrarOrigemAtividade(_tripId, Object.assign({ id: _atividadeId }, dados));
+        if (origemRota) {
+          _calculandoRota = true;
+          var saveBtn  = document.getElementById('ativ-modal-save');
+          var statusEl = document.getElementById('af-route-status');
+          if (saveBtn)   { saveBtn.disabled = true; saveBtn.textContent = 'Calculando rota...'; }
+          if (statusEl)  { statusEl.innerHTML = '<span class="af-route-calculating">⏳ Calculando rota...</span>'; }
+
+          // Snapshot closure vars before async
+          var _snap = {
+            tripId: _tripId, atividadeId: _atividadeId, dados: dados,
+            origem: origemRota,
+            dest:   { label: _localPlace.endereco || _localPlace.nome || dados.local, placeId: _localPlace.placeId },
+          };
+
+          MapsService.computeRoute({
+            origin:             _snap.origem.label,
+            originPlaceId:      _snap.origem.placeId || '',
+            destination:        _snap.dest.label,
+            destinationPlaceId: _snap.dest.placeId,
+            travelMode:         'DRIVING',
+          }).then(function (res) {
+            _calculandoRota = false;
+            var chegMin  = _horaToMinG(_snap.dados.hora || '08:00');
+            var durMin   = _parseDurMinG(res.durationText);
+            var partHora = _minToHHMMG(Math.max(0, chegMin - durMin));
+            var trechoData = {
+              source:             'roteiro',
+              tipo:               'carro',
+              origem:             _snap.origem.label,
+              destino:            _snap.dest.label,
+              originPlaceId:      _snap.origem.placeId || '',
+              destinationPlaceId: _snap.dest.placeId,
+              data:               _snap.dados.data,
+              horario:            partHora,
+              chegadaHorario:     _snap.dados.hora,
+              distanciaKm:        res.distanceKm,
+              duracaoEstimada:    res.durationText,
+              calculoModo:        'google',
+              routeSource:        'google',
+              observacoes:        '',
+            };
+            AtividadeModal._persistirSalvar(_snap.tripId, _snap.atividadeId, _snap.dados, trechoData);
+          }).catch(function () {
+            _calculandoRota = false;
+            _mostrarToast('Atividade salva. Não foi possível calcular a rota.');
+            AtividadeModal._persistirSalvar(_snap.tripId, _snap.atividadeId, _snap.dados, null);
+          });
+          return; // espera async
+        } else {
+          _mostrarToast('Atividade salva. Ponto de origem não encontrado para calcular rota.');
+        }
+      }
+
+      AtividadeModal._persistirSalvar(_tripId, _atividadeId, dados, null);
+    },
+
+    // Persiste atividade + trecho vinculado e fecha o modal
+    _persistirSalvar: function (tripId, atividadeId, dados, trechoData) {
       var savedId;
-      if (_atividadeId) {
-        Store.editarAtividade(_tripId, _atividadeId, dados);
-        savedId = _atividadeId;
+      if (atividadeId) {
+        Store.editarAtividade(tripId, atividadeId, dados);
+        savedId = atividadeId;
       } else {
-        var criada = Store.adicionarAtividade(_tripId, dados.data, dados);
+        var criada = Store.adicionarAtividade(tripId, dados.data, dados);
         savedId = criada ? criada.id : null;
+      }
+
+      if (savedId) {
+        if (trechoData) {
+          // Cria ou atualiza o trecho vinculado
+          trechoData.tripId = tripId;
+          trechoData.linkedActivityId = savedId;
+          var trechosExist = Store.getTrechosRota(tripId).filter(function (t) {
+            return t.source === 'roteiro' && t.linkedActivityId === savedId;
+          });
+          if (trechosExist.length > 0) {
+            Store.editarTrechoRota(tripId, trechosExist[0].id, trechoData);
+            for (var i = 1; i < trechosExist.length; i++) {
+              Store.excluirTrechoRota(tripId, trechosExist[i].id);
+            }
+          } else {
+            Store.adicionarTrechoRota(tripId, trechoData);
+          }
+        } else if (atividadeId && !(dados.placeId)) {
+          // Local foi apagado ao editar — remove rota vinculada se houver
+          Store.getTrechosRota(tripId).filter(function (t) {
+            return t.source === 'roteiro' && t.linkedActivityId === savedId;
+          }).forEach(function (t) { Store.excluirTrechoRota(tripId, t.id); });
+        }
       }
 
       AtividadeModal.fechar();
@@ -3557,6 +3784,10 @@ var AtividadeActions = {
     function _doExcluir() {
       Store.excluirAtividade(tripId, atividadeId);
       if (linkedDespesaId) Store.excluirDespesa(tripId, linkedDespesaId);
+      // Remove linked route segment (created via Itinerary-to-Route integration)
+      Store.getTrechosRota(tripId).filter(function (t) {
+        return t.source === 'roteiro' && t.linkedActivityId === atividadeId;
+      }).forEach(function (t) { Store.excluirTrechoRota(tripId, t.id); });
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     }
 
