@@ -645,6 +645,30 @@ var UI = (function () {
     );
   }
 
+  // ---- Constrói URL do Google Maps Directions para um trecho ----
+  function _buildGoogleMapsUrl(trecho) {
+    var origem  = String(trecho.origem  || '').trim();
+    var destino = String(trecho.destino || '').trim();
+    if (!origem || !destino) return '';
+    var modoMap = { carro: 'driving', moto: 'driving', caminhada: 'walking', caminhando: 'walking' };
+    var travelmode = modoMap[trecho.tipo] || 'driving';
+    var url = 'https://www.google.com/maps/dir/?api=1' +
+      '&origin=' + encodeURIComponent(origem) +
+      '&destination=' + encodeURIComponent(destino) +
+      '&travelmode=' + travelmode +
+      '&dir_action=navigate';
+    if (trecho.originPlaceId)      url += '&origin_place_id='      + encodeURIComponent(trecho.originPlaceId);
+    if (trecho.destinationPlaceId) url += '&destination_place_id=' + encodeURIComponent(trecho.destinationPlaceId);
+    return url;
+  }
+
+  // ---- Renderiza link "Ver rota" que abre Google Maps ----
+  function _renderVerRotaLink(trecho) {
+    var url = _buildGoogleMapsUrl(trecho);
+    if (!url) return '<span class="itin-rota-link itin-rota-link--disabled" title="Endereço incompleto">Ver rota</span>';
+    return '<a href="' + url + '" target="_blank" rel="noopener noreferrer" class="itin-rota-link" title="Ver rota no Google Maps">Ver rota</a>';
+  }
+
   // ---- Renderiza um trecho de rota no contexto do roteiro ----
   function renderTrechoNoRoteiro(trecho, tripId) {
     var origem  = String(trecho.origem  || '?');
@@ -687,7 +711,7 @@ var UI = (function () {
           (sub ? '<div class="itin-row-sub">' + sub + '</div>' : '') +
         '</div>' +
         '<div class="itin-row-action">' +
-          '<a href="#/rotas" class="itin-rota-link" title="Ver rota">Ver rota</a>' +
+          _renderVerRotaLink(trecho) +
         '</div>' +
       '</div>'
     );
@@ -722,7 +746,7 @@ var UI = (function () {
           (sub ? '<div class="itin-row-sub">' + sub + '</div>' : '') +
         '</div>' +
         '<div class="itin-row-action">' +
-          '<a href="#/rotas" class="itin-rota-link" title="Ver rota">Ver rota</a>' +
+          _renderVerRotaLink(trecho) +
         '</div>' +
       '</div>'
     );

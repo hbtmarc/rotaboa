@@ -1640,6 +1640,15 @@
   background: #e0e7ff;
 }
 
+.itin-rota-link--disabled {
+  color: var(--color-text-secondary);
+  border-color: var(--color-border);
+  background: var(--color-bg-alt);
+  opacity: 0.55;
+  cursor: default;
+  pointer-events: none;
+}
+
 
 .itin-activity {
   display: flex;

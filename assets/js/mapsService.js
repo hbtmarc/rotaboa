@@ -1,10 +1,15 @@
 // ===================================================
 // mapsService.js — Google Maps opcional (sem npm)
-// Carregamento dinâmico + autocomplete + rota automática.
+// Carregamento dinâmico + autocomplete + cálculo de rota.
+//
+// APIs usadas:
+//   • PlaceAutocompleteElement  (Places API nova, substituiu Autocomplete)
+//   • Routes API REST v2        (substituiu DirectionsService)
 // ===================================================
 
 var MapsService = (function () {
-  var _scriptPromise = null;
+  var _scriptPromise  = null;
+  var _placesLibPromise = null;
   var _lastError = '';
 
   // ---- Chave de API -------------------------------------------
@@ -18,6 +23,7 @@ var MapsService = (function () {
   }
 
   // ---- Carregamento do script ----------------------------------
+  // Usa loading=async + importLibrary para carregar só o necessário.
 
   function _loadScript() {
     if (_scriptPromise) return _scriptPromise;
@@ -28,8 +34,9 @@ var MapsService = (function () {
       return Promise.resolve(false);
     }
 
-    if (window.google && window.google.maps && window.google.maps.places) {
-      return Promise.resolve(true);
+    if (window.google && window.google.maps && typeof window.google.maps.importLibrary === 'function') {
+      _scriptPromise = Promise.resolve(true);
+      return _scriptPromise;
     }
 
     _scriptPromise = new Promise(function (resolve) {
@@ -37,7 +44,7 @@ var MapsService = (function () {
       script.src =
         'https://maps.googleapis.com/maps/api/js?key=' +
         encodeURIComponent(key) +
-        '&libraries=places&loading=async';
+        '&loading=async';
       script.async = true;
       script.onload = function () { resolve(true); };
       script.onerror = function () {
@@ -51,22 +58,90 @@ var MapsService = (function () {
     return _scriptPromise;
   }
 
+  // ---- Carrega biblioteca Places (importLibrary) ---------------
+
+  function _loadPlaces() {
+    if (_placesLibPromise) return _placesLibPromise;
+    _placesLibPromise = _loadScript().then(function (ok) {
+      if (!ok || !window.google || typeof window.google.maps.importLibrary !== 'function') {
+        _lastError = 'Google Maps importLibrary indisponível.';
+        return null;
+      }
+      return window.google.maps.importLibrary('places').catch(function () {
+        _lastError = 'Falha ao carregar biblioteca Places.';
+        return null;
+      });
+    });
+    return _placesLibPromise;
+  }
+
   function init() {
     return _loadScript();
   }
 
-  // ---- Autocomplete -------------------------------------------
+  // ---- Autocomplete (PlaceAutocompleteElement) -----------------
+  //
+  // Recebe um <input> existente, cria um PlaceAutocompleteElement
+  // e o substitui no DOM. Retorna um adaptador compatível com
+  // o antigo Autocomplete: addListener('place_changed') + getPlace().
 
   function setupAutocomplete(inputElement) {
-    return _loadScript().then(function (ok) {
-      if (!ok || !inputElement) return null;
-      if (!window.google || !window.google.maps || !window.google.maps.places) return null;
+    if (!inputElement) return Promise.resolve(null);
+
+    return _loadPlaces().then(function (placesLib) {
+      if (!placesLib || !placesLib.PlaceAutocompleteElement) {
+        _lastError = 'PlaceAutocompleteElement não disponível.';
+        return null;
+      }
       try {
-        return new google.maps.places.Autocomplete(inputElement, {
-          fields: ['formatted_address', 'place_id', 'name', 'geometry'],
+        var pac = new placesLib.PlaceAutocompleteElement({
+          requestedLanguage: 'pt-BR',
+          requestedRegion:   'br',
         });
+
+        // Copia atributos visuais do input original
+        if (inputElement.placeholder) pac.setAttribute('placeholder', inputElement.placeholder);
+        if (inputElement.className)   pac.className = inputElement.className;
+        pac.style.cssText = inputElement.style.cssText;
+
+        // Substitui o input no DOM
+        if (inputElement.parentNode) {
+          inputElement.parentNode.replaceChild(pac, inputElement);
+        }
+
+        // Adaptador que mantém a interface do Autocomplete antigo
+        var _callbacks  = {};
+        var _lastPlace  = null;
+
+        pac.addEventListener('gmp-placeselect', function (event) {
+          var place = event.place;
+          if (!place) return;
+          place.fetchFields({ fields: ['formattedAddress', 'id', 'displayName'] })
+            .then(function () {
+              _lastPlace = {
+                formatted_address: place.formattedAddress || '',
+                place_id:          place.id               || '',
+                name:              place.displayName       || place.formattedAddress || '',
+              };
+              var cbs = _callbacks['place_changed'] || [];
+              for (var i = 0; i < cbs.length; i++) cbs[i]();
+            })
+            .catch(function () { _lastPlace = null; });
+        });
+
+        // Limpa placeId quando o usuário edita o texto manualmente
+        pac.addEventListener('input', function () { _lastPlace = null; });
+
+        return {
+          addListener: function (evtName, cb) {
+            if (!_callbacks[evtName]) _callbacks[evtName] = [];
+            _callbacks[evtName].push(cb);
+          },
+          getPlace:  function () { return _lastPlace; },
+          _element:  pac,
+        };
       } catch (e) {
-        _lastError = 'Autocomplete indisponível.';
+        _lastError = 'Erro ao criar PlaceAutocompleteElement: ' + (e && e.message || e);
         return null;
       }
     });
@@ -84,64 +159,84 @@ var MapsService = (function () {
   }
 
   // ---- Modo de viagem suportado por tipo ----------------------
-  // Retorna string de travelMode ou null quando não suportado.
+  // Retorna string de travelMode (Routes API v2) ou null quando não suportado.
 
   function travelModeForTipo(tipo) {
     tipo = String(tipo || '').toLowerCase();
-    if (['carro', 'van', 'onibus'].indexOf(tipo) !== -1) return 'DRIVING';
-    if (tipo === 'caminhada') return 'WALKING';
+    if (['carro', 'van', 'onibus'].indexOf(tipo) !== -1) return 'DRIVE';
+    if (tipo === 'caminhada') return 'WALK';
     return null; // aereo, trem, barco, outro → modo manual
   }
 
-  // ---- Cálculo de rota (DirectionsService) --------------------
+  // ---- Cálculo de rota (Routes API REST v2) -------------------
+  // Substitui google.maps.DirectionsService (deprecado fev/2026).
+  // Docs: https://developers.google.com/maps/documentation/routes
 
   function computeRoute(params) {
     _lastError = '';
-    var origem      = String(params && params.origin            || '').trim();
-    var destino     = String(params && params.destination       || '').trim();
-    var placeIdOrig = String(params && params.originPlaceId     || '').trim();
-    var placeIdDest = String(params && params.destinationPlaceId|| '').trim();
-    var travelMode  = String(params && params.travelMode        || 'DRIVING').toUpperCase();
+    var origem       = String(params && params.origin             || '').trim();
+    var destino      = String(params && params.destination        || '').trim();
+    var placeIdOrig  = String(params && params.originPlaceId      || '').trim();
+    var placeIdDest  = String(params && params.destinationPlaceId || '').trim();
+    var travelMode   = String(params && params.travelMode         || 'DRIVE').toUpperCase();
+
+    // Normaliza modos no formato antigo enviados por chamadores legados
+    var _modeCompat = { DRIVING: 'DRIVE', WALKING: 'WALK', BICYCLING: 'BICYCLE', TRANSIT: 'TRANSIT' };
+    if (_modeCompat[travelMode]) travelMode = _modeCompat[travelMode];
 
     if (!origem || !destino) {
       return Promise.reject(new Error('Informe origem e destino para calcular a rota.'));
     }
 
-    return _loadScript().then(function (ok) {
-      if (!ok || !window.google || !window.google.maps) {
-        throw new Error(_lastError || 'Google Maps indisponível.');
+    var key = _getApiKey();
+    if (!key) {
+      return Promise.reject(new Error('Google Maps API key não configurada.'));
+    }
+
+    var body = {
+      origin:      placeIdOrig  ? { placeId: placeIdOrig  } : { address: origem  },
+      destination: placeIdDest  ? { placeId: placeIdDest  } : { address: destino },
+      travelMode:  travelMode,
+      computeAlternativeRoutes: false,
+    };
+
+    return fetch(
+      'https://routes.googleapis.com/directions/v2:computeRoutes',
+      {
+        method:  'POST',
+        headers: {
+          'Content-Type':     'application/json',
+          'X-Goog-Api-Key':   key,
+          'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration',
+        },
+        body: JSON.stringify(body),
       }
-
-      var ds = new google.maps.DirectionsService();
-
-      var gmMode = google.maps.TravelMode[travelMode] || google.maps.TravelMode.DRIVING;
-
-      var request = {
-        origin:      placeIdOrig ? { placeId: placeIdOrig } : origem,
-        destination: placeIdDest ? { placeId: placeIdDest } : destino,
-        travelMode:  gmMode,
-        unitSystem:  google.maps.UnitSystem.METRIC,
-      };
-
-      return new Promise(function (resolve, reject) {
-        ds.route(request, function (result, status) {
-          if (status !== google.maps.DirectionsStatus.OK || !result) {
-            var msg = 'Não foi possível calcular a rota (' + status + ').';
-            _lastError = msg;
-            return reject(new Error(msg));
-          }
-          try {
-            var leg = result.routes[0].legs[0];
-            resolve({
-              distanceKm:   Math.round((leg.distance.value / 1000) * 10) / 10,
-              durationText: _formatarDuracao(leg.duration.value),
-              routeSource:  'google',
-            });
-          } catch (e) {
-            reject(new Error('Resposta de rota inválida.'));
-          }
+    ).then(function (resp) {
+      if (!resp.ok) {
+        return resp.json().catch(function () { return {}; }).then(function (errBody) {
+          var msg = (errBody && errBody.error && errBody.error.message) ||
+            ('Routes API erro HTTP ' + resp.status);
+          _lastError = msg;
+          throw new Error(msg);
         });
-      });
+      }
+      return resp.json();
+    }).then(function (data) {
+      if (!data.routes || !data.routes.length) {
+        var msg = 'Não foi possível calcular a rota (sem resultado).';
+        _lastError = msg;
+        throw new Error(msg);
+      }
+      var route  = data.routes[0];
+      // duration vem como string "1234s" na Routes API v2
+      var durSec = route.duration
+        ? parseInt(String(route.duration).replace('s', ''), 10)
+        : 0;
+      return {
+        distanceKm:   Math.round((route.distanceMeters / 1000) * 10) / 10,
+        durationText: _formatarDuracao(durSec),
+        routeSource:  'google',
+      };
     });
   }
 
@@ -211,24 +306,21 @@ var MapsService = (function () {
       onManual();
     }
 
-    // Inicializa após carregar o script
-    _loadScript().then(function (ok) {
-      if (!ok) { onManual(); return; }
+    // Inicializa após carregar Places
+    _loadPlaces().then(function (placesLib) {
+      if (!placesLib) { onManual(); return; }
 
       setupAutocomplete(originInput).then(function (ac) {
         if (!ac) { onManual(); }
         else {
           ac.addListener('place_changed', function () {
             var p = ac.getPlace();
-            var label   = String(p && (p.formatted_address || p.name) || (originInput && originInput.value) || '').trim();
+            var label   = String(p && (p.formatted_address || p.name) || '').trim();
             var placeId = String(p && p.place_id || '').trim();
             if (!label || !placeId) { _clearSide('origin'); return; }
             _originPlace = { label: label, placeId: placeId };
             _debounced();
           });
-        }
-        if (originInput) {
-          originInput.addEventListener('input', function () { _clearSide('origin'); });
         }
       });
 
@@ -237,15 +329,12 @@ var MapsService = (function () {
         else {
           ac.addListener('place_changed', function () {
             var p = ac.getPlace();
-            var label   = String(p && (p.formatted_address || p.name) || (destinationInput && destinationInput.value) || '').trim();
+            var label   = String(p && (p.formatted_address || p.name) || '').trim();
             var placeId = String(p && p.place_id || '').trim();
             if (!label || !placeId) { _clearSide('destination'); return; }
             _destinationPlace = { label: label, placeId: placeId };
             _debounced();
           });
-        }
-        if (destinationInput) {
-          destinationInput.addEventListener('input', function () { _clearSide('destination'); });
         }
       });
     });
