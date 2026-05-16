@@ -794,142 +794,151 @@ async function iniciarAuthStateListener() {
   _mostrarBootOverlay('Verificando autenticação…');
   _dbgAuth('firebase init started | ambiente:', RB_DIAG_STATE.ambiente);
 
-  // ---- Modo offline: sem Firebase ----
-  if (RB_AUTH_STATE.offlineMode) {
-    _dbgAuth('modo offline ativo');
+  try {
+    // ---- Modo offline: sem Firebase ----
+    if (RB_AUTH_STATE.offlineMode) {
+      _dbgAuth('modo offline ativo');
+      RB_AUTH_STATE.initialized = true;
+      atualizarHeaderAuthUI();
+      atualizarBadgeModoDadosHeader();
+      SyncService.startAutoSync();
+      RB_DIAG_STATE.rtdbStatus = 'offline';
+      return;
+    }
+
+    // ---- Firebase indisponível ----
+    if (!window.FirebaseClient || typeof FirebaseClient.waitForAuthReady !== 'function') {
+      _dbgAuth('FirebaseClient não disponível');
+      RB_AUTH_STATE.initialized = true;
+      atualizarHeaderAuthUI();
+      RB_DIAG_STATE.rtdbStatus = 'error';
+      RB_DIAG_STATE.rtdbStatusMsg = 'FirebaseClient ausente';
+      return;
+    }
+
+    // ---- Aguarda Firebase Auth resolver (persistência + redirect + onAuthStateChanged) ----
+    try {
+      await FirebaseClient.waitForAuthReady();
+    } catch (e) {
+      console.warn('[AuthGate] waitForAuthReady error:', e);
+    }
+
+    var user = FirebaseClient.getCurrentUser();
+    _dbgAuth('auth ready | uid:', user ? user.uid : null);
+
+    RB_AUTH_STATE.user        = user || null;
     RB_AUTH_STATE.initialized = true;
     atualizarHeaderAuthUI();
     atualizarBadgeModoDadosHeader();
-    SyncService.startAutoSync();
-    RB_DIAG_STATE.rtdbStatus = 'offline';
-    _ocultarBootOverlay();
-    return;
-  }
 
-  // ---- Firebase indisponível ----
-  if (!window.FirebaseClient || typeof FirebaseClient.waitForAuthReady !== 'function') {
-    _dbgAuth('FirebaseClient não disponível');
-    RB_AUTH_STATE.initialized = true;
-    atualizarHeaderAuthUI();
-    RB_DIAG_STATE.rtdbStatus = 'error';
-    RB_DIAG_STATE.rtdbStatusMsg = 'FirebaseClient ausente';
-    _ocultarBootOverlay();
-    return;
-  }
+    // ---- Usuário autenticado: pull RTDB ----
+    if (user) {
+      var uid = user.uid;
+      SyncService.garantirIsolamentoUid(uid);
+      _mostrarBootOverlay('Carregando seus dados…');
+      _dbgAuth('RTDB pull started | uid:', uid);
+      var pullResult = await SyncService.pullFromRtdb(uid).catch(function () {
+        return { ok: false, reason: 'exception' };
+      });
+      _dbgAuth('RTDB pull done:', JSON.stringify(pullResult));
 
-  // ---- Aguarda Firebase Auth resolver (persitência + redirect + onAuthStateChanged) ----
-  try {
-    await FirebaseClient.waitForAuthReady();
-  } catch (e) {
-    console.warn('[AuthGate] waitForAuthReady error:', e);
-  }
-
-  var user = FirebaseClient.getCurrentUser();
-  _dbgAuth('auth ready | uid:', user ? user.uid : null);
-
-  RB_AUTH_STATE.user        = user || null;
-  RB_AUTH_STATE.initialized = true;
-  atualizarHeaderAuthUI();
-  atualizarBadgeModoDadosHeader();
-
-  // ---- Usuário autenticado: pull RTDB ----
-  if (user) {
-    var uid = user.uid;
-    SyncService.garantirIsolamentoUid(uid);
-    _mostrarBootOverlay('Carregando seus dados…');
-    _dbgAuth('RTDB pull started | uid:', uid);
-    var pullResult = await SyncService.pullFromRtdb(uid).catch(function () {
-      return { ok: false, reason: 'exception' };
-    });
-    _dbgAuth('RTDB pull done:', JSON.stringify(pullResult));
-
-    if (pullResult.ok) {
-      RB_DIAG_STATE.rtdbStatus  = 'loaded';
-      RB_DIAG_STATE.rtdbStatusMsg = '';
-      RB_DIAG_STATE.lastLoadAt  = new Date().toISOString();
-    } else if (pullResult.reason === 'offline' || pullResult.reason === 'sem-internet') {
-      RB_DIAG_STATE.rtdbStatus  = 'offline';
-      RB_DIAG_STATE.rtdbStatusMsg = 'Sem conexão';
-      var cached = SyncService.carregarCacheUid(uid);
-      if (cached && window.Store && typeof Store.carregarEstadoCompleto === 'function') {
-        Store.carregarEstadoCompleto(cached);
-        RB_DIAG_STATE.rtdbStatus = 'cached';
+      if (pullResult.ok) {
+        RB_DIAG_STATE.rtdbStatus  = 'loaded';
+        RB_DIAG_STATE.rtdbStatusMsg = '';
+        RB_DIAG_STATE.lastLoadAt  = new Date().toISOString();
+      } else if (pullResult.reason === 'offline' || pullResult.reason === 'sem-internet') {
+        RB_DIAG_STATE.rtdbStatus  = 'offline';
+        RB_DIAG_STATE.rtdbStatusMsg = 'Sem conexão';
+        var cached = SyncService.carregarCacheUid(uid);
+        if (cached && window.Store && typeof Store.carregarEstadoCompleto === 'function') {
+          Store.carregarEstadoCompleto(cached);
+          RB_DIAG_STATE.rtdbStatus = 'cached';
+        }
+      } else {
+        RB_DIAG_STATE.rtdbStatus  = 'error';
+        RB_DIAG_STATE.rtdbStatusMsg = pullResult.error || 'Erro ao carregar';
+        var cached2 = SyncService.carregarCacheUid(uid);
+        if (cached2 && window.Store && typeof Store.carregarEstadoCompleto === 'function') {
+          Store.carregarEstadoCompleto(cached2);
+          RB_DIAG_STATE.rtdbStatus = 'cached';
+        }
       }
+
+      SyncService.startAutoSync();
+      _restaurarPrefsDoRtdb(uid);
     } else {
-      RB_DIAG_STATE.rtdbStatus  = 'error';
-      RB_DIAG_STATE.rtdbStatusMsg = pullResult.error || 'Erro ao carregar';
-      var cached2 = SyncService.carregarCacheUid(uid);
-      if (cached2 && window.Store && typeof Store.carregarEstadoCompleto === 'function') {
-        Store.carregarEstadoCompleto(cached2);
-        RB_DIAG_STATE.rtdbStatus = 'cached';
-      }
+      SyncService.stopAutoSync();
+      RB_DIAG_STATE.rtdbStatus = 'pending';
     }
 
-    SyncService.startAutoSync();
-    _restaurarPrefsDoRtdb(uid);
-  } else {
-    SyncService.stopAutoSync();
-    RB_DIAG_STATE.rtdbStatus = 'pending';
-  }
+    // ---- Registra listener de mudanças subsequentes (pós-boot) ----
+    if (typeof FirebaseClient.onAuthChange === 'function') {
+      FirebaseClient.onAuthChange(function (changedUser) {
+        (async function () {
+          try {
+            _dbgAuth('onAuthChange pós-boot | uid:', changedUser ? changedUser.uid : null);
+            var prevUser = RB_AUTH_STATE.user;
+            RB_AUTH_STATE.user = changedUser || null;
+            atualizarHeaderAuthUI();
+            atualizarBadgeModoDadosHeader();
 
-  // ---- Registra listener de mudanças subsequentes (pós-boot) ----
-  if (typeof FirebaseClient.onAuthChange === 'function') {
-    FirebaseClient.onAuthChange(function (changedUser) {
-      (async function () {
-        try {
-          _dbgAuth('onAuthChange pós-boot | uid:', changedUser ? changedUser.uid : null);
-          var prevUser = RB_AUTH_STATE.user;
-          RB_AUTH_STATE.user = changedUser || null;
-          atualizarHeaderAuthUI();
-          atualizarBadgeModoDadosHeader();
-
-          if (changedUser && (!prevUser || prevUser.uid !== changedUser.uid)) {
-            // Novo login pós-boot: pull RTDB e navega
-            var uid2 = changedUser.uid;
-            SyncService.garantirIsolamentoUid(uid2);
-            _mostrarBootOverlay('Carregando seus dados…');
-            _dbgAuth('RTDB pull pós-login | uid:', uid2);
-            var pr = await SyncService.pullFromRtdb(uid2).catch(function () {
-              return { ok: false, reason: 'exception' };
-            });
-            _dbgAuth('RTDB pull pós-login done:', JSON.stringify(pr));
-            if (pr.ok) {
-              RB_DIAG_STATE.rtdbStatus = 'loaded';
-              RB_DIAG_STATE.lastLoadAt = new Date().toISOString();
-            } else {
-              var c2 = SyncService.carregarCacheUid(uid2);
-              if (c2 && window.Store && typeof Store.carregarEstadoCompleto === 'function') {
-                Store.carregarEstadoCompleto(c2);
-                RB_DIAG_STATE.rtdbStatus = 'cached';
+            if (changedUser && (!prevUser || prevUser.uid !== changedUser.uid)) {
+              // Novo login pós-boot: pull RTDB e navega
+              var uid2 = changedUser.uid;
+              SyncService.garantirIsolamentoUid(uid2);
+              _mostrarBootOverlay('Carregando seus dados…');
+              _dbgAuth('RTDB pull pós-login | uid:', uid2);
+              var pr = await SyncService.pullFromRtdb(uid2).catch(function () {
+                return { ok: false, reason: 'exception' };
+              });
+              _dbgAuth('RTDB pull pós-login done:', JSON.stringify(pr));
+              if (pr.ok) {
+                RB_DIAG_STATE.rtdbStatus = 'loaded';
+                RB_DIAG_STATE.lastLoadAt = new Date().toISOString();
+              } else {
+                var c2 = SyncService.carregarCacheUid(uid2);
+                if (c2 && window.Store && typeof Store.carregarEstadoCompleto === 'function') {
+                  Store.carregarEstadoCompleto(c2);
+                  RB_DIAG_STATE.rtdbStatus = 'cached';
+                }
               }
+              SyncService.startAutoSync();
+              _restaurarPrefsDoRtdb(uid2);
+              // Navega a partir de /login ou vazio
+              var hashAtual = (window.location.hash || '').replace(/^#/, '');
+              if (!hashAtual || hashAtual === '/login') {
+                Router.navegar('#/inicio');
+              } else {
+                window.dispatchEvent(new HashChangeEvent('hashchange'));
+              }
+            } else if (!changedUser && prevUser) {
+              // Logout: vai para /login
+              SyncService.stopAutoSync();
+              RB_DIAG_STATE.rtdbStatus = 'pending';
+              Router.navegar('#/login');
             }
-            SyncService.startAutoSync();
-            _restaurarPrefsDoRtdb(uid2);
+          } catch (e) {
+            _dbgAuth('onAuthChange pós-boot erro:', e);
+          } finally {
             _ocultarBootOverlay();
-            // Navega a partir de /login ou vazio
-            var hashAtual = (window.location.hash || '').replace(/^#/, '');
-            if (!hashAtual || hashAtual === '/login') {
-              Router.navegar('#/inicio');
-            } else {
-              window.dispatchEvent(new HashChangeEvent('hashchange'));
-            }
-          } else if (!changedUser && prevUser) {
-            // Logout: vai para /login
-            SyncService.stopAutoSync();
-            RB_DIAG_STATE.rtdbStatus = 'pending';
-            Router.navegar('#/login');
           }
-        } catch (e) {
-          _dbgAuth('onAuthChange pós-boot erro:', e);
-        } finally {
-          _ocultarBootOverlay();
-        }
-      })();
-    });
-  }
+        })();
+      });
+    }
 
-  _dbgAuth('router init');
-  _ocultarBootOverlay();
+    _dbgAuth('router init');
+  } catch (e) {
+    // Segurança: qualquer exceção não deve deixar o app pendurado
+    console.warn('[AuthGate] erro inesperado na inicialização:', e);
+    if (!RB_AUTH_STATE.initialized) {
+      RB_AUTH_STATE.user = null;
+      RB_AUTH_STATE.initialized = true;
+      atualizarHeaderAuthUI();
+      atualizarBadgeModoDadosHeader();
+    }
+  } finally {
+    _ocultarBootOverlay();
+  }
 }
 
 function _mensagemErroAuth(err) {
@@ -2601,18 +2610,21 @@ var AuthActions = {
 
   entrarGoogle: async function () {
     this._setErro('');
-    this._setLoading(true, 'btn-login-google', 'Entrar com Google', 'Conectando...');
+    var host = window.location.hostname;
+    var isLocalhost = (host === 'localhost' || host === '127.0.0.1' || host === '');
+    var txtLoading = isLocalhost ? 'Conectando...' : 'Redirecionando...';
+    this._setLoading(true, 'btn-login-google', 'Entrar com Google', txtLoading);
     try {
       var user = await FirebaseClient.loginWithGoogle();
       if (!user) {
-        // Fluxo redirect: página vai recarregar. _initFirebaseAuth
-        // processará o resultado e onAuthChange navegará.
+        // Fluxo redirect: a página vai recarregar.
+        // Mantém o botão desabilitado para evitar cliques repetidos.
         return;
       }
-      // Popup bem-sucedido: onAuthChange pós-boot cuida da navegação
+      // Popup (localhost): onAuthChange pós-boot cuida da navegação
     } catch (e) {
       this._setErro(_mensagemErroAuth(e));
-      this._setLoading(false, 'btn-login-google', 'Entrar com Google', 'Conectando...');
+      this._setLoading(false, 'btn-login-google', 'Entrar com Google', txtLoading);
     }
   },
 

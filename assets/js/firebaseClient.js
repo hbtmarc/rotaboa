@@ -174,20 +174,32 @@ var FirebaseClient = (function () {
     var authSdk = await _carregarSdkAuth();
     var provider = new authSdk.GoogleAuthProvider();
 
-    // Tenta popup em todos os ambientes; usa redirect apenas como fallback
-    // se o popup for bloqueado ou fechado pelo usuário.
-    try {
-      var cred = await authSdk.signInWithPopup(auth, provider);
-      _authUserAtual = (cred && cred.user) || null;
-      return _authUserAtual;
-    } catch (e) {
-      var code = e && e.code ? e.code : '';
-      if (code === 'auth/popup-blocked' || code === 'auth/popup-closed-by-user') {
-        // Fallback: redirect — página vai recarregar, _initFirebaseAuth tratará o resultado
-        await authSdk.signInWithRedirect(auth, provider);
-        return null;
+    // GitHub Pages (e qualquer host não-localhost) serve COOP: same-origin,
+    // o que bloqueia window.closed/window.close no popup — use redirect nesses ambientes.
+    // Em localhost, popup é mais rápido e confortável para desenvolvimento.
+    var host = window.location.hostname;
+    var isLocalhost = (host === 'localhost' || host === '127.0.0.1' || host === '');
+
+    if (isLocalhost) {
+      // Popup — desenvolvimento local
+      try {
+        var cred = await authSdk.signInWithPopup(auth, provider);
+        _authUserAtual = (cred && cred.user) || null;
+        return _authUserAtual;
+      } catch (e) {
+        var code = e && e.code ? e.code : '';
+        if (code === 'auth/popup-blocked' || code === 'auth/popup-closed-by-user') {
+          // Fallback para redirect se popup for bloqueado mesmo em localhost
+          await authSdk.signInWithRedirect(auth, provider);
+          return null;
+        }
+        throw e;
       }
-      throw e;
+    } else {
+      // Redirect — ambientes com COOP (GitHub Pages, etc.)
+      // _initFirebaseAuth já chama getRedirectResult no próximo boot
+      await authSdk.signInWithRedirect(auth, provider);
+      return null;
     }
   }
 
@@ -255,8 +267,19 @@ var FirebaseClient = (function () {
 
   // Inicia a inicialização e retorna uma Promise que resolve quando o primeiro
   // estado de autenticação é conhecido (pode ser usuário ou null).
+  // Timeout de segurança: se o Firebase demorar mais de 12s, resolve com null.
   function waitForAuthReady() {
     _initFirebaseAuth(); // dispara; protegido por _authInitStarted contra chamadas duplicadas
+    var timeout = new Promise(function (res) {
+      setTimeout(function () {
+        if (_authReadyResolve) {
+          console.warn('[AuthGate] waitForAuthReady timeout — resolvendo com usuário atual');
+          var r = _authReadyResolve;
+          _authReadyResolve = null;
+          r();
+        }
+      }, 12000);
+    });
     return _authReadyPromise;
   }
 

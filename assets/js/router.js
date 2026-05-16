@@ -97,7 +97,19 @@ var Router = (function () {
 
     if (resultado) {
       _atualizarNavAtivo(resultado.caminho);
-      resultado.handler(resultado.params, _container);
+      try {
+        resultado.handler(resultado.params, _container);
+      } catch (e) {
+        console.error('[Router] erro ao renderizar rota', resultado.caminho, e);
+        _container.innerHTML = (
+          '<div class="empty-state" style="min-height:60vh">' +
+            '<div class="empty-state-icon" style="font-size:3rem">⚠️</div>' +
+            '<div class="empty-state-title">Erro ao carregar página</div>' +
+            '<div class="empty-state-desc" style="font-size:.75rem;color:#6b7280">' + String(e && e.message || e) + '</div>' +
+            '<a href="#/inicio" class="btn btn-primary" style="margin-top:var(--space-4)">Voltar ao Início</a>' +
+          '</div>'
+        );
+      }
     } else {
       // Rota não encontrada — renderiza 404 inline
       _atualizarNavAtivo('');
