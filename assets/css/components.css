@@ -3653,8 +3653,8 @@ gmp-place-autocomplete::part(input)::placeholder {
 .bag-troca-btn { color: rgba(255,255,255,.85); border-color: rgba(255,255,255,.3) !important; font-size: var(--text-xs,.75rem); flex-shrink: 0; }
 .bag-hero-prog-row { display: flex; justify-content: space-between; font-size: var(--text-sm,.875rem); opacity: .85; margin-bottom: var(--space-1); }
 .bag-hero-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
-.bag-hero-act-btn { color: rgba(255,255,255,.9) !important; border-color: rgba(255,255,255,.35) !important; font-size: var(--text-xs,.75rem); }
-.bag-hero-act-btn:hover { background: rgba(255,255,255,.15) !important; }
+.bag-hero-act-btn { color: var(--color-primary, #2563eb) !important; border-color: rgba(255,255,255,.6) !important; background: rgba(255,255,255,.92) !important; font-size: var(--text-xs,.75rem); }
+.bag-hero-act-btn:hover { background: #fff !important; border-color: rgba(255,255,255,.9) !important; }
 
 /* Progress bar */
 .bag-progress-track { height: 6px; background: rgba(0,0,0,.15); border-radius: 99px; overflow: hidden; }
