@@ -1,6 +1,6 @@
 # RotaBoa 🗺️
 
-Aplicativo web estático de planejamento de viagens. Roda direto no navegador — sem frameworks, sem build, sem servidor back-end.
+Aplicativo web progressivo (PWA) de planejamento de viagens. Roda direto no navegador — sem frameworks, sem build, sem servidor back-end. Dados sincronizados com Firebase Realtime Database (RTDB) por usuário autenticado, com suporte a modo offline.
 
 ---
 
@@ -9,21 +9,22 @@ Aplicativo web estático de planejamento de viagens. Roda direto no navegador �
 ```
 rotaboa/
 ├── index.html                  # Shell principal (SPA com hash routing)
-├── 404.html                    # Página de erro estática
-├── manifest.webmanifest        # PWA manifest
-├── sw.js                       # Service Worker (cache offline)
+├── 404.html                    # Página de erro estática (GitHub Pages)
+├── manifest.webmanifest        # PWA manifest (ícones, tema, display)
+├── sw.js                       # Service Worker — cache offline
 ├── assets/
 │   ├── css/
-│   │   ├── base.css            # Variáveis, reset e utilitários
-│   │   ├── layout.css          # Header, main, bottom nav, grids
-│   │   ├── components.css      # Botões, cards, badges, formulários
-│   │   └── responsive.css      # Breakpoints mobile-first
+│   │   ├── base.css            # Variáveis CSS, reset e utilitários
+│   │   ├── layout.css          # Header, main, bottom nav, grids, safe-area
+│   │   ├── components.css      # Botões, cards, badges, modais, formulários
+│   │   └── responsive.css      # Breakpoints mobile-first (375px–1024px+)
 │   ├── js/
-│   │   ├── mockData.js         # Dados de exemplo (sem banco)
-│   │   ├── store.js            # Estado global da aplicação
-│   │   ├── ui.js               # Helpers de renderização HTML
-│   │   ├── router.js           # Roteador por hash (#)
-│   │   └── app.js              # Inicialização e páginas
+│   │   ├── store.js            # Estado global da aplicação (~1787 linhas)
+│   │   ├── ui.js               # Helpers de renderização HTML (~1019 linhas)
+│   │   ├── router.js           # Roteador por hash (#) com guard de auth
+│   │   ├── app.js              # Inicialização, páginas e modais (~5806 linhas)
+│   │   ├── firebaseClient.js   # Auth Firebase + sync helpers
+│   │   └── mapsService.js      # Google Maps Routes API + Places Autocomplete
 │   └── img/
 │       └── logo-placeholder.svg
 └── README.md
@@ -33,58 +34,281 @@ rotaboa/
 
 ## Rotas disponíveis
 
-| Rota                | Descrição                          |
-|---------------------|------------------------------------|
-| `#/inicio`          | Dashboard com viagem selecionada   |
-| `#/viagens`         | Lista de viagens                   |
-| `#/viagem/:id`      | Detalhe de uma viagem              |
-| `#/roteiro`         | Roteiro por dia                    |
-| `#/financeiro`      | Resumo financeiro e despesas       |
-| `#/rotas`           | Trechos e estimativa de combustível|
-| `#/login`           | Login Firebase (email/senha/Google)|
-| `#/config`          | Configuração do app e Firebase     |
-| `#/configuracoes`   | Perfil e preferências              |
+| Rota              | Acesso    | Descrição                                          |
+|-------------------|-----------|----------------------------------------------------|
+| `#/login`         | Público   | Login por email/senha, criação de conta e Google   |
+| `#/inicio`        | Privado   | Dashboard: KPIs, próximas atividades, resumo geral |
+| `#/viagens`       | Privado   | Lista de todas as viagens do usuário               |
+| `#/viagem/:id`    | Privado   | Detalhe de viagem com participantes e estatísticas |
+| `#/roteiro`       | Privado   | Roteiro por dia com atividades e custos vinculados  |
+| `#/bagagem`       | Privado   | Lista de itens de bagagem por viagem               |
+| `#/financeiro`    | Privado   | Despesas agrupadas por data, categoria e resumo     |
+| `#/rotas`         | Privado   | Trechos com cálculo automático de combustível       |
+| `#/config`        | Privado   | Conta, sincronização, dados, preferências          |
+| `#/configuracoes` | Privado   | Alias para `#/config`                              |
+
+> Todas as rotas privadas redirecionam para `#/login` quando não há sessão ativa (autenticado ou modo offline).
 
 ---
 
 ## Como testar localmente
 
-### Opção 1 — Abrir direto no navegador
-```
-Arraste o arquivo index.html para o Chrome ou Firefox.
-```
+### Opção 1 — Servidor estático (recomendado)
 
-> ⚠️ O Service Worker só funciona via HTTPS ou `localhost`. Para testar offline e PWA, use a opção 2.
-
-### Opção 2 — Servidor estático simples (recomendado)
-
-**Com Python 3 (sem instalar nada extra):**
+**Python 3:**
 ```bash
 cd rotaboa
 python3 -m http.server 8000
 # Abra: http://localhost:8000
 ```
 
-**Com VS Code Live Server:**
+**VS Code Live Server:**
 1. Instale a extensão *Live Server* (Ritwick Dey).
-2. Abra `index.html` no editor.
-3. Clique em **Go Live** na barra de status inferior.
-4. O navegador abrirá em `http://127.0.0.1:5500`.
+2. Abra `index.html` e clique em **Go Live** na barra de status.
+3. O navegador abrirá em `http://127.0.0.1:5500`.
+
+> ⚠️ O Service Worker, autenticação Firebase e PWA só funcionam via HTTPS ou `localhost`.  
+> Abrir `index.html` diretamente como `file://` não funciona.
 
 ### Testando em mobile (iPhone/Android)
-Com Python ou Live Server rodando, descubra o IP local da máquina:
+
 ```bash
 ipconfig getifaddr en0   # macOS — ex: 192.168.1.100
 ```
 Acesse `http://192.168.1.100:8000` pelo celular (mesmo Wi-Fi).
 
+### Nota sobre Google Maps em localhost
+
+Quando a chave Maps API não está autorizada para localhost:
+- O modal de atividade salva normalmente sem calcular rota.
+- O modal de trecho exibe aviso e permite preenchimento manual.
+- Nenhum crash ou trava no botão Salvar.
+
 ---
 
 ## GitHub Pages
 
-1. Faça push para o branch `main` (ou `gh-pages`).
-2. Acesse as configurações do repositório → Pages → Source: `main / root`.
-3. O app estará disponível em `https://<usuario>.github.io/rotaboa/`.
+1. Faça push para o branch `main`.
+2. Repositório → Settings → Pages → Source: `main / root`.
+3. Disponível em `https://<usuario>.github.io/rotaboa/`.
+
+---
+
+## Autenticação e sincronização
+
+### Fluxo de sessão
+
+```
+Abertura do app
+  └─ iniciarAuthStateListener()
+       ├─ Usuário autenticado  → garantirIsolamentoUid() → pullFromRtdb() → startAutoSync()
+       ├─ Modo offline ativo   → carregarCacheUid() → libera rotas privadas
+       └─ Sem sessão           → redireciona para #/login
+```
+
+### Métodos de login (`firebaseClient.js`)
+
+| Método             | Desktop          | Mobile (iOS/Android)  |
+|--------------------|------------------|-----------------------|
+| Google             | `signInWithPopup` | `signInWithPopup`     |
+| Email + senha      | `signInWithEmailAndPassword` | idem     |
+| Modo offline       | sem Firebase     | sem Firebase          |
+
+> iOS Safari bloqueia `signInWithRedirect` por ITP. Por isso popup é usado em todos os dispositivos.
+
+### Sincronização com RTDB (`SyncService`)
+
+| Método                          | Descrição                                              |
+|---------------------------------|--------------------------------------------------------|
+| `pullFromRtdb(uid)`             | Carrega estado completo do usuário do RTDB             |
+| `pushToRtdb(uid, opts)`         | Envia estado local para RTDB                           |
+| `syncLocalToCloud(opts)`        | Push com feedback de toast                             |
+| `startAutoSync()`               | Ciclo automático de 60s + eventos `online`/`visibilitychange` |
+| `stopAutoSync()`                | Para o ciclo de sync                                   |
+| `markPendingSync()`             | Marca estado como pendente após mutações               |
+| `getSyncStatus()`               | Retorna `{ status, lastSync, pending }`                |
+| `garantirIsolamentoUid(uid)`    | Limpa estado se o UID mudou (troca de conta)           |
+| `carregarCacheUid(uid)`         | Lê cache local do RTDB por UID                         |
+
+O auto sync é acionado:
+- A cada 60 segundos (polling passivo).
+- Ao recuperar conexão (`window online`).
+- Ao voltar para aba visível (`visibilitychange`).
+- Após operações de escrita via `markPendingSync()`.
+
+Um lock interno impede chamadas duplicadas em paralelo.
+
+---
+
+## Store — estado global (`store.js`)
+
+### Estrutura de dados no RTDB
+
+```
+rotaboa.viagens.v1        → lista de viagens { id, nome, dataInicio, dataFim, participantes[] }
+rotaboa.itinerary.v1      → dias por viagem { tripId → [ { data, atividades[] } ] }
+rotaboa.expenses.v1       → despesas por viagem { tripId → [ DespesaItem ] }
+rotaboa.routes.v1         → trechos por viagem { tripId → [ TrechoItem ] }
+rotaboa.bagagem.v1        → itens de bagagem por viagem
+rotaboa.config.v1         → configurações do app (chave Maps, preferências)
+```
+
+### API pública do Store
+
+| Função                              | Descrição                                                   |
+|-------------------------------------|-------------------------------------------------------------|
+| `getViagens()`                      | Lista de todas as viagens                                   |
+| `getViagemSelecionada()`            | Viagem ativa (por `viagemSelecionadaId`)                    |
+| `selecionarViagem(id)`              | Define viagem ativa                                         |
+| `adicionarViagem(dados)`            | Cria viagem com participantes                               |
+| `editarViagem(id, dados)`           | Atualiza viagem; migra formato antigo de participantes      |
+| `excluirViagem(id)`                 | Remove viagem e todos os dados vinculados                   |
+| `getItinerario(tripId)`             | Dias do roteiro ordenados por data                          |
+| `adicionarAtividade(tripId, dia, ativ)` | Cria atividade e sincroniza despesa vinculada           |
+| `editarAtividade(tripId, diaId, atividadeId, dados)` | Edita e re-sincroniza despesa          |
+| `excluirAtividade(tripId, diaId, atividadeId)` | Remove e exclui despesa vinculada             |
+| `getDespesas(tripId)`               | Despesas ordenadas por data (ascendente)                    |
+| `adicionarDespesa(tripId, dados)`   | Cria despesa manual com suporte a parcelamento              |
+| `editarDespesa(tripId, id, dados)`  | Edita despesa existente                                     |
+| `excluirDespesa(tripId, id)`        | Remove despesa                                              |
+| `getResumoFinanceiro(tripId)`       | KPIs e agrupamento por categoria (com `_mapCategoria`)      |
+| `getBalancoMensal(tripId)`          | Balanço por mês/categoria                                   |
+| `getRotas(tripId)`                  | Trechos do roteiro de rotas                                 |
+| `getResumoRotas(tripId)`            | Distância total e custo estimado de combustível             |
+| `getProximasAtividades(tripId, n)`  | Próximas N atividades a partir de hoje                      |
+| `getConfiguracoes()`                | Config do app (chave Maps, preferências)                    |
+| `setConfigDefaults(prefs)`          | Define padrões de cálculo de combustível a partir das prefs |
+| `carregarEstadoCompleto(data)`      | Hidrata store a partir de snapshot do RTDB                  |
+| `exportarEstadoCompleto()`          | Serializa estado para backup/push RTDB                      |
+
+### Vinculação automática Roteiro → Financeiro
+
+Toda atividade com `custoEstimado > 0` gera automaticamente uma despesa vinculada no Financeiro:
+
+- **`_syncAtividadeExpense(tripId, ativ, dataISO)`** — upsert se custo > 0, remove se custo = 0.
+- **`_upsertLinkedExpense(tripId, linkedSource, dados)`** — localiza por `linkedSource` e atualiza ou insere.
+- **`_removeLinkedExpense(tripId, sourceType, sourceId)`** — remove pela chave `linkedSource`.
+- **`_sincronizarTodasAtividades()`** — chamado em `carregarEstadoCompleto`; reconcilia todas as atividades existentes (corrige categoria, valor ou descrição desatualizados).
+
+#### Mapeamento de categorias (`_mapCategoria`)
+
+Atividades usam nomes de categoria livres. `_mapCategoria` normaliza para as categorias canônicas do Financeiro:
+
+| Alias de atividade                              | Categoria canônica |
+|-------------------------------------------------|--------------------|
+| `restaurante`, `alimentacao`                    | `alimentacao`      |
+| `hospedagem`                                    | `hospedagem`       |
+| `deslocamento`, `transporte`                    | `transporte`       |
+| `passeio`, `aventura`, `cachoeira`, `cultura`, `evento`, `natureza`, `noturno`, `praia`, `trilha` | `passeios` |
+| `compra`, `compras`                             | `compras`          |
+| `descanso`, `emergencia`, `livre`, `outros`     | `outros`           |
+
+---
+
+## Módulos de JS
+
+### `ui.js` — Helpers de renderização
+
+| Função                          | Descrição                                              |
+|---------------------------------|--------------------------------------------------------|
+| `renderDespesaItem(desp, tripId)` | Card de despesa com badge `Do roteiro` (laranja) para despesas vinculadas ao roteiro |
+| `renderTrechoCard(trecho)`      | Card de trecho com badge Google Maps quando calculado pela API |
+| `renderParticipanteChip(p)`     | Chip de participante (ativo/inativo)                   |
+| `_despCatMeta`                  | Metadados de ícone/rótulo para todas as categorias de despesa |
+
+### `mapsService.js` — Google Maps
+
+| Função                             | Descrição                                                  |
+|------------------------------------|------------------------------------------------------------|
+| `computeRoute(origin, dest, mode)` | Chama Routes API e retorna `{ distanceKm, durationText }` |
+| `initAutocomplete(inputEl, cb)`    | Inicializa Places Autocomplete em um input                 |
+| `isConfigured()`                   | Retorna `true` se chave Maps está salva nas configurações  |
+
+O `AtividadeModal` e o `RouteModal` usam guard `window.MapsService && typeof MapsService.computeRoute === 'function'` para ambientes sem a API disponível (localhost sem chave autorizada).
+
+---
+
+## Modais
+
+### `TripModal`
+
+- Criar/editar viagem com nome, datas e participantes.
+- Gestão de participantes: adicionar, remover, marcar ativo/inativo.
+- Validações: nome obrigatório, nomes únicos, ao menos 1 participante ativo.
+- Migração automática de viagens antigas com número de participantes.
+
+### `AtividadeModal`
+
+- Criar/editar atividade em um dia do roteiro.
+- Campos: título, categoria, horário, local, custo estimado, notas.
+- Valor padrão `categoria: 'outro'` para evitar falha silenciosa de validação.
+- Cálculo opcional de rota via Maps API (com `try/catch` para ambientes sem API).
+- Salva atividade e aciona `_syncAtividadeExpense` automaticamente.
+
+### `DespesaModal`
+
+- Criar/editar despesa manual.
+- Quem pagou: select de participantes ativos da viagem.
+- Rateio: checkboxes com nomes reais dos participantes.
+- Modo de pagamento: À vista ou Parcelado (calcula parcelas + ajuste de centavos na última).
+- Bloqueado quando não há participantes ativos na viagem.
+
+### `RouteModal`
+
+- Criar/editar trecho de rota.
+- Cálculo automático de distância e duração via Routes API (modo Carro).
+- Estimativa de custo de combustível baseada nas preferências do usuário.
+- Campos editáveis manualmente para tipos sem suporte a cálculo (Ônibus, Aéreo, etc.).
+
+---
+
+## Página Financeiro
+
+- Despesas agrupadas por data (cabeçalhos estilo roteiro com número do dia).
+- Ordenação cronológica ascendente (mesma ordem do Roteiro).
+- Badge `Do roteiro` (laranja) em despesas geradas por atividades.
+- Resumo por categoria usando categorias canônicas.
+- KPIs: total gasto, orçamento, saldo, compromisso parcelado.
+- Balanço mensal.
+
+---
+
+## Página Roteiro
+
+- Dias agrupados por data com número do dia de viagem.
+- Atividades com horário, local, categoria e custo estimado.
+- Custo da atividade refletido automaticamente no Financeiro.
+
+---
+
+## Preferências e nome de usuário
+
+As preferências são salvas localmente via `_salvarPreferencias` e lidas por `_lerPreferencias`. A função `_getDisplayUserName()` define o nome exibido no header, saudação e configurações com esta prioridade:
+
+1. `prefs.nomeUsuario` (campo "Seu nome" em Configurações).
+2. `user.displayName` do Firebase Auth.
+3. Parte local do e-mail (`usuario@...` → `usuario`).
+4. Fallback: `'Usuário'`.
+
+O header é atualizado imediatamente após salvar as preferências via `atualizarHeaderAuthUI()`.
+
+---
+
+## Navegação mobile (bottom nav)
+
+7 itens na barra inferior fixa (visível apenas em telas < 1024px):
+
+| Ícone | Rota         |
+|-------|-------------|
+| 🏠    | `#/inicio`   |
+| 🗺️    | `#/viagens`  |
+| 📅    | `#/roteiro`  |
+| 💰    | `#/financeiro` |
+| 🛣️    | `#/rotas`    |
+| 🧳    | `#/bagagem`  |
+| ⚙️    | `#/config`   |
+
+A barra usa `position: fixed; bottom: 0` com `env(safe-area-inset-bottom)` para suporte a iPhones com notch/home indicator.
 
 ---
 
@@ -92,244 +316,94 @@ Acesse `http://192.168.1.100:8000` pelo celular (mesmo Wi-Fi).
 
 - HTML5 semântico
 - CSS3 com variáveis customizadas (sem pré-processadores)
-- JavaScript vanilla ES5/ES6 (sem frameworks)
+- JavaScript vanilla ES5/ES2017 IIFEs (sem frameworks)
+- Firebase: Authentication + Realtime Database
+- Google Maps: Routes API + Places Autocomplete
 - PWA: Service Worker + Web Manifest
 - Hash routing nativo
 
-## Nota sobre custos de rota
+---
 
-- Custos de rotas no Financeiro são derivados de `rotaboa.routes.v1`.
-- Eles não são duplicados em `rotaboa.expenses.v1`, que armazena apenas despesas manuais.
+## Nota sobre custos de rota e despesas vinculadas
 
-## Step 6 — Página Config e preparação Firebase
-
-### O que foi implementado
-
-- Nova página funcional de configuração em `#/config` (mantendo alias `#/configuracoes`).
-- Seção **Modo de dados** com status de Local e Firebase preparado.
-- Seção **Configuração Firebase** com campos, salvar, testar conexão e limpar configuração.
-- Seção **Backup local** com exportar/importar JSON e limpar dados locais com confirmação.
-- Badge de status no cabeçalho: `Local`, `Firebase configurado` e `Firebase online`.
-- Preparação de cliente Firebase sem migrar persistência principal do app (continua localStorage).
-
-### Arquivos alterados
-
-- `index.html`
-- `assets/js/app.js`
-- `assets/js/firebaseClient.js` (novo)
-- `README.md`
-
-### Como validar
-
-1. Abrir `#/config` e conferir que a página carrega sem erros no console.
-2. Preencher configuração Firebase, clicar em **Salvar configuração** e recarregar a página.
-3. Conferir badge do header: `Firebase configurado` após salvar.
-4. Clicar em **Testar conexão** e validar retorno de sucesso ou mensagem amigável de erro.
-5. Clicar em **Limpar configuração** e confirmar badge `Local`.
-6. Clicar em **Exportar backup JSON** e validar download do arquivo.
-7. Clicar em **Importar backup JSON** e validar restauração dos dados locais.
-8. Clicar em **Limpar dados locais** e validar confirmação via modal.
-9. Navegar nas páginas existentes e confirmar funcionamento normal.
-
-### Observação importante
-
-- Persistência Firebase está **preparada**, mas **ainda não está ativa como banco principal**.
-- O `Store` continua usando localStorage normalmente.
-
-## Step 7 — Autenticação Firebase (sem migrar dados)
-
-### O que foi implementado
-
-- Nova rota `#/login` com autenticação por email/senha, criação de conta e login com Google.
-- Logout e escuta de sessão (`onAuthStateChanged`) para manter usuário autenticado após recarregar.
-- Cabeçalho com estado de autenticação:
-	- deslogado: botão **Entrar**
-	- logado: badge com usuário + botão **Sair**
-- Aviso sutil em `#/config`, `#/financeiro`, `#/rotas` e `#/roteiro` quando Firebase está configurado, mas sem usuário autenticado.
-
-### Arquivos alterados
-
-- `assets/js/firebaseClient.js`
-- `assets/js/app.js`
-- `README.md`
-
-### Observação importante
-
-- A autenticação foi adicionada, mas os dados do app **continuam locais**.
-- O `Store` segue usando localStorage como fonte principal.
-
-## Step 8 — Gate de Auth, modo offline e sync preparado
-
-### O que foi implementado
-
-- Gate de acesso por hash route: a única rota pública é `#/login`.
-- Inicialização do app aguarda resolução do estado de autenticação antes de liberar rotas privadas.
-- Modo offline local com botão **Usar offline neste dispositivo** na tela de login.
-- Badge de cabeçalho em modo offline: `Modo offline`.
-- Ação **Sair do modo offline** na página `#/config`.
-- Preparação de sincronização com Firestore em `users/{uid}/appState/main`.
-- Novo `SyncService` com:
-	- `syncLocalToCloud()`
-	- `getSyncStatus()`
-	- `markPendingSync()`
-- CRUD local continua igual (localStorage), mas ações de escrita marcam sync pendente.
-
-### Checklist de validação
-
-1. Sem erros de console na abertura da aplicação.
-2. Usuário deslogado não acessa rotas privadas direto por hash (redireciona para `#/login`).
-3. Login com Google abre o app normalmente.
-4. Botão **Usar offline neste dispositivo** abre o app sem exigir login.
-5. Em modo offline, criação/edição/exclusão continuam locais em localStorage.
-6. Ao logar online, estado local é enviado para Firestore (`users/{uid}/appState/main`).
-7. Ao recuperar conexão (`online`), sincronização é tentada novamente.
-8. Página `#/config` não exibe mais campos de credenciais Firebase.
-9. Textos de interface permanecem em PT-BR.
-
-## Step 9 — Refino de UX em Auth e Config
-
-### O que foi refinado
-
-- Cabeçalho sem status técnico: exibe badge apenas em `Modo offline` ou `Sincronização pendente`.
-- Usuário autenticado/offline é redirecionado de `#/login` para `#/inicio`.
-- Página `#/config` reorganizada em seções de produto:
-	- **Conta**
-	- **Sincronização**
-	- **Dados locais**
-	- **Preferências**
-- Preferências locais adicionadas:
-	- Página inicial padrão
-	- Mostrar valores financeiros na tela inicial
-	- Confirmações antes de excluir
-
-### Checklist de validação
-
-1. Login com Google redireciona para `#/inicio`.
-2. Usuário logado não permanece em `#/login`.
-3. Cabeçalho não exibe `Firebase online` ou termos técnicos.
-4. `#/config` não expõe credenciais nem rótulos técnicos de Firebase.
-5. Modo offline continua funcionando com dados locais.
-6. Status de sincronização é compreensível para usuário final.
-7. Preferências são salvas e aplicadas sem quebrar o CRUD atual.
-8. Sem erros de console.
-
-## Step 10 — Refino visual global (header, mobile e consistência)
-
-### O que foi refinado
-
-- Header mais limpo, sem badge técnico fixo.
-- Topo mobile compacto, sem quebra de layout entre 360px e 430px.
-- Navegação inferior mantida como principal no mobile, com melhor alinhamento e respiro.
-- Conteúdo com padding inferior seguro para não ficar atrás da bottom nav.
-- Cartões, botões, espaçamentos e grids com padrão visual mais consistente.
-- Indicadores de sincronização priorizados em `#/config`, com feedback discreto por toast.
-
-### Checklist de validação
-
-1. Desktop em largura ≥ 1024px sem quebra no header.
-2. Mobile em 430px, 390px e 375px sem scroll horizontal.
-3. Header não quebra e permanece compacto no mobile.
-4. Bottom nav não cobre conteúdo das páginas.
-5. Indicador de sync aparece no contexto de Configuração e feedback breve após ação.
-6. Rotas continuam operando normalmente.
-7. CRUD, auth, offline e sync permanecem com o mesmo comportamento funcional.
-8. Sem erros no console.
-
-## Step 11 — Auto sync seguro + Dashboard Inicio robusto
-
-### O que foi implementado
-
-- `SyncService.startAutoSync()` e `SyncService.stopAutoSync()` com ciclo de 60 segundos.
-- Auto sync acionado após sessão pronta, ao voltar online, ao voltar para aba visível e após mudanças locais pendentes.
-- Lock interno para evitar chamadas duplicadas enquanto uma sincronização está em andamento.
-- Feedback curto por toast: `Sincronizado`, `Sincronização pendente`, `Sem conexão`.
-- Página `#/inicio` redesenhada como dashboard:
-	- hero com ações principais
-	- KPIs de painel
-	- card compacto da viagem selecionada
-	- próximas atividades
-	- resumo financeiro
-	- resumo de rotas
-	- viagens em destaque
-- Ajustes de responsividade focados em 430px, 390px e 375px.
-
-### Checklist de validação
-
-1. Desktop ≥ 1024px sem quebras no painel e no header.
-2. Mobile 430px, 390px e 375px sem scroll horizontal.
-3. Auto sync não dispara chamadas duplicadas em paralelo.
-
-## Step 12 — Participantes reais, parcelas e limpeza de mock
-
-### O que foi implementado
-
-- Remoção do fallback de seed automático de viagens mock.
-- Limpeza segura de viagens mock conhecidas (`viagem-1`, `viagem-2`, `viagem-3`) e dados associados (itinerário, despesas e rotas) sem apagar viagens do usuário.
-- Modelo de participantes por viagem em formato real:
-	- `participantes: [{ id, nome, ativo }]`
-	- migração automática de registros antigos com número de participantes.
-- `TripModal` com gestão de participantes:
-	- adicionar/remover participante
-	- marcar ativo/inativo
-	- validação de nome obrigatório, nome único e ao menos 1 ativo.
-- `DespesaModal` atualizado:
-	- campo **Quem pagou** com select dos participantes ativos
-	- rateio por checkboxes com nomes reais
-	- bloqueio de nova despesa quando não há participantes ativos
-	- modo de pagamento **À vista / Parcelado**
-	- cálculo de parcelas com ajuste de centavos na última parcela.
-- Cards e resumos financeiros:
-	- detalhe de parcelamento no card da despesa
-	- nova linha **Compromisso parcelado** em `#/financeiro` e no resumo de `#/inicio`
-	- KPIs continuam baseados no valor total da despesa.
-
-### Checklist de validação
-
-1. Com localStorage limpo, o app abre sem viagens pré-semeadas.
-2. Ao editar viagem antiga (formato numérico), participantes aparecem em lista com nomes e estado ativo.
-3. Não é possível salvar viagem com nomes vazios, duplicados ou sem participantes ativos.
-4. Sem participantes ativos, o botão de nova despesa exibe aviso e não abre criação.
-5. Em despesa parcelada, o resumo mostra parcelas e última parcela ajustada por centavos.
-6. Após recarregar a página, participantes e parcelamento persistem corretamente.
-7. No financeiro, `Compromisso parcelado` é exibido e os totais/KPIs continuam coerentes com o valor total lançado.
-4. Pendência de sincronização é limpa após sync com sucesso.
-5. Rotas `Inicio`, `Viagens`, `Roteiro`, `Financeiro`, `Rotas` e `Config` seguem funcionais.
-6. Modo offline continua utilizável.
-7. Sem erros no console.
+- Custos de rotas (trechos) ficam em `rotaboa.routes.v1` — **não** são duplicados em `rotaboa.expenses.v1`.
+- Custos de **atividades** com `custoEstimado > 0` são sincronizados automaticamente para `rotaboa.expenses.v1` via `_syncAtividadeExpense`. O campo `linkedSource` da despesa aponta para a atividade de origem.
+- `_sincronizarTodasAtividades()` é chamado em `carregarEstadoCompleto` para reconciliar todas as atividades já existentes com as despesas corretas (categoria, valor, descrição).
 
 ---
 
-## Validação — Cálculo automático de rota (carro)
+## Histórico de implementação
 
-Checklist manual após habilitar a chave Google Maps em Configurações:
+| Etapa | O que foi feito |
+|-------|-----------------|
+| 1–5   | Estrutura inicial: SPA com hash routing, CRUD local em localStorage, layout responsivo, PWA básico, dados mock. |
+| 6     | Página `#/config` com seções de conta, sincronização, dados e preferências. Cliente Firebase preparado (`firebaseClient.js`). |
+| 7     | Autenticação Firebase: login por email/senha, Google e modo offline. Guard de rotas privadas. |
+| 8     | `SyncService` com `syncLocalToCloud`, `pullFromRtdb`, `markPendingSync`. Estado local sincronizado com RTDB por UID. |
+| 9     | Refinamento de UX de Auth: header sem termos técnicos, redirecionamento pós-login, preferências de usuário. |
+| 10    | Refino visual global: header compacto, safe-area no bottom nav, padding seguro em `app-main`, grids consistentes. |
+| 11    | Auto sync com ciclo 60s + lock anti-duplo. Dashboard `#/inicio` com KPIs, próximas atividades e viagens em destaque. |
+| 12    | Participantes reais por viagem (`[{ id, nome, ativo }]`), migração automática. `DespesaModal` com rateio real e parcelamento. Remoção de dados mock. |
+| 13    | Google Maps Routes API + Places Autocomplete. `RouteModal` com cálculo automático de distância/duração/custo. Badge "Google Maps" nos trechos. |
+| 14    | Vinculação automática Roteiro → Financeiro (`_syncAtividadeExpense`). `_mapCategoria` normaliza aliases. `_sincronizarTodasAtividades` reconcilia ao carregar. |
+| 15    | Financeiro agrupado por data (cabeçalhos com número do dia). Ordenação cronológica. Badge laranja `Do roteiro`. |
+| 16    | Login Google por popup em todos os dispositivos (fix iOS Safari ITP). `Config` adicionado ao bottom nav (7 itens). `_getDisplayUserName()` com prioridade para nome nas preferências. Header atualizado imediatamente após salvar nome. |
 
-- [ ] Abrir modal de novo trecho.
-- [ ] No campo **Origem**, digitar "Belo Horizonte" e selecionar a sugestão "Belo Horizonte, MG, Brasil".
-- [ ] No campo **Destino**, digitar "São Thomé" e selecionar a sugestão "São Thomé das Letras, MG, Brasil".
-- [ ] Selecionar tipo **Carro 🚗**.
-- [ ] Status exibe "⏳ Calculando rota…" e botão Salvar fica desativado.
-- [ ] Após resposta da API, status exibe "✅ Distância e tempo calculados automaticamente."
-- [ ] Campo **Distância (km)** preenchido automaticamente (aprox. 320 km).
-- [ ] Campo **Duração estimada** preenchido automaticamente (aprox. 4h 20min).
-- [ ] Botão Salvar reativado; clicar salva o trecho.
-- [ ] Card do trecho exibe badge "Google Maps" na origem/destino.
-- [ ] KPIs de rota (distância total, custo estimado) refletem o novo trecho.
-- [ ] Despesa vinculada ao trecho exibe custo correto no Financeiro.
-- [ ] Trocar tipo para **Aéreo ✈️**: status muda para "📝 Tipo sem suporte a cálculo automático — preencha manualmente." e campos ficam editáveis.
-- [ ] Apagar texto da Origem: status volta para dica padrão.
-- [ ] Sem chave configurada: status mostra aviso de modo manual (sem crash).
-- [ ] `node --check` limpo em todos os arquivos JS.
+---
+
+## Checklist de validação final
+
+### Auth e sessão
+- [ ] Login com Google redireciona para `#/inicio`.
+- [ ] Usuário logado redirecionado de `#/login` para `#/inicio`.
+- [ ] Modo offline abre o app sem Firebase.
+- [ ] Ao logar, pull do RTDB carrega estado do usuário.
+- [ ] Auto sync a cada 60s e ao recuperar conexão.
+
+### Roteiro e atividades
+- [ ] Criar atividade com custo > 0 → despesa aparece em `#/financeiro` imediatamente.
+- [ ] Editar custo da atividade → despesa atualizada no financeiro.
+- [ ] Zerar custo da atividade → despesa removida do financeiro.
+- [ ] Excluir atividade → despesa vinculada excluída.
+- [ ] Atividade com categoria `restaurante` → Financeiro agrupa em **Alimentação**.
+- [ ] Recarregar página → todas as atividades reconciliadas com despesas corretas.
+
+### Google Maps (requer chave configurada)
+- [ ] Modal de trecho: digitar origem/destino e selecionar tipo Carro → calcula distância e duração automaticamente.
+- [ ] Badge "Google Maps" exibido no card do trecho após cálculo.
+- [ ] Trocar para Aéreo → campos manuais, sem crash.
+- [ ] Sem chave configurada → aviso de modo manual, botão Salvar funciona normalmente.
+- [ ] Em localhost sem chave autorizada → `AtividadeModal` salva sem travar (try/catch).
+
+### Financeiro
+- [ ] Despesas ordenadas cronologicamente com cabeçalhos de dia.
+- [ ] Badge `Do roteiro` (laranja) em despesas de atividades.
+- [ ] Despesas manuais sem badge.
+- [ ] KPIs coerentes com total das despesas (incluindo parceladas).
+
+### Mobile
+- [ ] Bottom nav exibe 7 itens sem sobreposição em 375px, 390px e 430px.
+- [ ] Config acessível via ícone de engrenagem na bottom nav.
+- [ ] Conteúdo não fica atrás da bottom nav (safe-area).
+- [ ] Nome personalizado em "Seu nome" aparece no header após salvar preferências.
+
+### Qualidade de código
+- [ ] `node --check assets/js/app.js` → OK
+- [ ] `node --check assets/js/store.js` → OK
+- [ ] `node --check assets/js/ui.js` → OK
+- [ ] Sem erros no console do navegador.
 
 ---
 
 ## Roadmap
 
-- [ ] Prompt 2: Autenticação e persistência (Supabase/Firebase)
-- [ ] Prompt 3: CRUD completo de viagens e roteiros
-- [ ] Prompt 4: Mapas e cálculo de rotas real
-- [ ] Prompt 5: Colaboração entre usuários
+- [ ] Compartilhamento de viagem entre usuários (convite por link)
+- [ ] Notificações push para atividades do dia
+- [ ] Exportar roteiro como PDF
+- [ ] Modo escuro
+- [ ] Suporte a moedas estrangeiras com conversão automática
 
 ---
 
-> MVP gerado em 10/05/2026 · Dados fictícios para desenvolvimento.
-Planejador de viagens com roteiro, finanças, rotas e organização de passeios.
+> Iniciado em 10/05/2026 · Planejador de viagens com roteiro, finanças, rotas e organização de passeios.
+

@@ -3130,46 +3130,56 @@ var TripModal = (function () {
 
     // Coleta dados, valida e persiste
     salvar: function () {
-      if (!_validar()) return;
-
-      var tagsRaw  = (document.getElementById('f-tags').value || '').split(',');
-      var tagsLista = tagsRaw.map(function (t) { return t.trim(); }).filter(Boolean);
-
-      var destPrincipal = document.getElementById('f-dest-principal').value.trim();
-      var locCurta      = document.getElementById('f-loc-curta').value.trim();
-
-      var dados = {
-        nome:              document.getElementById('f-nome').value.trim(),
-        destinoPrincipal:  destPrincipal,
-        localizacaoCurta:  locCurta,
-        destino:           locCurta || destPrincipal, // compatibilidade retroativa
-        status:            document.getElementById('f-status').value,
-        dataInicio:    _DTWidget.lerData('f-inicio'),
-        dataFim:       _DTWidget.lerData('f-fim'),
-        orcamento:     Number(document.getElementById('f-orc').value),
-        participantes: _participantesDraft.map(function (p) {
-          return {
-            id: p.id || ('part-local-' + Date.now()),
-            nome: String(p.nome || '').trim(),
-            ativo: p.ativo !== false,
-          };
-        }),
-        tags:          tagsLista,
-        descricao:     document.getElementById('f-desc').value.trim(),
-      };
-
-      if (_editandoId) {
-        Store.editarViagem(_editandoId, dados);
-      } else {
-        Store.criarViagem(dados);
+      if (!_validar()) {
+        _mostrarToast('Corrija os campos destacados antes de salvar.');
+        return;
       }
 
-      TripModal.fechar();
+      var saveBtn = document.getElementById('trip-modal-save');
+      if (saveBtn) saveBtn.disabled = true;
 
-      // Re-renderiza a página atual
-      var hash = window.location.hash || '#/viagens';
-      // Força re-renderização mesmo que o hash não mude
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      try {
+        var tagsRaw  = (document.getElementById('f-tags').value || '').split(',');
+        var tagsLista = tagsRaw.map(function (t) { return t.trim(); }).filter(Boolean);
+
+        var destPrincipal = document.getElementById('f-dest-principal').value.trim();
+        var locCurta      = document.getElementById('f-loc-curta').value.trim();
+
+        var dados = {
+          nome:              document.getElementById('f-nome').value.trim(),
+          destinoPrincipal:  destPrincipal,
+          localizacaoCurta:  locCurta,
+          destino:           locCurta || destPrincipal,
+          status:            document.getElementById('f-status').value,
+          dataInicio:    _DTWidget.lerData('f-inicio'),
+          dataFim:       _DTWidget.lerData('f-fim'),
+          orcamento:     Number(document.getElementById('f-orc').value),
+          participantes: _participantesDraft.map(function (p) {
+            return {
+              id: p.id || ('part-local-' + Date.now()),
+              nome: String(p.nome || '').trim(),
+              ativo: p.ativo !== false,
+            };
+          }),
+          tags:          tagsLista,
+          descricao:     document.getElementById('f-desc').value.trim(),
+        };
+
+        if (_editandoId) {
+          Store.editarViagem(_editandoId, dados);
+        } else {
+          Store.criarViagem(dados);
+        }
+
+        TripModal.fechar();
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      } catch (err) {
+        console.error('[TripModal.salvar]', err);
+        _mostrarToast('Erro ao salvar viagem. Tente novamente.');
+      } finally {
+        var btn = document.getElementById('trip-modal-save');
+        if (btn) btn.disabled = false;
+      }
     },
   };
 })();
@@ -3707,12 +3717,17 @@ var AtividadeModal = (function () {
   var _calculandoRota = false; // bloqueia duplo-clique durante cálculo async
 
   // ---- Autocomplete no campo Local ----
+  var _localInputListener = null; // evita acúmulo de listeners em aberturas repetidas
   function _setupLocalAutocomplete(existingPlace) {
     _localPlace = existingPlace || null;
     var inputEl = document.getElementById('af-local');
     if (!inputEl) return;
-    // Limpa placeId quando o usuário digita manualmente
-    inputEl.addEventListener('input', function () { _localPlace = null; });
+    // Remove listener anterior antes de adicionar novo (evita duplicatas)
+    if (_localInputListener) {
+      try { inputEl.removeEventListener('input', _localInputListener); } catch (e) {}
+    }
+    _localInputListener = function () { _localPlace = null; };
+    inputEl.addEventListener('input', _localInputListener);
     MapsService.setupAutocomplete(inputEl).then(function (ac) {
       if (!ac) return;
       ac.addListener('place_changed', function () {
@@ -4029,9 +4044,12 @@ var AtividadeModal = (function () {
 
     // Editar
     editar: function (tripId, atividadeId) {
-      _tripId      = tripId;
-      _atividadeId = atividadeId;
-      _dataPresel  = null;
+      _tripId          = tripId;
+      _atividadeId     = atividadeId;
+      _dataPresel      = null;
+      _calculandoRota  = false; // garante reset mesmo que fechar() anterior não tenha sido chamado
+      _localPlace      = null;  // limpa estado de place anterior
+      _localInputListener = null;
 
       var itin = Store.getItinerario(tripId);
       // Encontra atividade
@@ -4069,7 +4087,15 @@ var AtividadeModal = (function () {
 
     salvar: function () {
       if (_calculandoRota) return;
-      if (!_validar()) return;
+      if (!_validar()) {
+        _mostrarToast('Corrija os campos destacados antes de salvar.');
+        return;
+      }
+
+      var saveBtn = document.getElementById('ativ-modal-save');
+      if (saveBtn) saveBtn.disabled = true;
+
+      try {
 
       var dados = {
         data:           document.getElementById('af-dia').value,
@@ -4177,6 +4203,7 @@ var AtividadeModal = (function () {
             dest:   { label: _localPlace.endereco || _localPlace.nome || dados.local, placeId: _localPlace.placeId },
           };
 
+          var _btnLabel = _snap.atividadeId ? 'Salvar alterações' : 'Salvar atividade';
           try {
             MapsService.computeRoute({
               origin:             _snap.origem.label,
@@ -4206,18 +4233,20 @@ var AtividadeModal = (function () {
                 observacoes:        '',
               };
               AtividadeModal._persistirSalvar(_snap.tripId, _snap.atividadeId, _snap.dados, trechoData);
-            }).catch(function () {
+            }).catch(function (routeErr) {
+              console.warn('[AtividadeModal] Rota não calculada:', routeErr);
               _calculandoRota = false;
-              var saveBtn2 = document.getElementById('ativ-modal-save');
-              if (saveBtn2) { saveBtn2.disabled = false; saveBtn2.textContent = 'Salvar atividade'; }
+              var btn2 = document.getElementById('ativ-modal-save');
+              if (btn2) { btn2.disabled = false; btn2.textContent = _btnLabel; }
               _mostrarToast('Atividade salva. Não foi possível calcular a rota.');
               AtividadeModal._persistirSalvar(_snap.tripId, _snap.atividadeId, _snap.dados, null);
             });
           } catch (_routeErr) {
             // API de rotas indisponível (ex: localhost sem Maps API) — salva sem rota
+            console.warn('[AtividadeModal] Maps API indisponível:', _routeErr);
             _calculandoRota = false;
-            var saveBtn3 = document.getElementById('ativ-modal-save');
-            if (saveBtn3) { saveBtn3.disabled = false; saveBtn3.textContent = 'Salvar atividade'; }
+            var btn3 = document.getElementById('ativ-modal-save');
+            if (btn3) { btn3.disabled = false; btn3.textContent = _btnLabel; }
             AtividadeModal._persistirSalvar(_snap.tripId, _snap.atividadeId, _snap.dados, null);
           }
           return; // espera async
@@ -4226,47 +4255,84 @@ var AtividadeModal = (function () {
         }
       }
 
+      // Non-async path — wrap in try/catch before falling through
+      } catch (_salvarErr) {
+        console.error('[AtividadeModal.salvar] Erro inesperado:', _salvarErr);
+        _mostrarToast('Erro ao salvar atividade. Tente novamente.');
+        var errBtn = document.getElementById('ativ-modal-save');
+        if (errBtn) { errBtn.disabled = false; }
+        _calculandoRota = false;
+        return;
+      } finally {
+        // Re-enable only when NOT waiting for async route calc
+        if (!_calculandoRota) {
+          var finBtn = document.getElementById('ativ-modal-save');
+          if (finBtn) finBtn.disabled = false;
+        }
+      }
+
       AtividadeModal._persistirSalvar(_tripId, _atividadeId, dados, null);
     },
 
     // Persiste atividade + trecho vinculado e fecha o modal
     _persistirSalvar: function (tripId, atividadeId, dados, trechoData) {
-      var savedId;
-      if (atividadeId) {
-        Store.editarAtividade(tripId, atividadeId, dados);
-        savedId = atividadeId;
-      } else {
-        var criada = Store.adicionarAtividade(tripId, dados.data, dados);
-        savedId = criada ? criada.id : null;
-      }
-
-      if (savedId) {
-        if (trechoData) {
-          // Cria ou atualiza o trecho vinculado
-          trechoData.tripId = tripId;
-          trechoData.linkedActivityId = savedId;
-          var trechosExist = Store.getTrechosRota(tripId).filter(function (t) {
-            return t.source === 'roteiro' && t.linkedActivityId === savedId;
-          });
-          if (trechosExist.length > 0) {
-            Store.editarTrechoRota(tripId, trechosExist[0].id, trechoData);
-            for (var i = 1; i < trechosExist.length; i++) {
-              Store.excluirTrechoRota(tripId, trechosExist[i].id);
-            }
-          } else {
-            Store.adicionarTrechoRota(tripId, trechoData);
+      try {
+        var savedId;
+        if (atividadeId) {
+          var editOk = Store.editarAtividade(tripId, atividadeId, dados);
+          if (!editOk) {
+            console.error('[AtividadeModal] editarAtividade falhou', { tripId: tripId, atividadeId: atividadeId });
+            _mostrarToast('Erro: atividade não encontrada. Recarregue a página.');
+            var failBtn = document.getElementById('ativ-modal-save');
+            if (failBtn) failBtn.disabled = false;
+            return;
           }
-        } else if (atividadeId && !(dados.placeId)) {
-          // Local foi apagado ao editar — remove rota vinculada se houver
-          Store.getTrechosRota(tripId).filter(function (t) {
-            return t.source === 'roteiro' && t.linkedActivityId === savedId;
-          }).forEach(function (t) { Store.excluirTrechoRota(tripId, t.id); });
+          savedId = atividadeId;
+        } else {
+          var criada = Store.adicionarAtividade(tripId, dados.data, dados);
+          savedId = criada ? criada.id : null;
+          if (!savedId) {
+            console.error('[AtividadeModal] adicionarAtividade falhou', { tripId: tripId, data: dados.data });
+            _mostrarToast('Erro ao criar atividade. Verifique as datas da viagem.');
+            var failBtn2 = document.getElementById('ativ-modal-save');
+            if (failBtn2) failBtn2.disabled = false;
+            return;
+          }
         }
-      }
 
-      AtividadeModal.fechar();
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
-      if (savedId) _scrollToSaved('[data-ativ-id="' + savedId + '"]');
+        if (savedId) {
+          if (trechoData) {
+            // Cria ou atualiza o trecho vinculado
+            trechoData.tripId = tripId;
+            trechoData.linkedActivityId = savedId;
+            var trechosExist = Store.getTrechosRota(tripId).filter(function (t) {
+              return t.source === 'roteiro' && t.linkedActivityId === savedId;
+            });
+            if (trechosExist.length > 0) {
+              Store.editarTrechoRota(tripId, trechosExist[0].id, trechoData);
+              for (var i = 1; i < trechosExist.length; i++) {
+                Store.excluirTrechoRota(tripId, trechosExist[i].id);
+              }
+            } else {
+              Store.adicionarTrechoRota(tripId, trechoData);
+            }
+          } else if (atividadeId && !(dados.placeId)) {
+            // Local foi apagado ao editar — remove rota vinculada se houver
+            Store.getTrechosRota(tripId).filter(function (t) {
+              return t.source === 'roteiro' && t.linkedActivityId === savedId;
+            }).forEach(function (t) { Store.excluirTrechoRota(tripId, t.id); });
+          }
+        }
+
+        AtividadeModal.fechar();
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+        if (savedId) _scrollToSaved('[data-ativ-id="' + savedId + '"]');
+      } catch (persistErr) {
+        console.error('[AtividadeModal._persistirSalvar]', persistErr);
+        _mostrarToast('Erro ao salvar atividade. Tente novamente.');
+        var btn = document.getElementById('ativ-modal-save');
+        if (btn) { btn.disabled = false; }
+      }
     },
 
     _onCatChange: function () {
@@ -4914,54 +4980,68 @@ var DespesaModal = (function () {
     },
 
     salvar: function () {
-      if (!_validar()) return;
-      var modo = document.getElementById('df-pagamento').value;
-      var totalParcelas = modo === 'parcelado'
-        ? Math.max(2, Math.floor(Number(document.getElementById('df-parcelas').value) || 2))
-        : 1;
-      var dados = {
-        data:         _DTWidget.lerData('df-data'),
-        categoria:    document.getElementById('df-cat').value,
-        descricao:    document.getElementById('df-desc').value.trim(),
-        valor:        Number(document.getElementById('df-valor').value),
-        quemPagouId:  document.getElementById('df-pagante').value.trim(),
-        participantesRateioIds: _coletarPartic(),
-        observacoes:  document.getElementById('df-obs').value.trim(),
-        tipoPagamento: modo,
-        totalParcelas: totalParcelas,
-      };
-      // Coleta dados de hospedagem se aplicável
-      if (dados.categoria === 'hospedagem') {
-        var hospNome     = document.getElementById('df-hosp-nome');
-        var hospEnd      = document.getElementById('df-hosp-end');
-        var ciData       = _lerDiaSelect('df-ci-data');
-        var ciHora       = _DTWidget.lerHora('df-ci-hora');
-        var coData       = _lerDiaSelect('df-co-data');
-        var coHora       = _DTWidget.lerHora('df-co-hora');
-        dados.hospedagem = {
-          nome:         (hospNome ? hospNome.value.trim() : '') || dados.descricao,
-          endereco:     hospEnd  ? hospEnd.value.trim()  : '',
-          checkInDate:  ciData  || '',
-          checkInTime:  ciHora  || '',
-          checkOutDate: coData  || '',
-          checkOutTime: coHora  || '',
-        };
-        dados.origemModulo = dados.origemModulo || 'financeiro';
-      } else {
-        dados.hospedagem = null;
+      if (!_validar()) {
+        _mostrarToast('Corrija os campos destacados antes de salvar.');
+        return;
       }
 
-      var savedDespId;
-      if (_despesaId) {
-        Store.editarDespesa(_tripId, _despesaId, dados);
-        savedDespId = _despesaId;
-      } else {
-        var despCriada2 = Store.adicionarDespesa(_tripId, dados);
-        savedDespId = despCriada2 ? despCriada2.id : null;
+      var saveBtn = document.getElementById('desp-modal-save');
+      if (saveBtn) saveBtn.disabled = true;
+
+      try {
+        var modo = document.getElementById('df-pagamento').value;
+        var totalParcelas = modo === 'parcelado'
+          ? Math.max(2, Math.floor(Number(document.getElementById('df-parcelas').value) || 2))
+          : 1;
+        var dados = {
+          data:         _DTWidget.lerData('df-data'),
+          categoria:    document.getElementById('df-cat').value,
+          descricao:    document.getElementById('df-desc').value.trim(),
+          valor:        Number(document.getElementById('df-valor').value),
+          quemPagouId:  document.getElementById('df-pagante').value.trim(),
+          participantesRateioIds: _coletarPartic(),
+          observacoes:  document.getElementById('df-obs').value.trim(),
+          tipoPagamento: modo,
+          totalParcelas: totalParcelas,
+        };
+        if (dados.categoria === 'hospedagem') {
+          var hospNome     = document.getElementById('df-hosp-nome');
+          var hospEnd      = document.getElementById('df-hosp-end');
+          var ciData       = _lerDiaSelect('df-ci-data');
+          var ciHora       = _DTWidget.lerHora('df-ci-hora');
+          var coData       = _lerDiaSelect('df-co-data');
+          var coHora       = _DTWidget.lerHora('df-co-hora');
+          dados.hospedagem = {
+            nome:         (hospNome ? hospNome.value.trim() : '') || dados.descricao,
+            endereco:     hospEnd  ? hospEnd.value.trim()  : '',
+            checkInDate:  ciData  || '',
+            checkInTime:  ciHora  || '',
+            checkOutDate: coData  || '',
+            checkOutTime: coHora  || '',
+          };
+          dados.origemModulo = dados.origemModulo || 'financeiro';
+        } else {
+          dados.hospedagem = null;
+        }
+
+        var savedDespId;
+        if (_despesaId) {
+          Store.editarDespesa(_tripId, _despesaId, dados);
+          savedDespId = _despesaId;
+        } else {
+          var despCriada2 = Store.adicionarDespesa(_tripId, dados);
+          savedDespId = despCriada2 ? despCriada2.id : null;
+        }
+        DespesaModal.fechar();
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+        if (savedDespId) _scrollToSaved('[data-desp-id="' + savedDespId + '"]');
+      } catch (err) {
+        console.error('[DespesaModal.salvar]', err);
+        _mostrarToast('Erro ao salvar despesa. Tente novamente.');
+      } finally {
+        var btn = document.getElementById('desp-modal-save');
+        if (btn) btn.disabled = false;
       }
-      DespesaModal.fechar();
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
-      if (savedDespId) _scrollToSaved('[data-desp-id="' + savedDespId + '"]');
     },
 
     _onCatChange: function () {
@@ -5451,7 +5531,10 @@ var TrechoModal = (function () {
     },
 
     salvar: function () {
-      if (!_validar()) return;
+      if (!_validar()) {
+        _mostrarToast('Corrija os campos destacados antes de salvar.');
+        return;
+      }
       var saveBtn = document.getElementById('trecho-modal-save');
       if (saveBtn && saveBtn.disabled) return; // cálculo em andamento
 
@@ -5494,11 +5577,12 @@ var TrechoModal = (function () {
       // Close modal immediately — UI state cleared after this line
       TrechoModal.fechar();
 
-      if (trechoId) {
-        Store.editarTrechoRota(tripId, trechoId, dados);
-        window.dispatchEvent(new HashChangeEvent('hashchange'));
-        return;
-      }
+      try {
+        if (trechoId) {
+          Store.editarTrechoRota(tripId, trechoId, dados);
+          window.dispatchEvent(new HashChangeEvent('hashchange'));
+          return;
+        }
 
       if (comVolta) {
         // Shared group id for ida + volta
@@ -5572,6 +5656,10 @@ var TrechoModal = (function () {
       }
 
       window.dispatchEvent(new HashChangeEvent('hashchange'));
+      } catch (err) {
+        console.error('[TrechoModal.salvar]', err);
+        _mostrarToast('Erro ao salvar trecho. Tente novamente.');
+      }
     },
 
     _onVoltaToggle: function () {
