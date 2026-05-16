@@ -57,168 +57,226 @@ function _salvarSyncStatus(status) {
   } catch (e) {}
 }
 
-var SyncService = (function () {
-  var _status = _lerSyncStatus();
-  var _timer = null;
-  var _isSyncing = false;
-  var _lastToastAt = { ok: 0, pending: 0, offline: 0 };
+// Chave para isolar uid ativo e evitar mistura entre usuários
+var RB_CURRENT_UID_KEY = 'rotaboa.currentUid.v1';
 
-  function _agora() {
-    return Date.now();
-  }
+var SyncService = (function () {
+  var _status     = _lerSyncStatus();
+  var _timer      = null;
+  var _isSyncing  = false;
+  var _dirtyTimer = null;
+  var _lastToastAt = { ok: 0, pending: 0, offline: 0 };
+  var _connectedUnsubscribe = null;
+
+  // ---- Chaves isoladas por UID ----
+  function _cacheKey(uid)   { return 'rotaboa.cache.'   + uid + '.v1'; }
+  function _uidSyncKey(uid) { return 'rotaboa.sync.'    + uid + '.v1'; }
 
   function _toastCooldown(tipo, ms) {
-    var now = _agora();
+    var now = Date.now();
     if ((now - (_lastToastAt[tipo] || 0)) < ms) return false;
     _lastToastAt[tipo] = now;
     return true;
   }
 
-  function _temSessaoAtiva() {
-    return !!RB_AUTH_STATE.user || !!RB_AUTH_STATE.offlineMode;
+  // ---- Segurança entre usuários: limpa LS de trabalho de outro uid ----
+  function _garantirIsolamentoUid(novoUid) {
+    if (!novoUid) return;
+    var anterior = localStorage.getItem(RB_CURRENT_UID_KEY) || '';
+    if (anterior && anterior !== novoUid) {
+      // Usuário diferente: limpa chaves de trabalho globais (não o cache isolado)
+      Object.keys(RB_LOCAL_KEYS).forEach(function (k) {
+        localStorage.removeItem(RB_LOCAL_KEYS[k]);
+      });
+      localStorage.removeItem(RB_SYNC_STATUS_KEY);
+    }
+    localStorage.setItem(RB_CURRENT_UID_KEY, novoUid);
   }
 
-  function _payloadLocal() {
-    function ler(chave) {
-      try {
-        var raw = localStorage.getItem(chave);
-        return raw ? JSON.parse(raw) : null;
-      } catch (e) {
-        return null;
-      }
-    }
+  // ---- Cache por UID (snapshot pós-RTDB) ----
+  function _salvarCacheUid(uid, payload) {
+    if (!uid || !payload) return;
+    try { localStorage.setItem(_cacheKey(uid), JSON.stringify(payload)); } catch (e) {}
+  }
 
+  function carregarCacheUid(uid) {
+    if (!uid) return null;
+    try {
+      var raw = localStorage.getItem(_cacheKey(uid));
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  }
+
+  // ---- Payload completo do estado atual ----
+  function _payloadAtual() {
+    if (window.Store && typeof Store.exportarEstadoCompleto === 'function') {
+      return Object.assign(Store.exportarEstadoCompleto(), {
+        preferences: _lerPreferencias(),
+        appVersion:  RB_APP_VERSION,
+        updatedAt:   new Date().toISOString(),
+      });
+    }
+    // fallback: lê diretamente do localStorage
+    function _ler(k) {
+      try { var r = localStorage.getItem(k); return r ? JSON.parse(r) : null; } catch (e) { return null; }
+    }
     return {
-      trips: ler(RB_LOCAL_KEYS.trips) || [],
+      trips:          _ler(RB_LOCAL_KEYS.trips)      || [],
       selectedTripId: localStorage.getItem(RB_LOCAL_KEYS.selectedTrip) || null,
-      itineraries: ler(RB_LOCAL_KEYS.itineraries) || {},
-      expenses: ler(RB_LOCAL_KEYS.expenses) || {},
-      routes: ler(RB_LOCAL_KEYS.routes) || {},
-      preferences: _lerPreferencias(),
-      updatedAt: new Date().toISOString(),
-      appVersion: RB_APP_VERSION,
+      itineraries:    _ler(RB_LOCAL_KEYS.itineraries) || {},
+      expenses:       _ler(RB_LOCAL_KEYS.expenses)    || {},
+      routes:         _ler(RB_LOCAL_KEYS.routes)      || {},
+      preferences:    _lerPreferencias(),
+      updatedAt:      new Date().toISOString(),
+      appVersion:     RB_APP_VERSION,
     };
   }
 
-  function _persistir() {
-    _salvarSyncStatus(_status);
+  // ---- PULL: RTDB → Store + cache local (RTDB é fonte primária) ----
+  async function pullFromRtdb(uid) {
+    if (!uid) return { ok: false, reason: 'no-uid' };
+    if (!navigator.onLine) return { ok: false, reason: 'offline' };
+    if (!window.FirebaseClient || typeof FirebaseClient.loadAppStateRtdb !== 'function') {
+      return { ok: false, reason: 'no-client' };
+    }
+    try {
+      var rtdbData = await FirebaseClient.loadAppStateRtdb(uid);
+      if (rtdbData && typeof rtdbData === 'object') {
+        _salvarCacheUid(uid, rtdbData);
+        if (window.Store && typeof Store.carregarEstadoCompleto === 'function') {
+          Store.carregarEstadoCompleto(rtdbData);
+        }
+        _status.lastSyncAt = new Date().toISOString();
+        _status.lastError  = '';
+        _salvarSyncStatus(_status);
+        return { ok: true, hasData: true };
+      }
+      return { ok: true, hasData: false };
+    } catch (e) {
+      var msg = String((e && (e.message || e)) || 'Falha ao carregar do RTDB');
+      _status.lastError = msg;
+      _salvarSyncStatus(_status);
+      return { ok: false, reason: 'error', error: msg };
+    }
   }
 
-  async function syncLocalToCloud(opcoes) {
-    var opts = opcoes || {};
-    var silent = opts.silent !== false;
-
-    if (_isSyncing) {
-      return { ok: false, reason: 'syncing' };
-    }
-
+  // ---- PUSH: Store → RTDB + atualiza cache local ----
+  async function pushToRtdb(uid, opts) {
+    var options = opts || {};
+    if (!uid) return { ok: false, reason: 'no-uid' };
     if (RB_AUTH_STATE.offlineMode) {
       _status.pending = true;
-      _persistir();
-      if (!silent && _toastCooldown('offline', 5000)) {
-        _mostrarToast('Sem conexão');
-      }
+      _salvarSyncStatus(_status);
       return { ok: false, reason: 'offline-mode' };
     }
-    if (!RB_AUTH_STATE.user || !RB_AUTH_STATE.user.uid) {
-      _status.pending = true;
-      _persistir();
-      return { ok: false, reason: 'sem-usuario' };
-    }
     if (!navigator.onLine) {
-      _status.pending = true;
-      _persistir();
-      if (!silent && _toastCooldown('offline', 5000)) {
-        _mostrarToast('Sem conexão');
-      }
+      _status.pending    = true;
+      _status.lastError  = '';
+      _salvarSyncStatus(_status);
       return { ok: false, reason: 'sem-internet' };
     }
-    if (!window.FirebaseClient || !FirebaseClient.uploadAppState) {
-      _status.pending = true;
-      _status.lastError = 'Cliente Firebase indisponível para sincronização.';
-      _persistir();
-      if (!silent && _toastCooldown('pending', 5000)) {
-        _mostrarToast('Sincronização pendente');
-      }
-      return { ok: false, reason: 'firebase-indisponivel' };
+    if (_isSyncing) return { ok: false, reason: 'syncing' };
+    if (!window.FirebaseClient || typeof FirebaseClient.saveAppStateRtdb !== 'function') {
+      _status.pending   = true;
+      _status.lastError = 'Cliente Firebase indisponível.';
+      _salvarSyncStatus(_status);
+      return { ok: false, reason: 'no-client' };
     }
 
-    _isSyncing = true;
-    _status.syncing = true;
+    _isSyncing        = true;
+    _status.syncing   = true;
     _status.lastError = '';
-    _persistir();
+    _salvarSyncStatus(_status);
 
     try {
-      await FirebaseClient.uploadAppState(RB_AUTH_STATE.user.uid, _payloadLocal());
-      _status.pending = false;
-      _status.syncing = false;
+      var payload = _payloadAtual();
+      await FirebaseClient.saveAppStateRtdb(uid, payload);
+      _salvarCacheUid(uid, payload);
+      _status.pending    = false;
+      _status.syncing    = false;
       _status.lastSyncAt = new Date().toISOString();
-      _status.lastError = '';
-      _persistir();
-      if (!silent && _toastCooldown('ok', 2500)) {
+      _status.lastError  = '';
+      _salvarSyncStatus(_status);
+      if (!options.silent && _toastCooldown('ok', 2500)) {
         _mostrarToast('Sincronizado');
       }
       return { ok: true };
     } catch (e) {
-      _status.pending = true;
-      _status.syncing = false;
-      _status.lastError = String((e && (e.friendly || e.message)) || 'Falha ao sincronizar.');
-      _persistir();
-      if (!silent && _toastCooldown('pending', 5000)) {
+      _status.pending   = true;
+      _status.syncing   = false;
+      _status.lastError = String((e && (e.friendly || e.message)) || 'Falha ao salvar no RTDB.');
+      _salvarSyncStatus(_status);
+      if (!options.silent && _toastCooldown('pending', 5000)) {
         _mostrarToast('Sincronização pendente');
       }
-      return { ok: false, reason: 'erro-sync' };
+      return { ok: false, reason: 'error' };
     } finally {
       _isSyncing = false;
     }
   }
 
-  function markPendingSync(opcoes) {
-    var estavaPendente = !!_status.pending;
+  // ---- markPendingSync: chamado pelo Store após cada mutação ----
+  function markPendingSync() {
     _status.pending = true;
-    _persistir();
-    if (!estavaPendente && (!opcoes || opcoes.toast !== false) && _toastCooldown('pending', 5000)) {
-      _mostrarToast('Sincronização pendente');
-    }
-    if (_temSessaoAtiva()) {
-      setTimeout(function () {
-        syncLocalToCloud({ silent: true, source: 'pending-change' });
-      }, 0);
-    }
+    _salvarSyncStatus(_status);
+    // Debounce: agrupa mutações rápidas em um único push
+    if (_dirtyTimer) clearTimeout(_dirtyTimer);
+    _dirtyTimer = setTimeout(function () {
+      var uid = RB_AUTH_STATE.user && RB_AUTH_STATE.user.uid;
+      if (uid && navigator.onLine && !RB_AUTH_STATE.offlineMode) {
+        pushToRtdb(uid, { silent: true, source: 'debounced' });
+      }
+    }, 1500);
   }
 
-  function getSyncStatus() {
-    return Object.assign({}, _status);
+  // ---- syncLocalToCloud: wrapper compatível com código legado ----
+  async function syncLocalToCloud(opcoes) {
+    var uid = RB_AUTH_STATE.user && RB_AUTH_STATE.user.uid;
+    if (RB_AUTH_STATE.offlineMode || !uid) return { ok: false, reason: 'no-session' };
+    return pushToRtdb(uid, opcoes);
   }
+
+  function getSyncStatus() { return Object.assign({}, _status); }
 
   function stopAutoSync() {
-    if (_timer) {
-      clearInterval(_timer);
-      _timer = null;
+    if (_timer)      { clearInterval(_timer);      _timer      = null; }
+    if (_dirtyTimer) { clearTimeout(_dirtyTimer);  _dirtyTimer = null; }
+    if (_connectedUnsubscribe) {
+      try { _connectedUnsubscribe(); } catch (e) {}
+      _connectedUnsubscribe = null;
     }
   }
 
   function startAutoSync() {
     stopAutoSync();
-    if (!_temSessaoAtiva()) return;
-    var prefs = _lerPreferencias();
-    if (prefs.syncAuto === false) {
-      syncLocalToCloud({ silent: true, source: 'start' });
-      return;
+    var uid = RB_AUTH_STATE.user && RB_AUTH_STATE.user.uid;
+    if (!uid && !RB_AUTH_STATE.offlineMode) return;
+    // Flush pending push se online
+    if (uid && _status.pending && navigator.onLine) {
+      pushToRtdb(uid, { silent: true, source: 'start' });
     }
-    var intervalMs = Math.max(1, Number(prefs.syncIntervalo) || 1) * 60000;
-    _timer = setInterval(function () {
-      syncLocalToCloud({ silent: true, source: 'interval' });
-    }, intervalMs);
-    syncLocalToCloud({ silent: true, source: 'start' });
+    // Listener .info/connected para reagir a reconexões
+    if (uid && window.FirebaseClient && typeof FirebaseClient.onConnectedChange === 'function') {
+      FirebaseClient.onConnectedChange(function (isConnected) {
+        if (isConnected && _status.pending) {
+          pushToRtdb(uid, { silent: true, source: 'reconnect' });
+        }
+      }).then(function (unsub) {
+        _connectedUnsubscribe = unsub;
+      }).catch(function () {});
+    }
   }
 
   return {
+    pullFromRtdb:     pullFromRtdb,
+    pushToRtdb:       pushToRtdb,
+    carregarCacheUid: carregarCacheUid,
+    garantirIsolamentoUid: _garantirIsolamentoUid,
+    markPendingSync:  markPendingSync,
     syncLocalToCloud: syncLocalToCloud,
-    markPendingSync: markPendingSync,
-    getSyncStatus: getSyncStatus,
-    startAutoSync: startAutoSync,
-    stopAutoSync: stopAutoSync,
+    getSyncStatus:    getSyncStatus,
+    startAutoSync:    startAutoSync,
+    stopAutoSync:     stopAutoSync,
   };
 })();
 
@@ -673,6 +731,29 @@ function atualizarHeaderAuthUI() {
   }
 }
 
+// ---- Overlay de boot (ocultado após inicialização completa) ----
+function _mostrarBootOverlay(msg) {
+  var el = document.getElementById('rb-boot-overlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'rb-boot-overlay';
+    el.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--color-bg,#fff);gap:16px;transition:opacity .3s';
+    el.innerHTML = '<div style="font-size:2rem">🗺️</div><div id="rb-boot-msg" style="font-size:.875rem;color:var(--text-muted,#6b7280)">Carregando…</div>';
+    document.body.appendChild(el);
+  }
+  var msgEl = el.querySelector('#rb-boot-msg');
+  if (msgEl && msg) msgEl.textContent = msg;
+  el.style.opacity = '1';
+  el.style.display = 'flex';
+}
+
+function _ocultarBootOverlay() {
+  var el = document.getElementById('rb-boot-overlay');
+  if (!el) return;
+  el.style.opacity = '0';
+  setTimeout(function () { el.style.display = 'none'; }, 320);
+}
+
 function iniciarAuthStateListener() {
   if (RB_AUTH_STATE.initialized) return Promise.resolve();
 
@@ -694,29 +775,58 @@ function iniciarAuthStateListener() {
     return Promise.resolve();
   }
 
+  _mostrarBootOverlay('Verificando autenticação…');
+
   return new Promise(function (resolve) {
     var resolvido = false;
     function resolverPrimeiraVez() {
       if (resolvido) return;
       resolvido = true;
+      _ocultarBootOverlay();
       resolve();
     }
 
     FirebaseClient.onAuthChange(function (user) {
-      RB_AUTH_STATE.user = user || null;
-      RB_AUTH_STATE.initialized = true;
-      atualizarHeaderAuthUI();
-      atualizarBadgeModoDadosHeader();
-      resolverPrimeiraVez();
-      if (RB_AUTH_STATE.user || RB_AUTH_STATE.offlineMode) {
-        SyncService.startAutoSync();
+      // Processar de forma assíncrona para poder aguardar RTDB pull
+      (async function () {
+        RB_AUTH_STATE.user = user || null;
+        RB_AUTH_STATE.initialized = true;
+        atualizarHeaderAuthUI();
+        atualizarBadgeModoDadosHeader();
+
         if (RB_AUTH_STATE.user) {
-          SyncService.syncLocalToCloud({ silent: false, source: 'auth-ready' });
-          _restaurarPrefsDoRtdb(RB_AUTH_STATE.user.uid);
+          var uid = RB_AUTH_STATE.user.uid;
+          // Garante isolamento entre contas diferentes
+          SyncService.garantirIsolamentoUid(uid);
+          _mostrarBootOverlay('Carregando seus dados…');
+          // Tenta pull do RTDB (fonte primária)
+          var pullResult = await SyncService.pullFromRtdb(uid).catch(function () {
+            return { ok: false, reason: 'exception' };
+          });
+          // Se RTDB falhou (offline ou erro), usa cache local isolado por uid
+          if (!pullResult.ok) {
+            var cached = SyncService.carregarCacheUid(uid);
+            if (cached && window.Store && typeof Store.carregarEstadoCompleto === 'function') {
+              Store.carregarEstadoCompleto(cached);
+            }
+          }
+          SyncService.startAutoSync();
+          _restaurarPrefsDoRtdb(uid);
+        } else if (RB_AUTH_STATE.offlineMode) {
+          SyncService.startAutoSync();
+        } else {
+          SyncService.stopAutoSync();
         }
-      } else {
-        SyncService.stopAutoSync();
-      }
+
+        resolverPrimeiraVez();
+
+        // Escuta mudanças de estado subsequentes (logout, re-login) sem re-resolver
+        if (!user && resolvido) {
+          // Já resolvido — só atualiza UI
+          atualizarHeaderAuthUI();
+          atualizarBadgeModoDadosHeader();
+        }
+      })();
     }).then(function (unsubscribe) {
       RB_AUTH_STATE.unsubscribe = unsubscribe;
     }).catch(function () {
@@ -1672,6 +1782,53 @@ function paginaRotas(params, container) {
 }
 
 // ==== PÁGINA: Configurações ====
+// ---- Diagnósticos da camada de dados (para página Config) ----
+function _renderDiagnosticosHtml() {
+  function _esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  var uid   = RB_AUTH_STATE.user ? RB_AUTH_STATE.user.uid : null;
+  var email = RB_AUTH_STATE.user ? (RB_AUTH_STATE.user.email || '—') : '—';
+  var host  = window.location.hostname || '';
+  var env   = host === 'localhost' || host === '127.0.0.1' ? 'localhost' : (host.indexOf('github.io') !== -1 ? 'GitHub Pages' : host);
+  var syncSt = SyncService.getSyncStatus();
+  var cacheExiste = uid ? !!localStorage.getItem('rotaboa.cache.' + uid + '.v1') : false;
+  var cacheSize = 0;
+  if (cacheExiste) {
+    try { cacheSize = Math.round((localStorage.getItem('rotaboa.cache.' + uid + '.v1') || '').length / 1024); } catch(e) {}
+  }
+  var pendente = syncSt.pending ? 'Sim' : 'Não';
+  var ultimaSync = syncSt.lastSyncAt ? new Date(syncSt.lastSyncAt).toLocaleString('pt-BR') : '—';
+  var erroSync  = syncSt.lastError || '';
+  var online = navigator.onLine ? 'Online' : 'Offline';
+
+  function _linha(label, valor, cor) {
+    return '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--color-border,#f3f4f6);gap:8px">' +
+      '<span class="text-xs text-secondary">' + _esc(label) + '</span>' +
+      '<span class="text-xs font-semibold" style="text-align:right;word-break:break-all' + (cor ? ';color:' + cor : '') + '">' + _esc(valor) + '</span>' +
+    '</div>';
+  }
+
+  return (
+    _linha('Ambiente', env) +
+    _linha('Usuário', uid ? email : 'Sem sessão', uid ? '' : 'var(--color-danger)') +
+    _linha('UID', uid || '—') +
+    _linha('Conexão', online, navigator.onLine ? 'var(--color-success,#16a34a)' : 'var(--color-danger)') +
+    _linha('Cache local (uid)', cacheExiste ? 'Presente   (~' + cacheSize + ' KB)' : 'Ausente', cacheExiste ? '' : 'var(--color-warning,#d97706)') +
+    _linha('Sincr. pendente', pendente, syncSt.pending ? 'var(--color-warning,#d97706)' : '') +
+    _linha('Última sincronização', ultimaSync) +
+    (erroSync ? _linha('Erro RTDB', erroSync, 'var(--color-danger)') : '') +
+    '<div style="margin-top:var(--space-2);display:flex;gap:var(--space-2)">' +
+      '<button class="btn btn-ghost btn-sm" onclick="_atualizarDiagnosticosConfig()">Atualizar</button>' +
+      (uid ? '<button class="btn btn-ghost btn-sm" onclick="ConfigActions.sincronizarAgora()">Sincronizar agora</button>' : '') +
+    '</div>'
+  );
+}
+
+function _atualizarDiagnosticosConfig() {
+  var el = document.getElementById('cfg-diagnostico-corpo');
+  if (!el) return;
+  el.innerHTML = _renderDiagnosticosHtml();
+}
+
 function paginaConfiguracoes(params, container) {
   var prefs = _lerPreferencias();
   var avisoSync = _renderAvisoSincronizacao();
@@ -1848,7 +2005,29 @@ function paginaConfiguracoes(params, container) {
         '</div>' +
       '</div>' +
 
-      '<div class="cfg-section-title">🗑️ Dados locais</div>' +
+      '<div class="cfg-section-title">� Diagnóstico de dados</div>' +
+      '<div class="card" style="margin-bottom:var(--space-5)">' +
+        '<div class="card-body" id="cfg-diagnostico-corpo">' +
+          _renderDiagnosticosHtml() +
+        '</div>' +
+      '</div>' +
+
+      (RB_AUTH_STATE.user
+        ? '<div class="cfg-section-title">💾 Migração de dados</div>' +
+          '<div class="card" style="margin-bottom:var(--space-5)">' +
+            '<div class="card-body">' +
+              '<p class="text-xs text-secondary" style="margin-bottom:var(--space-3)">Envia os dados armazenados neste dispositivo para sua conta na nuvem.<br>' +
+              '<strong>Use apenas uma vez na migração inicial.</strong> Sobrescreve os dados do RTDB.</p>' +
+              '<div style="display:flex;gap:var(--space-2);flex-wrap:wrap;align-items:center">' +
+                '<button class="btn btn-secondary btn-sm" onclick="ConfigActions.importarDadosLocais()">Enviar dados locais para minha conta</button>' +
+                '<button class="btn btn-ghost btn-sm" onclick="ConfigActions.baixarDoRtdb()">↓ Baixar dados da nuvem</button>' +
+              '</div>' +
+              '<div id="cfg-migrar-status" class="text-xs text-muted" style="margin-top:var(--space-2)"></div>' +
+            '</div>' +
+          '</div>'
+        : '') +
+
+      '<div class="cfg-section-title">�🗑️ Dados locais</div>' +
       '<div class="card" style="margin-bottom:var(--space-5)">' +
         '<div class="card-body">' +
           '<div class="text-xs text-secondary" style="margin-bottom:var(--space-3)">Remove todas as viagens, roteiro, despesas e rotas armazenados neste dispositivo.</div>' +
@@ -2084,6 +2263,7 @@ var ConfigActions = {
     this._statusSync('Sincronizando...', false);
     var r = await SyncService.syncLocalToCloud({ silent: false, source: 'manual' });
     atualizarBadgeModoDadosHeader();
+    _atualizarDiagnosticosConfig();
     if (r && r.ok) {
       this._statusSync('Sincronização concluída.', false);
       if ((window.location.hash || '') === '#/config') {
@@ -2092,6 +2272,62 @@ var ConfigActions = {
       return;
     }
     this._statusSync('Não foi possível sincronizar agora.', true);
+  },
+
+  importarDadosLocais: async function () {
+    if (!RB_AUTH_STATE.user) { _mostrarToast('Faça login para importar dados.'); return; }
+    var statusEl = document.getElementById('cfg-migrar-status');
+    function _setStatus(msg, err) {
+      if (!statusEl) return;
+      statusEl.textContent = msg;
+      statusEl.style.color = err ? 'var(--color-danger)' : 'var(--color-text-muted,#9ca3af)';
+    }
+    ConfirmModal.abrirComCallback(
+      'Enviar dados locais?',
+      'Os dados atuais na nuvem serão substituídos pelos dados deste dispositivo. Essa ação não pode ser desfeita.',
+      async function () {
+        _setStatus('Enviando…', false);
+        var uid = RB_AUTH_STATE.user.uid;
+        var r = await SyncService.pushToRtdb(uid, { silent: true, source: 'importar-manual' });
+        if (r && r.ok) {
+          _setStatus('✅ Dados enviados com sucesso.', false);
+          _mostrarToast('Dados importados para sua conta.');
+          _atualizarDiagnosticosConfig();
+        } else {
+          _setStatus('Falha ao enviar dados. Verifique a conexão.', true);
+        }
+      }
+    );
+  },
+
+  baixarDoRtdb: async function () {
+    if (!RB_AUTH_STATE.user) { _mostrarToast('Faça login para baixar dados.'); return; }
+    var statusEl = document.getElementById('cfg-migrar-status');
+    function _setStatus(msg, err) {
+      if (!statusEl) return;
+      statusEl.textContent = msg;
+      statusEl.style.color = err ? 'var(--color-danger)' : 'var(--color-text-muted,#9ca3af)';
+    }
+    ConfirmModal.abrirComCallback(
+      'Baixar dados da nuvem?',
+      'Os dados deste dispositivo serão substituídos pelos dados da nuvem. A página será recarregada.',
+      async function () {
+        _setStatus('Baixando…', false);
+        var uid = RB_AUTH_STATE.user.uid;
+        var r = await SyncService.pullFromRtdb(uid);
+        if (r && r.ok) {
+          if (r.hasData) {
+            _setStatus('✅ Dados baixados. Recarregando...', false);
+            setTimeout(function () { window.dispatchEvent(new HashChangeEvent('hashchange')); }, 500);
+          } else {
+            _setStatus('⚠️ Nenhum dado encontrado na nuvem para esta conta.', false);
+          }
+          _atualizarDiagnosticosConfig();
+        } else {
+          _setStatus('Falha ao baixar dados. Verifique a conexão.', true);
+        }
+      }
+    );
   },
 
   salvarPreferencias: function (silencioso) {
@@ -2258,18 +2494,18 @@ var AuthActions = {
 
   entrarGoogle: async function () {
     this._setErro('');
-    this._setLoading(true, 'btn-login-google', 'Entrar com Google', 'Conectando...');
+    this._setLoading(true, 'btn-login-google', 'Entrar com Google', 'Redirecionando...');
     try {
-      await FirebaseClient.loginWithGoogle();
+      var user = await FirebaseClient.loginWithGoogle();
+      // loginWithGoogle retorna null no fluxo de redirect (página vai recarregar automaticamente)
+      if (!user) return;
       localStorage.removeItem(RB_OFFLINE_KEY);
       RB_AUTH_STATE.offlineMode = false;
       SyncService.startAutoSync();
-      await SyncService.syncLocalToCloud({ silent: false, source: 'login-google' });
       Router.navegar('#/inicio');
     } catch (e) {
       this._setErro(_mensagemErroAuth(e));
-    } finally {
-      this._setLoading(false, 'btn-login-google', 'Entrar com Google', 'Conectando...');
+      this._setLoading(false, 'btn-login-google', 'Entrar com Google', 'Redirecionando...');
     }
   },
 
@@ -5247,6 +5483,7 @@ var TrechoActions = {
 
   window.addEventListener('online', function () {
     SyncService.syncLocalToCloud({ silent: false, source: 'online' });
+    _atualizarDiagnosticosConfig();
     if ((window.location.hash || '') === '#/config') {
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     }
@@ -5255,6 +5492,7 @@ var TrechoActions = {
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') {
       SyncService.syncLocalToCloud({ silent: true, source: 'visible' });
+      _atualizarDiagnosticosConfig();
     }
   });
 

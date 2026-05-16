@@ -1019,6 +1019,9 @@ var Store = (function () {
         // Primeira vez: gera dias vazios
         _itinerarios[tripId] = { dias: _gerarDias(viagem) };
         _salvarItinerarios();
+      } else if (!Array.isArray(_itinerarios[tripId].dias)) {
+        // Dado corrompido/inesperado do RTDB — regera dias
+        _itinerarios[tripId].dias = _gerarDias(viagem);
       } else {
         // Garante que novos dias (caso datas da viagem mudem) sejam incluídos
         var datasExistentes = _itinerarios[tripId].dias.map(function (d) { return d.data; });
@@ -1029,6 +1032,11 @@ var Store = (function () {
         });
         _itinerarios[tripId].dias.sort(function (a, b) { return a.data.localeCompare(b.data); });
       }
+
+      // Garante que todos os dias têm array atividades (robustez contra dados legados/RTDB)
+      _itinerarios[tripId].dias.forEach(function (d) {
+        if (!Array.isArray(d.atividades)) d.atividades = [];
+      });
 
       // Injeta trechos de rota em cada dia (somente leitura — não persiste)
       var trechosViagem = (_rotasTrechos[tripId] || []).filter(function (t) {
@@ -1176,9 +1184,10 @@ var Store = (function () {
     // Retorna as próximas N atividades não-feitas/não-canceladas de uma viagem
     getProximasAtividades: function (tripId, max) {
       var itin = this.getItinerario(tripId);
-      if (!itin) return [];
+      if (!itin || !Array.isArray(itin.dias)) return [];
       var todas = [];
       itin.dias.forEach(function (d) {
+        if (!d || !Array.isArray(d.atividades)) return;
         d.atividades.forEach(function (a) {
           if (a.status !== 'cancelado') {
             todas.push(Object.assign({ _data: d.data }, a));
@@ -1473,6 +1482,75 @@ var Store = (function () {
         if (t && t.id !== trechoId && t.roundTripGroupId === groupId) irmao = t;
       });
       return irmao;
+    },
+
+    // Exporta o estado completo em memória (para persistência no RTDB)
+    exportarEstadoCompleto: function () {
+      return {
+        trips: _state.viagens.slice(),
+        selectedTripId: _state.viagemSelecionadaId || null,
+        itineraries: JSON.parse(JSON.stringify(_itinerarios || {})),
+        expenses: JSON.parse(JSON.stringify(_despesas || {})),
+        routes: JSON.parse(JSON.stringify(_rotasTrechos || {})),
+        updatedAt: new Date().toISOString(),
+      };
+    },
+
+    // Hidrata o estado em memória + localStorage a partir de um payload do RTDB
+    carregarEstadoCompleto: function (payload) {
+      if (!payload || typeof payload !== 'object') return false;
+      try {
+        // Normaliza e limpa viagens
+        var viagens = Array.isArray(payload.trips) ? payload.trips.map(_migrarViagem) : [];
+        var cleanMocks = _limparViagensMockConhecidas(viagens);
+        viagens = cleanMocks.viagens;
+
+        // Valida selectedId
+        var selectedId = payload.selectedTripId || null;
+        if (selectedId && !viagens.find(function (v) { return v.id === selectedId; })) {
+          selectedId = viagens.length > 0 ? viagens[0].id : null;
+        }
+
+        var itinerarios = (payload.itineraries && typeof payload.itineraries === 'object') ? payload.itineraries : {};
+        var despesas    = (payload.expenses    && typeof payload.expenses    === 'object') ? payload.expenses    : {};
+        var rotas       = (payload.routes      && typeof payload.routes      === 'object') ? payload.routes      : {};
+
+        // Garante que cada dia nos itinerários tenha um array atividades
+        Object.keys(itinerarios).forEach(function (tid) {
+          var itin = itinerarios[tid];
+          if (itin && Array.isArray(itin.dias)) {
+            itin.dias.forEach(function (d) {
+              if (!Array.isArray(d.atividades)) d.atividades = [];
+            });
+          }
+        });
+
+        // Limpa coleções órfãs
+        var cleanCol = _limparColecoesPorViagens(viagens, itinerarios, despesas, rotas);
+        itinerarios = cleanCol.itinerarios;
+        despesas    = cleanCol.despesas;
+        rotas       = cleanCol.rotas;
+
+        // Aplica ao estado em memória
+        _state.viagens = viagens;
+        _state.viagemSelecionadaId = selectedId;
+        _itinerarios   = itinerarios;
+        _despesas      = despesas;
+        _rotasTrechos  = rotas;
+
+        // Persiste nos LS keys existentes (cache de sessão)
+        _salvarViagens();
+        _salvarSelectedId();
+        _salvarItinerarios();
+        _salvarDespesas();
+        _salvarRotas();
+
+        _notificar();
+        return true;
+      } catch (e) {
+        console.warn('[Store] carregarEstadoCompleto falhou:', e);
+        return false;
+      }
     },
 
     getResumoRotas: function (tripId) {

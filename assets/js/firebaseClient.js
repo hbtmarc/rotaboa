@@ -167,9 +167,20 @@ var FirebaseClient = (function () {
     var auth = await getFirebaseAuth();
     var authSdk = await _carregarSdkAuth();
     var provider = new authSdk.GoogleAuthProvider();
-    var cred = await authSdk.signInWithPopup(auth, provider);
-    _authUserAtual = cred.user || null;
-    return _authUserAtual;
+
+    // GitHub Pages (e qualquer host que não seja localhost) tem COOP que bloqueia popup.
+    // Nesses ambientes usa redirect; em localhost usa popup para melhor UX de dev.
+    var host = window.location.hostname;
+    var isLocalhost = (host === 'localhost' || host === '127.0.0.1' || host === '');
+    if (isLocalhost) {
+      var cred = await authSdk.signInWithPopup(auth, provider);
+      _authUserAtual = cred.user || null;
+      return _authUserAtual;
+    } else {
+      // Redirect flow: redireciona para o Google e volta; resultado capturado em onAuthChange
+      await authSdk.signInWithRedirect(auth, provider);
+      return null; // página vai recarregar — onAuthChange tratará o resultado
+    }
   }
 
   async function logoutUser() {
@@ -194,6 +205,17 @@ var FirebaseClient = (function () {
 
     var auth = await getFirebaseAuth();
     var authSdk = await _carregarSdkAuth();
+
+    // Em ambientes não-localhost, consome o resultado de um redirect de login do Google
+    // (necessário para que onAuthStateChanged dispare corretamente após o redirect)
+    var host = window.location.hostname;
+    var isLocalhost = (host === 'localhost' || host === '127.0.0.1' || host === '');
+    if (!isLocalhost && typeof authSdk.getRedirectResult === 'function') {
+      authSdk.getRedirectResult(auth).catch(function () {
+        // Ignora erros de redirect (ex: cancelado pelo usuário); onAuthStateChanged cuidará do estado
+      });
+    }
+
     return authSdk.onAuthStateChanged(auth, function (user) {
       _authUserAtual = user || null;
       callback(_authUserAtual);
@@ -442,6 +464,43 @@ var FirebaseClient = (function () {
     return true;
   }
 
+  // ---- Estado principal do app no RTDB (primária fonte de verdade) -----
+
+  async function loadAppStateRtdb(uid) {
+    if (!uid) return null;
+    var db = await _getRtdb();
+    var dbSdk = await _carregarSdkRtdb();
+    var r = dbSdk.ref(db, 'users/' + uid + '/appState/main');
+    var snap = await dbSdk.get(r);
+    if (!snap.exists()) return null;
+    return snap.val();
+  }
+
+  async function saveAppStateRtdb(uid, payload) {
+    if (!uid) throw _erro('Usuário não autenticado para salvar estado.');
+    var db = await _getRtdb();
+    var dbSdk = await _carregarSdkRtdb();
+    var r = dbSdk.ref(db, 'users/' + uid + '/appState/main');
+    await dbSdk.set(r, Object.assign({}, payload, { _savedAt: new Date().toISOString() }));
+    return true;
+  }
+
+  // Escuta .info/connected para detectar conectividade RTDB em tempo real.
+  // Retorna função unsubscribe ou função vazia em caso de erro.
+  async function onConnectedChange(callback) {
+    if (typeof callback !== 'function') return function () {};
+    try {
+      var db = await _getRtdb();
+      var dbSdk = await _carregarSdkRtdb();
+      var connRef = dbSdk.ref(db, '.info/connected');
+      return dbSdk.onValue(connRef, function (snap) {
+        callback(!!snap.val());
+      });
+    } catch (e) {
+      return function () {};
+    }
+  }
+
   return {
     getFirebaseConfig: getFirebaseConfig,
     saveFirebaseConfig: saveFirebaseConfig,
@@ -464,5 +523,8 @@ var FirebaseClient = (function () {
     listarBackupsRtdb: listarBackupsRtdb,
     restaurarBackupRtdb: restaurarBackupRtdb,
     excluirBackupRtdb: excluirBackupRtdb,
+    loadAppStateRtdb: loadAppStateRtdb,
+    saveAppStateRtdb: saveAppStateRtdb,
+    onConnectedChange: onConnectedChange,
   };
 })();
