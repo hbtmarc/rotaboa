@@ -2018,7 +2018,7 @@ gmp-place-autocomplete::part(input)::placeholder {
 }
 .af-link-row-inputs {
   display: grid;
-  grid-template-columns: 1fr 2fr 120px 36px;
+  grid-template-columns: 2fr 110px 1fr 36px;
   gap: 6px;
   align-items: start;
 }
@@ -2027,9 +2027,9 @@ gmp-place-autocomplete::part(input)::placeholder {
     grid-template-columns: 1fr 36px;
     grid-template-rows: auto auto auto;
   }
-  .af-link-row-inputs .af-link-label  { grid-column: 1; grid-row: 1; }
-  .af-link-row-inputs .af-link-url-wrap { grid-column: 1; grid-row: 2; }
-  .af-link-row-inputs .af-link-type   { grid-column: 1; grid-row: 3; }
+  .af-link-row-inputs .af-link-url-wrap { grid-column: 1; grid-row: 1; }
+  .af-link-row-inputs .af-link-type   { grid-column: 1; grid-row: 2; }
+  .af-link-row-inputs .af-link-label  { grid-column: 1; grid-row: 3; }
   .af-link-row-inputs .af-link-remove-btn { grid-column: 2; grid-row: 1; align-self: center; }
 }
 .af-link-url-wrap {

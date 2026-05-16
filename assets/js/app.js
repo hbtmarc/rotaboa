@@ -3964,7 +3964,7 @@ var AtividadeModal = (function () {
       // Custo (linha própria)
       '<div class="form-group">' +
         '<label class="form-label" for="af-custo">Custo previsto (R$)</label>' +
-        '<input id="af-custo" class="form-input" type="number" min="0" step="0.01" placeholder="0,00" value="' + _esc(ativ.custoEstimado > 0 ? ativ.custoEstimado : '') + '">' +
+        '<input id="af-custo" class="form-input" type="number" min="0" step="0.01" placeholder="0,00" value="' + _esc(ativ.custoEstimado > 0 ? (Math.round((ativ.custoEstimado + 1e-10) * 100) / 100) : '') + '">' +
         '<span class="form-error" id="ae-custo">Custo deve ser zero ou maior.</span>' +
       '</div>' +
 
@@ -3979,7 +3979,7 @@ var AtividadeModal = (function () {
         '<label class="form-label">Links</label>' +
         '<div id="af-links-list" class="af-links-list"></div>' +
         '<button type="button" class="btn btn-ghost btn-sm af-links-add-btn" onclick="AtividadeModal._addLinkRow()" style="margin-top:8px">+ Adicionar link</button>' +
-        '<p class="form-hint af-links-hint">Cole múltiplos links separados por vírgula ou quebra de linha.</p>' +
+        '<p class="form-hint af-links-hint">Cole múltiplos links separados por vírgula ou quebra de linha. O rótulo é opcional.</p>' +
       '</div>' +
 
       // Bloco Hospedagem (aparece quando categoria = hospedagem)
@@ -4130,7 +4130,6 @@ var AtividadeModal = (function () {
     row.dataset.rowIdx = idx;
     row.innerHTML =
       '<div class="af-link-row-inputs">' +
-        '<input type="text" class="form-input af-link-label" maxlength="60" placeholder="Rótulo (ex: Site oficial)" value="' + _esc(lobj.label || '') + '">' +
         '<div class="af-link-url-wrap">' +
           '<input type="url" class="form-input af-link-url" maxlength="800" placeholder="https://..." value="' + _esc(lobj.url || '') + '">' +
           '<span class="form-error af-link-url-err">URL inválida. Use http:// ou https://.</span>' +
@@ -4143,8 +4142,9 @@ var AtividadeModal = (function () {
           '<option value="whatsapp"' + (lobj.type === 'whatsapp' ? ' selected' : '') + '>WhatsApp</option>' +
           '<option value="other"' + (lobj.type === 'other' ? ' selected' : '') + '>Outro</option>' +
         '</select>' +
+        '<input type="text" class="form-input af-link-label" maxlength="60" placeholder="Rótulo opcional" value="' + _esc(lobj.label || '') + '">' +
         '<button type="button" class="icon-btn icon-btn--danger af-link-remove-btn" title="Remover link">' + rbIcon('trash') + '</button>' +
-      '</div>';
+      '</div>';;
     // Paste handler: detect multi-URL paste and expand
     var urlInput = row.querySelector('.af-link-url');
     urlInput.addEventListener('paste', function (e) {
@@ -4290,7 +4290,7 @@ var AtividadeModal = (function () {
         categoria:      document.getElementById('af-cat').value,
         local:          document.getElementById('af-local').value.trim(),
         duracaoMin:     _DTWidget.lerDuracao('af-dur') || null,
-        custoEstimado:  Number(document.getElementById('af-custo').value) || 0,
+        custoEstimado:  Math.round((Number(document.getElementById('af-custo').value) + Number.EPSILON) * 100) / 100 || 0,
         status:         document.getElementById('af-status').value,
         observacoes:    document.getElementById('af-obs').value.trim(),
         links:          (function () { return _coletarLinks() || []; }()),

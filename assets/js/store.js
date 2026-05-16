@@ -515,7 +515,9 @@ var Store = (function () {
   }
 
   function _round2(n) {
-    return Math.round((Number(n) || 0) * 100) / 100;
+    var v = Number(n);
+    if (!isFinite(v)) return 0;
+    return Math.round((v + Number.EPSILON) * 100) / 100;
   }
 
   function _labelsParticipantes(tripId) {
