@@ -683,6 +683,53 @@ var Store = (function () {
     }
   }
 
+  // Reconcilia as despesas vinculadas de TODAS as atividades com custo > 0.
+  // Chamada no carregarEstadoCompleto para garantir que atividades antigas sejam sincronizadas.
+  function _sincronizarTodasAtividades() {
+    var _saved = false;
+    _state.viagens.forEach(function (viagem) {
+      var tid = viagem && viagem.id;
+      if (!tid) return;
+      var itin = _itinerarios[tid];
+      if (!itin || !Array.isArray(itin.dias)) return;
+      itin.dias.forEach(function (dia) {
+        if (!Array.isArray(dia.atividades)) return;
+        dia.atividades.forEach(function (ativ) {
+          if (!ativ || !ativ.id) return;
+          var custo = _round2(Number(ativ.custoEstimado) || 0);
+          if (custo > 0) {
+            var viag = _state.viagens.find(function (v) { return v.id === tid; });
+            var partic = _participantesAtivosComId(viag);
+            if (!_despesas[tid]) _despesas[tid] = [];
+            var jaExiste = _despesas[tid].some(function (d) {
+              return d && d.linkedSource &&
+                d.linkedSource.type === 'atividade' &&
+                d.linkedSource.id === ativ.id;
+            });
+            if (!jaExiste) {
+              var source = { type: 'atividade', id: ativ.id, tripId: tid };
+              var despData = {
+                categoria: ativ.categoria || 'outros',
+                descricao: String(ativ.nome || 'Atividade').trim(),
+                valor: custo,
+                data: dia.data || _hojeISO(),
+                quemPagouId: partic.length > 0 ? partic[0].id : '',
+                participantesRateioIds: partic.map(function (p) { return p.id; }),
+                linkedSource: source,
+                origem: 'roteiro',
+              };
+              _despesas[tid].push(_normalizarDespesaManual(tid, despData, _gerarDespesaId()));
+              _saved = true;
+            }
+          }
+        });
+      });
+    });
+    if (_saved) {
+      _salvarDespesas();
+    }
+  }
+
   function _gerarDespesasVirtuaisRotas(tripId) {
     var trechos = (_rotasTrechos[tripId] || []).filter(function (t) {
       return t && t.tripId === tripId;
@@ -1626,6 +1673,9 @@ var Store = (function () {
         _salvarItinerarios();
         _salvarDespesas();
         _salvarRotas();
+
+        // Reconcilia despesas de atividades que existiam antes da feature de sync
+        _sincronizarTodasAtividades();
 
         _notificar();
         return true;
