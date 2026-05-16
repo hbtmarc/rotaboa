@@ -3893,7 +3893,7 @@ var AtividadeModal = (function () {
       // Observações
       '<div class="form-group">' +
         '<label class="form-label" for="af-obs">Observações</label>' +
-        '<textarea id="af-obs" class="form-textarea" maxlength="300" placeholder="Detalhes, dicas...">' + _esc(ativ.observacoes) + '</textarea>' +
+        '<textarea id="af-obs" class="form-textarea" maxlength="2000" placeholder="Detalhes, dicas...">' + _esc(ativ.observacoes) + '</textarea>' +
       '</div>' +
 
       // Link externo
@@ -4799,7 +4799,7 @@ var DespesaModal = (function () {
       /* --- Observações --- */
       '<div class="form-group">' +
         '<label class="form-label" for="df-obs">Observações</label>' +
-        '<textarea id="df-obs" class="form-textarea" maxlength="300" placeholder="Detalhes ou observações...">' + _esc(desp.observacoes) + '</textarea>' +
+        '<textarea id="df-obs" class="form-textarea" maxlength="2000" placeholder="Detalhes ou observações...">' + _esc(desp.observacoes) + '</textarea>' +
       '</div>' +
 
       /* --- Bloco Hospedagem (aparece só quando categoria = hospedagem) --- */
@@ -5308,7 +5308,7 @@ var TrechoModal = (function () {
 
       '<div class="form-group">' +
         '<label class="form-label" for="rf-obs">Observações</label>' +
-        '<textarea id="rf-obs" class="form-textarea" maxlength="300" placeholder="Observações do trecho...">' + _esc(t.observacoes) + '</textarea>' +
+        '<textarea id="rf-obs" class="form-textarea" maxlength="2000" placeholder="Observações do trecho...">' + _esc(t.observacoes) + '</textarea>' +
       '</div>' +
 
       // "Adicionar volta" — única em criação
