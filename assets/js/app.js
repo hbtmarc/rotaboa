@@ -3805,7 +3805,13 @@ var AtividadeModal = (function () {
       // Observações
       '<div class="form-group">' +
         '<label class="form-label" for="af-obs">Observações</label>' +
-        '<textarea id="af-obs" class="form-textarea" maxlength="300" placeholder="Detalhes, links, dicas...">' + _esc(ativ.observacoes) + '</textarea>' +
+        '<textarea id="af-obs" class="form-textarea" maxlength="300" placeholder="Detalhes, dicas...">' + _esc(ativ.observacoes) + '</textarea>' +
+      '</div>' +
+
+      // Link externo
+      '<div class="form-group">' +
+        '<label class="form-label" for="af-link">Link (site, Instagram, Maps…)</label>' +
+        '<input id="af-link" class="form-input" type="url" maxlength="500" placeholder="Ex: instagram.com/restaurante ou https://maps.app.goo.gl/..." value="' + _esc(ativ.link || '') + '">' +
       '</div>' +
 
       // Bloco Hospedagem (aparece quando categoria = hospedagem)
@@ -4005,6 +4011,11 @@ var AtividadeModal = (function () {
         custoEstimado:  Number(document.getElementById('af-custo').value) || 0,
         status:         document.getElementById('af-status').value,
         observacoes:    document.getElementById('af-obs').value.trim(),
+        link:           (function () {
+          var raw = (document.getElementById('af-link') ? document.getElementById('af-link').value.trim() : '');
+          if (!raw) return '';
+          return /^https?:\/\//i.test(raw) ? raw : 'https://' + raw;
+        }()),
       };
 
       // Merge place data into dados (all DOM-readable, do now before any async)

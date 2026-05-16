@@ -586,6 +586,27 @@ var UI = (function () {
       ? '<div class="itin-activity-obs">' + ativ.observacoes + '</div>'
       : '';
 
+    // Link externo (site, Instagram, Maps…)
+    var linkHtml = '';
+    if (ativ.link) {
+      var _lurl = String(ativ.link);
+      var _ldomain = '';
+      try { _ldomain = new URL(_lurl).hostname.replace(/^www\./, ''); } catch(e) { _ldomain = _lurl.replace(/^https?:\/\/(www\.)?/,'').split('/')[0]; }
+      var _licon = '🔗';
+      if (_ldomain.indexOf('instagram.com') !== -1) _licon = '📷';
+      else if (_ldomain.indexOf('facebook.com') !== -1) _licon = '👥';
+      else if (_ldomain.indexOf('maps.app.goo') !== -1 || _ldomain.indexOf('google.com/maps') !== -1 || _ldomain.indexOf('maps.google') !== -1) _licon = '🗺️';
+      else if (_ldomain.indexOf('tripadvisor') !== -1) _licon = '🦉';
+      else if (_ldomain.indexOf('ifood') !== -1 || _ldomain.indexOf('rappi') !== -1) _licon = '🛵';
+      var _llabel = _ldomain || 'Ver link';
+      // Para instagram.com/username exibe só @username
+      if (_ldomain.indexOf('instagram.com') !== -1) {
+        var _igSlug = _lurl.replace(/.*instagram\.com\//, '').replace(/[\/\?#].*/, '');
+        if (_igSlug) _llabel = '@' + _igSlug;
+      }
+      linkHtml = '<a href="' + _lurl + '" target="_blank" rel="noopener noreferrer" class="itin-activity-link" title="Abrir link">' + _licon + ' ' + _llabel + '</a>';
+    }
+
     // Duração + calculated end time
     var durStr = _duracaoStr(ativ.duracaoMin);
     var endInfo = _itemEndTime(ativ.hora, ativ.duracaoMin);
@@ -637,6 +658,7 @@ var UI = (function () {
         '<div class="itin-activity-name">' + ativ.nome + '</div>' +
         details +
         obs +
+        linkHtml +
         timeRowHtml +
         '<button class="itin-reajustar-btn" title="Reajustar timeline a partir daqui" onclick="ReajustarModal.abrir(\'' + tripId + '\',\'' + ativ.id + '\',\'' + (meta.data || ativ._data || '') + '\')">' +
           '⟳ Reajustar a partir daqui' +

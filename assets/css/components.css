@@ -1688,6 +1688,32 @@ gmp-place-autocomplete::part(input)::placeholder {
   pointer-events: none;
 }
 
+/* ---- Link externo da atividade (Instagram, Maps, site…) ---- */
+.itin-activity-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-primary, #2563eb);
+  background: rgba(37, 99, 235, 0.07);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  border-radius: var(--radius-full);
+  padding: 4px 11px;
+  text-decoration: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.itin-activity-link:hover {
+  background: rgba(37, 99, 235, 0.14);
+  border-color: rgba(37, 99, 235, 0.5);
+}
+
 
 .itin-activity {
   display: flex;
