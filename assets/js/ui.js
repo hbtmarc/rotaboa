@@ -174,24 +174,42 @@ var UI = (function () {
     );
   }
 
-  // ---- Mapa de categorias de despesas ----
+  // ---- Mapa de categorias de despesas (inclui aliases de atividade) ----
   var _despCatMeta = {
-    transporte:  { emoji: '🚗', nome: 'Transporte'  },
-    hospedagem:  { emoji: '🏨', nome: 'Hospedagem'  },
-    alimentacao: { emoji: '🍽️', nome: 'Alimentação' },
-    passeios:    { emoji: '🎡', nome: 'Passeios'    },
-    compras:     { emoji: '🛍️', nome: 'Compras'     },
-    outros:      { emoji: '📌', nome: 'Outros'      },
+    transporte:   { emoji: '🚗', nome: 'Transporte'  },
+    deslocamento: { emoji: '🚗', nome: 'Transporte'  },
+    hospedagem:   { emoji: '🏨', nome: 'Hospedagem'  },
+    alimentacao:  { emoji: '🍽️', nome: 'Alimentação' },
+    restaurante:  { emoji: '🍽️', nome: 'Restaurante' },
+    passeios:     { emoji: '🎡', nome: 'Passeios'    },
+    passeio:      { emoji: '🎡', nome: 'Passeio'     },
+    aventura:     { emoji: '🧗', nome: 'Aventura'    },
+    cachoeira:    { emoji: '💧', nome: 'Cachoeira'   },
+    cultura:      { emoji: '🏛️', nome: 'Cultura'     },
+    evento:       { emoji: '🎟️', nome: 'Evento'      },
+    natureza:     { emoji: '🌿', nome: 'Natureza'    },
+    noturno:      { emoji: '🌇', nome: 'Noturno'     },
+    praia:        { emoji: '🏖️', nome: 'Praia'       },
+    trilha:       { emoji: '🥾', nome: 'Trilha'      },
+    compras:      { emoji: '🛍️', nome: 'Compras'     },
+    compra:       { emoji: '🛍️', nome: 'Compra'      },
+    descanso:     { emoji: '😴', nome: 'Descanso'    },
+    emergencia:   { emoji: '🚑', nome: 'Emergência'  },
+    livre:        { emoji: '🌴', nome: 'Livre'       },
+    outros:       { emoji: '📌', nome: 'Outros'      },
   };
 
   // ---- Renderiza cartão de despesa funcional (com editar/excluir) ----
   function renderDespesaItem(desp, tripId) {
     var cat   = _despCatMeta[desp.categoria] || _despCatMeta.outros;
-    var eRota = desp.origem === 'rota' || !!desp.routeSegmentId;
-    var data  = '';
+    var eRota     = desp.origem === 'rota' || !!desp.routeSegmentId;
+    var eRoteiro  = desp.origem === 'roteiro' && !!desp.linkedSource;
+    var data = '';
     if (desp.data) {
       var p = desp.data.split('-');
-      data = p[2] + '/' + p[1] + '/' + p[0];
+      var _sem = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+      var _dObj = new Date(desp.data + 'T12:00:00');
+      data = _sem[_dObj.getDay()] + ', ' + p[2] + '/' + p[1] + '/' + p[0].slice(2);
     }
     var rateioNomes = (desp.participantesRateioNomes && desp.participantesRateioNomes.length)
       ? desp.participantesRateioNomes
@@ -211,10 +229,9 @@ var UI = (function () {
       var ultima = lista.length > 0 ? Number(lista[lista.length - 1]) : primeira;
       detalheParcelas = '<div class="text-xs text-muted" style="margin-top:var(--space-1)">🧩 ' + parcelas + 'x de ' + formatarMoeda(primeira) + (Math.abs(ultima - primeira) >= 0.01 ? ' (última de ' + formatarMoeda(ultima) + ')' : '') + '</div>';
     }
-    var badgeRota = eRota
-      ? '<span class="badge badge-info">Gerado por rota</span>'
-      : '';
-    var acaoEditar = eRota ? 'Editar rota' : 'Editar';
+    var badgeRota    = eRota    ? '<span class="badge badge-info">Gerado por rota</span>'    : '';
+    var badgeRoteiro = eRoteiro ? '<span class="badge badge-roteiro">Do roteiro</span>' : '';
+    var acaoEditar  = eRota ? 'Editar rota'  : 'Editar';
     var acaoExcluir = eRota ? 'Excluir rota' : 'Excluir';
 
     return (
@@ -223,6 +240,7 @@ var UI = (function () {
           '<div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">' +
             '<span class="desp-cat-chip">' + cat.emoji + ' ' + cat.nome + '</span>' +
             badgeRota +
+            badgeRoteiro +
           '</div>' +
           '<span class="desp-date">' + data + '</span>' +
         '</div>' +

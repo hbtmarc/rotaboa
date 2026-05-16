@@ -374,6 +374,7 @@
 .badge-warn    { background: var(--color-badge-warn);  color: var(--color-badge-warn-text); }
 .badge-err     { background: var(--color-badge-err);   color: var(--color-badge-err-text); }
 .badge-info    { background: var(--color-badge-info);  color: var(--color-badge-info-text); }
+.badge-roteiro { background: #fff3e0; color: #e65100; }
 .badge-neutral { background: var(--color-bg-alt); color: var(--color-text-secondary); }
 
 /* ---- Empty state ---- */

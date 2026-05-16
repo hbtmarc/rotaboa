@@ -629,6 +629,34 @@ var Store = (function () {
   }
 
   // ---- Linked expense helpers ----
+  // Mapeia categorias de atividade para as categorias canônicas de despesa.
+  function _mapCategoria(cat) {
+    var _m = {
+      restaurante:  'alimentacao',
+      alimentacao:  'alimentacao',
+      hospedagem:   'hospedagem',
+      deslocamento: 'transporte',
+      transporte:   'transporte',
+      passeio:      'passeios',
+      aventura:     'passeios',
+      cachoeira:    'passeios',
+      cultura:      'passeios',
+      evento:       'passeios',
+      natureza:     'passeios',
+      noturno:      'passeios',
+      praia:        'passeios',
+      trilha:       'passeios',
+      compra:       'compras',
+      compras:      'compras',
+      descanso:     'outros',
+      emergencia:   'outros',
+      livre:        'outros',
+      outro:        'outros',
+      outros:       'outros',
+    };
+    return _m[String(cat || '').toLowerCase()] || 'outros';
+  }
+
   // Cria ou atualiza uma despesa vinculada a uma atividade/rota pelo linkedSource.
   function _upsertLinkedExpense(tripId, linkedSource, dados) {
     if (!tripId || !linkedSource || !linkedSource.id) return;
@@ -671,7 +699,7 @@ var Store = (function () {
       var viagem = _state.viagens.find(function (v) { return v.id === tripId; });
       var partic = _participantesAtivosComId(viagem);
       _upsertLinkedExpense(tripId, { type: 'atividade', id: ativ.id, tripId: tripId }, {
-        categoria: ativ.categoria || 'outros',
+        categoria: _mapCategoria(ativ.categoria),
         descricao: String(ativ.nome || 'Atividade').trim(),
         valor: custo,
         data: dataISO || ativ.data || _hojeISO(),
@@ -701,23 +729,32 @@ var Store = (function () {
             var viag = _state.viagens.find(function (v) { return v.id === tid; });
             var partic = _participantesAtivosComId(viag);
             if (!_despesas[tid]) _despesas[tid] = [];
-            var jaExiste = _despesas[tid].some(function (d) {
+            var source = { type: 'atividade', id: ativ.id, tripId: tid };
+            var catCorreta = _mapCategoria(ativ.categoria);
+            var existente = _despesas[tid].find(function (d) {
               return d && d.linkedSource &&
                 d.linkedSource.type === 'atividade' &&
                 d.linkedSource.id === ativ.id;
             });
-            if (!jaExiste) {
-              var source = { type: 'atividade', id: ativ.id, tripId: tid };
-              var despData = {
-                categoria: ativ.categoria || 'outros',
-                descricao: String(ativ.nome || 'Atividade').trim(),
-                valor: custo,
-                data: dia.data || _hojeISO(),
-                quemPagouId: partic.length > 0 ? partic[0].id : '',
-                participantesRateioIds: partic.map(function (p) { return p.id; }),
-                linkedSource: source,
-                origem: 'roteiro',
-              };
+            // Sempre faz upsert para corrigir categoria errada em despesas legadas
+            var despData = {
+              categoria: catCorreta,
+              descricao: String(ativ.nome || 'Atividade').trim(),
+              valor: custo,
+              data: dia.data || _hojeISO(),
+              quemPagouId: partic.length > 0 ? partic[0].id : '',
+              participantesRateioIds: partic.map(function (p) { return p.id; }),
+              linkedSource: source,
+              origem: 'roteiro',
+            };
+            if (existente) {
+              // Atualiza apenas se algo mudou (evita save desnecessário)
+              if (existente.categoria !== catCorreta || existente.valor !== custo || existente.descricao !== despData.descricao) {
+                var idx = _despesas[tid].indexOf(existente);
+                _despesas[tid][idx] = _normalizarDespesaManual(tid, Object.assign({}, existente, despData), existente.id);
+                _saved = true;
+              }
+            } else {
               _despesas[tid].push(_normalizarDespesaManual(tid, despData, _gerarDespesaId()));
               _saved = true;
             }
@@ -1408,7 +1445,7 @@ var Store = (function () {
 
       var totalGasto = lista.reduce(function (acc, d) { return acc + (Number(d.valor) || 0); }, 0);
 
-      // Agrupa por categoria
+      // Agrupa por categoria — normaliza aliases de atividade → categoria canônica
       var _catCfg = {
         transporte:   { emoji: '🚗', nome: 'Transporte'   },
         hospedagem:   { emoji: '🏨', nome: 'Hospedagem'   },
@@ -1419,7 +1456,7 @@ var Store = (function () {
       };
       var porCat = {};
       lista.forEach(function (d) {
-        var k = d.categoria || 'outros';
+        var k = _mapCategoria(d.categoria || 'outros');
         porCat[k] = (porCat[k] || 0) + (Number(d.valor) || 0);
       });
 
