@@ -977,6 +977,45 @@
   resize: vertical;
 }
 
+/* ---- PlaceAutocompleteElement (Google Places nova API) ------------------- */
+/* O web component usa Shadow DOM — class form-input não penetra nele.       */
+/* Usamos ::part(input) para estilizar o campo interno e o host como bloco.  */
+gmp-place-autocomplete {
+  display: block;
+  width: 100%;
+  /* Remove estilos de host que conflitam com o shadow DOM */
+  border: none !important;
+  padding: 0 !important;
+  background: transparent !important;
+  min-height: unset !important;
+}
+
+gmp-place-autocomplete::part(input) {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  min-height: 44px;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+gmp-place-autocomplete::part(input):focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 0.12);
+}
+
+gmp-place-autocomplete::part(input)::placeholder {
+  color: var(--color-text-tertiary, #94a3b8);
+}
+
 .form-select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;

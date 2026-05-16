@@ -99,12 +99,14 @@ var MapsService = (function () {
           requestedRegion:   'br',
         });
 
-        // Copia atributos visuais do input original
-        if (inputElement.placeholder) pac.setAttribute('placeholder', inputElement.placeholder);
-        if (inputElement.className)   pac.className = inputElement.className;
-        pac.style.cssText = inputElement.style.cssText;
+        // Layout: ocupa exatamente o espa\u00e7o do input substitu\u00eddo
+        pac.style.display = 'block';
+        pac.style.width   = '100%';
 
-        // Mantém o MESMO id para que getElementById() continue funcionando
+        // Repassa placeholder do input original
+        if (inputElement.placeholder) pac.setAttribute('placeholder', inputElement.placeholder);
+
+        // Mant\u00e9m o MESMO id para que getElementById() continue funcionando
         var _origId = inputElement.id;
         if (_origId) pac.id = _origId;
 
