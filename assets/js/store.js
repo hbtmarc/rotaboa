@@ -16,6 +16,9 @@ var Store = (function () {
   var _LS_BAG_TEMPLATES = 'rotaboa.bagagem.templates.v1';
   var _rotasLegacySemTripIdLogado = false;
 
+  // Config defaults injetados pelo app.js para cálculo de custo de rotas
+  var _configDefaults = { consumoPadrao: 0, precoCombustivelPadrao: 0 };
+
   var _MOCK_TRIP_IDS = {
     'viagem-1': true,
     'viagem-2': true,
@@ -525,6 +528,13 @@ var Store = (function () {
     var consumo = Math.max(0, Number(dados.consumoKmL) || 0);
     var preco = Math.max(0, Number(dados.precoCombustivelLitro) || 0);
     var fixo = Math.max(0, Number(dados.custoFixo) || 0);
+    // Aplica defaults do config quando o trecho tem distância mas não tem consumo/preço
+    var _tipoT = String(dados.tipo || 'outro').toLowerCase();
+    var _useCar = ['carro', 'van', 'onibus'].indexOf(_tipoT) !== -1;
+    if (distancia > 0 && _useCar) {
+      if (consumo === 0 && _configDefaults.consumoPadrao > 0) consumo = _configDefaults.consumoPadrao;
+      if (preco === 0 && _configDefaults.precoCombustivelPadrao > 0) preco = _configDefaults.precoCombustivelPadrao;
+    }
     var litros = consumo > 0 ? (distancia / consumo) : 0;
     var custoComb = litros * preco;
     var custoTotal = fixo + custoComb;
@@ -616,6 +626,61 @@ var Store = (function () {
       parcelas: parcelas,
       valorParcela: parcelas.length > 0 ? parcelas[0] : valorTotal,
     });
+  }
+
+  // ---- Linked expense helpers ----
+  // Cria ou atualiza uma despesa vinculada a uma atividade/rota pelo linkedSource.
+  function _upsertLinkedExpense(tripId, linkedSource, dados) {
+    if (!tripId || !linkedSource || !linkedSource.id) return;
+    if (!_despesas[tripId]) _despesas[tripId] = [];
+    var idx = _despesas[tripId].findIndex(function (d) {
+      return d && d.linkedSource &&
+        d.linkedSource.type === linkedSource.type &&
+        d.linkedSource.id === linkedSource.id;
+    });
+    var despData = Object.assign({}, dados, { linkedSource: linkedSource, origem: 'roteiro' });
+    if (idx !== -1) {
+      _despesas[tripId][idx] = _normalizarDespesaManual(
+        tripId, Object.assign({}, _despesas[tripId][idx], despData), _despesas[tripId][idx].id
+      );
+    } else {
+      _despesas[tripId].push(_normalizarDespesaManual(tripId, despData, _gerarDespesaId()));
+    }
+    _despesas[tripId].sort(function (a, b) { return (b.data || '').localeCompare(a.data || ''); });
+    _salvarDespesas();
+  }
+
+  // Remove a despesa vinculada a uma atividade/rota pelo linkedSource.
+  function _removeLinkedExpense(tripId, sourceType, sourceId) {
+    if (!tripId || !sourceType || !sourceId) return;
+    if (!_despesas[tripId]) return;
+    var antes = _despesas[tripId].length;
+    _despesas[tripId] = _despesas[tripId].filter(function (d) {
+      return !(d && d.linkedSource &&
+        d.linkedSource.type === sourceType &&
+        d.linkedSource.id === sourceId);
+    });
+    if (_despesas[tripId].length !== antes) _salvarDespesas();
+  }
+
+  // Sincroniza a despesa vinculada a uma atividade (upsert ou remove conforme custo).
+  function _syncAtividadeExpense(tripId, ativ, dataISO) {
+    if (!ativ || !ativ.id || !tripId) return;
+    var custo = _round2(Number(ativ.custoEstimado) || 0);
+    if (custo > 0) {
+      var viagem = _state.viagens.find(function (v) { return v.id === tripId; });
+      var partic = _participantesAtivosComId(viagem);
+      _upsertLinkedExpense(tripId, { type: 'atividade', id: ativ.id, tripId: tripId }, {
+        categoria: ativ.categoria || 'outros',
+        descricao: String(ativ.nome || 'Atividade').trim(),
+        valor: custo,
+        data: dataISO || ativ.data || _hojeISO(),
+        quemPagouId: partic.length > 0 ? partic[0].id : '',
+        participantesRateioIds: partic.map(function (p) { return p.id; }),
+      });
+    } else {
+      _removeLinkedExpense(tripId, 'atividade', ativ.id);
+    }
   }
 
   function _gerarDespesasVirtuaisRotas(tripId) {
@@ -866,6 +931,14 @@ var Store = (function () {
     getState: function () { return _state; },
 
     subscribe: function (fn) { _listeners.push(fn); },
+
+    // Injeta defaults de configuração (consumo/preço combustível) para cálculos de custo
+    setConfigDefaults: function (prefs) {
+      _configDefaults = {
+        consumoPadrao:          Math.max(0, Number(prefs && prefs.consumoPadrao) || 0),
+        precoCombustivelPadrao: Math.max(0, Number(prefs && prefs.precoCombustivelPadrao) || 0),
+      };
+    },
 
     // ---- Bagagem ----
     getBagagem: function (tripId) {
@@ -1120,6 +1193,8 @@ var Store = (function () {
       dia.atividades.sort(function (a, b) { return (a.hora || '').localeCompare(b.hora || ''); });
       _salvarItinerarios();
       _marcarSyncPendente();
+      // Vincula despesa financeira se há custo
+      _syncAtividadeExpense(tripId, ativ, dataISO);
       return ativ;
     },
 
@@ -1135,21 +1210,26 @@ var Store = (function () {
       if (!diaOrigem) return false;
       var ativOriginal = diaOrigem.atividades[idxOrigem];
       var novaData = dados.data;
+      var ativAtualizada;
       if (novaData && novaData !== diaOrigem.data) {
         // Move para outro dia
         diaOrigem.atividades.splice(idxOrigem, 1);
+        ativAtualizada = Object.assign({}, ativOriginal, dados);
         var diaDestino = raw.dias.find(function (d) { return d.data === novaData; });
         if (diaDestino) {
           if (!diaDestino.atividades) diaDestino.atividades = [];
-          diaDestino.atividades.push(Object.assign({}, ativOriginal, dados));
+          diaDestino.atividades.push(ativAtualizada);
           diaDestino.atividades.sort(function (a, b) { return (a.hora || '').localeCompare(b.hora || ''); });
         }
       } else {
-        diaOrigem.atividades[idxOrigem] = Object.assign({}, ativOriginal, dados);
+        ativAtualizada = Object.assign({}, ativOriginal, dados);
+        diaOrigem.atividades[idxOrigem] = ativAtualizada;
         diaOrigem.atividades.sort(function (a, b) { return (a.hora || '').localeCompare(b.hora || ''); });
       }
       _salvarItinerarios();
       _marcarSyncPendente();
+      // Atualiza despesa vinculada (upsert/remove conforme novo custo)
+      _syncAtividadeExpense(tripId, ativAtualizada, novaData || diaOrigem.data);
       return true;
     },
 
@@ -1162,6 +1242,8 @@ var Store = (function () {
       });
       _salvarItinerarios();
       _marcarSyncPendente();
+      // Remove despesa vinculada
+      _removeLinkedExpense(tripId, 'atividade', atividadeId);
       return true;
     },
 
@@ -1575,6 +1657,12 @@ var Store = (function () {
         var consumo = Number(t.consumoKmL) || 0;
         var preco = Number(t.precoCombustivelLitro) || 0;
         var fixo = Number(t.custoFixo) || 0;
+        var _tipoR = String(t.tipo || '').toLowerCase();
+        var _useCarR = ['carro', 'van', 'onibus'].indexOf(_tipoR) !== -1;
+        if (distancia > 0 && _useCarR) {
+          if (consumo === 0 && _configDefaults.consumoPadrao > 0) consumo = _configDefaults.consumoPadrao;
+          if (preco === 0 && _configDefaults.precoCombustivelPadrao > 0) preco = _configDefaults.precoCombustivelPadrao;
+        }
         var litros = consumo > 0 ? (distancia / consumo) : 0;
         var custoComb = litros * preco;
         var custoTotal = fixo + custoComb;

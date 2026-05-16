@@ -174,29 +174,29 @@ var FirebaseClient = (function () {
     var authSdk = await _carregarSdkAuth();
     var provider = new authSdk.GoogleAuthProvider();
 
-    // GitHub Pages (e qualquer host não-localhost) serve COOP: same-origin,
-    // o que bloqueia window.closed/window.close no popup — use redirect nesses ambientes.
-    // Em localhost, popup é mais rápido e confortável para desenvolvimento.
     var host = window.location.hostname;
     var isLocalhost = (host === 'localhost' || host === '127.0.0.1' || host === '');
+    // Mobile browsers open popups as a new tab — no COOP issues.
+    // Desktop non-localhost (GitHub Pages): COOP headers break popup → use redirect.
+    var isMobile = typeof navigator !== 'undefined' &&
+      /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
 
-    if (isLocalhost) {
-      // Popup — desenvolvimento local
+    if (isLocalhost || isMobile) {
       try {
         var cred = await authSdk.signInWithPopup(auth, provider);
         _authUserAtual = (cred && cred.user) || null;
         return _authUserAtual;
       } catch (e) {
         var code = e && e.code ? e.code : '';
-        if (code === 'auth/popup-blocked' || code === 'auth/popup-closed-by-user') {
-          // Fallback para redirect se popup for bloqueado mesmo em localhost
+        if (code === 'auth/popup-blocked') {
+          // Popup explicitly blocked → fallback to redirect
           await authSdk.signInWithRedirect(auth, provider);
           return null;
         }
         throw e;
       }
     } else {
-      // Redirect — ambientes com COOP (GitHub Pages, etc.)
+      // Desktop non-localhost: redirect avoids COOP header issues
       // _initFirebaseAuth já chama getRedirectResult no próximo boot
       await authSdk.signInWithRedirect(auth, provider);
       return null;

@@ -2574,6 +2574,9 @@ var ConfigActions = {
     prefs.templatesEditaveis = editaveis;
 
     _salvarPreferencias(prefs);
+    if (window.Store && typeof Store.setConfigDefaults === 'function') {
+      Store.setConfigDefaults(prefs);
+    }
     _aplicarDensidade();
 
     if (syncAuto || syncInt) {
@@ -5667,6 +5670,9 @@ var TrechoActions = {
   atualizarHeaderAuthUI();
   atualizarBadgeModoDadosHeader();
   _aplicarDensidade();
+  if (window.Store && typeof Store.setConfigDefaults === 'function') {
+    Store.setConfigDefaults(_lerPreferencias());
+  }
 
   if (window.MapsService && typeof MapsService.init === 'function') {
     MapsService.init().catch(function () {});
