@@ -30,6 +30,12 @@ var FirebaseClient = (function () {
   var _rtdbInstancia = null;
   var _authUserAtual = null;
 
+  // ---- Auth ready gate ------------------------------------------
+  var _authInitStarted    = false;
+  var _authReadyResolve   = null;
+  var _authReadyPromise   = new Promise(function (res) { _authReadyResolve = res; });
+  var _ongoingAuthCallback = null;
+
   function _erro(msg) {
     var e = new Error(msg);
     e.friendly = msg;
@@ -168,18 +174,20 @@ var FirebaseClient = (function () {
     var authSdk = await _carregarSdkAuth();
     var provider = new authSdk.GoogleAuthProvider();
 
-    // GitHub Pages (e qualquer host que não seja localhost) tem COOP que bloqueia popup.
-    // Nesses ambientes usa redirect; em localhost usa popup para melhor UX de dev.
-    var host = window.location.hostname;
-    var isLocalhost = (host === 'localhost' || host === '127.0.0.1' || host === '');
-    if (isLocalhost) {
+    // Tenta popup em todos os ambientes; usa redirect apenas como fallback
+    // se o popup for bloqueado ou fechado pelo usuário.
+    try {
       var cred = await authSdk.signInWithPopup(auth, provider);
-      _authUserAtual = cred.user || null;
+      _authUserAtual = (cred && cred.user) || null;
       return _authUserAtual;
-    } else {
-      // Redirect flow: redireciona para o Google e volta; resultado capturado em onAuthChange
-      await authSdk.signInWithRedirect(auth, provider);
-      return null; // página vai recarregar — onAuthChange tratará o resultado
+    } catch (e) {
+      var code = e && e.code ? e.code : '';
+      if (code === 'auth/popup-blocked' || code === 'auth/popup-closed-by-user') {
+        // Fallback: redirect — página vai recarregar, _initFirebaseAuth tratará o resultado
+        await authSdk.signInWithRedirect(auth, provider);
+        return null;
+      }
+      throw e;
     }
   }
 
@@ -191,35 +199,73 @@ var FirebaseClient = (function () {
     return true;
   }
 
-  async function onAuthChange(callback) {
-    if (typeof callback !== 'function') {
-      return function () {};
-    }
+  // ---- Inicialização interna do Firebase Auth (executada uma única vez) ----
+  // Configura persistência, consome redirect pendente e registra
+  // onAuthStateChanged. Ao primeiro disparo, resolve _authReadyPromise.
+  // Disparos subsequentes chamam _ongoingAuthCallback.
+  async function _initFirebaseAuth() {
+    if (_authInitStarted) return;
+    _authInitStarted = true;
 
     var config = getFirebaseConfig();
     if (!config || !_temConfigMinima(config)) {
       _authUserAtual = null;
-      callback(null);
-      return function () {};
+      if (_authReadyResolve) { _authReadyResolve(); _authReadyResolve = null; }
+      return;
     }
 
-    var auth = await getFirebaseAuth();
-    var authSdk = await _carregarSdkAuth();
+    try {
+      var auth    = await getFirebaseAuth();
+      var authSdk = await _carregarSdkAuth();
 
-    // Em ambientes não-localhost, consome o resultado de um redirect de login do Google
-    // (necessário para que onAuthStateChanged dispare corretamente após o redirect)
-    var host = window.location.hostname;
-    var isLocalhost = (host === 'localhost' || host === '127.0.0.1' || host === '');
-    if (!isLocalhost && typeof authSdk.getRedirectResult === 'function') {
-      authSdk.getRedirectResult(auth).catch(function () {
-        // Ignora erros de redirect (ex: cancelado pelo usuário); onAuthStateChanged cuidará do estado
+      // Persitência local (garante que o login sobreviva a reloads)
+      if (authSdk.setPersistence && authSdk.browserLocalPersistence) {
+        await authSdk.setPersistence(auth, authSdk.browserLocalPersistence).catch(function () {});
+      }
+
+      // Consome possível redirect OAuth pendente ANTES de registrar onAuthStateChanged
+      if (typeof authSdk.getRedirectResult === 'function') {
+        try {
+          await authSdk.getRedirectResult(auth);
+          // O resultado é capturado pelo onAuthStateChanged abaixo
+        } catch (e) {
+          // Sem redirect pendente ou erro COOP — normal
+        }
+      }
+
+      // Registra o único ouvinte autoritativo de estado de autenticação
+      authSdk.onAuthStateChanged(auth, function (user) {
+        _authUserAtual = user || null;
+        // Primeira chamada → resolve a promessa de prontidão
+        if (_authReadyResolve) {
+          var r = _authReadyResolve;
+          _authReadyResolve = null;
+          r();
+        }
+        // Chamadas subsequentes → notifica quem registrou via onAuthChange
+        if (typeof _ongoingAuthCallback === 'function') {
+          _ongoingAuthCallback(_authUserAtual);
+        }
       });
+    } catch (e) {
+      _authUserAtual = null;
+      if (_authReadyResolve) { _authReadyResolve(); _authReadyResolve = null; }
     }
+  }
 
-    return authSdk.onAuthStateChanged(auth, function (user) {
-      _authUserAtual = user || null;
-      callback(_authUserAtual);
-    });
+  // Inicia a inicialização e retorna uma Promise que resolve quando o primeiro
+  // estado de autenticação é conhecido (pode ser usuário ou null).
+  function waitForAuthReady() {
+    _initFirebaseAuth(); // dispara; protegido por _authInitStarted contra chamadas duplicadas
+    return _authReadyPromise;
+  }
+
+  // Registra callback chamado em MUDANÇAS de estado APÓS o boot inicial.
+  // Retorna Promise<cancelFn> para compatibilidade com o código legado.
+  function onAuthChange(callback) {
+    _ongoingAuthCallback = typeof callback === 'function' ? callback : null;
+    var cancel = function () { _ongoingAuthCallback = null; };
+    return Promise.resolve(cancel);
   }
 
   async function uploadAppState(uid, payload) {
@@ -515,6 +561,7 @@ var FirebaseClient = (function () {
     registerWithEmail: registerWithEmail,
     loginWithGoogle: loginWithGoogle,
     logoutUser: logoutUser,
+    waitForAuthReady: waitForAuthReady,
     onAuthChange: onAuthChange,
     uploadAppState: uploadAppState,
     savePreferences: savePreferences,
