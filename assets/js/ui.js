@@ -593,18 +593,23 @@ var UI = (function () {
       var _ldomain = '';
       try { _ldomain = new URL(_lurl).hostname.replace(/^www\./, ''); } catch(e) { _ldomain = _lurl.replace(/^https?:\/\/(www\.)?/,'').split('/')[0]; }
       var _licon = '🔗';
-      if (_ldomain.indexOf('instagram.com') !== -1) _licon = '📷';
-      else if (_ldomain.indexOf('facebook.com') !== -1) _licon = '👥';
-      else if (_ldomain.indexOf('maps.app.goo') !== -1 || _ldomain.indexOf('google.com/maps') !== -1 || _ldomain.indexOf('maps.google') !== -1) _licon = '🗺️';
-      else if (_ldomain.indexOf('tripadvisor') !== -1) _licon = '🦉';
-      else if (_ldomain.indexOf('ifood') !== -1 || _ldomain.indexOf('rappi') !== -1) _licon = '🛵';
+      var _lvariant = '';
+      if (_ldomain.indexOf('instagram.com') !== -1)       { _licon = '📷'; _lvariant = 'itin-activity-link--instagram'; }
+      else if (_ldomain.indexOf('facebook.com') !== -1)   { _licon = '👥'; }
+      else if (_ldomain.indexOf('maps.app.goo') !== -1 || _ldomain.indexOf('google.com/maps') !== -1 || _ldomain.indexOf('maps.google') !== -1) { _licon = '🗺️'; _lvariant = 'itin-activity-link--maps'; }
+      else if (_ldomain.indexOf('tripadvisor') !== -1)    { _licon = '🦉'; }
+      else if (_ldomain.indexOf('ifood') !== -1 || _ldomain.indexOf('rappi') !== -1) { _licon = '🛵'; _lvariant = 'itin-activity-link--food'; }
       var _llabel = _ldomain || 'Ver link';
       // Para instagram.com/username exibe só @username
       if (_ldomain.indexOf('instagram.com') !== -1) {
         var _igSlug = _lurl.replace(/.*instagram\.com\//, '').replace(/[\/\?#].*/, '');
         if (_igSlug) _llabel = '@' + _igSlug;
       }
-      linkHtml = '<a href="' + _lurl + '" target="_blank" rel="noopener noreferrer" class="itin-activity-link" title="Abrir link">' + _licon + ' ' + _llabel + '</a>';
+      linkHtml = '<a href="' + _lurl + '" target="_blank" rel="noopener noreferrer" class="itin-activity-link ' + _lvariant + '" title="Abrir: ' + _llabel.replace(/"/g,'&quot;') + '">' +
+        '<span class="link-icon">' + _licon + '</span>' +
+        '<span class="link-label">' + _llabel.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' +
+        '<span class="link-arrow">&#8599;</span>' +
+      '</a>';
     }
 
     // Duração + calculated end time

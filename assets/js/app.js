@@ -323,11 +323,15 @@ var SyncService = (function () {
       _status.pending    = false;
       _salvarSyncStatus(_status);
 
-      // Re-renderiza a página atual sem piscar (só se o app já estiver pronto)
-      if (typeof _renderPaginaAtual === 'function') {
-        try { _renderPaginaAtual(); } catch (_e) {}
-      } else {
-        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      // Re-renderiza a página atual — mas só se não houver modal aberto
+      // (modal aberto = usuário está interagindo; re-render quebraria o formulário)
+      var _modalAberto = !!document.querySelector('.modal-overlay');
+      if (!_modalAberto) {
+        if (typeof _renderPaginaAtual === 'function') {
+          try { _renderPaginaAtual(); } catch (_e) {}
+        } else {
+          window.dispatchEvent(new HashChangeEvent('hashchange'));
+        }
       }
     }).then(function (unsub) {
       _rtdbSubUnsubscribe = unsub;
@@ -3635,18 +3639,21 @@ var AtividadeModal = (function () {
   // ---- Autocomplete no campo Local ----
   function _setupLocalAutocomplete(existingPlace) {
     _localPlace = existingPlace || null;
-    MapsService.setupAutocomplete(document.getElementById('af-local')).then(function (ac) {
+    var inputEl = document.getElementById('af-local');
+    if (!inputEl) return;
+    // Limpa placeId quando o usuário digita manualmente
+    inputEl.addEventListener('input', function () { _localPlace = null; });
+    MapsService.setupAutocomplete(inputEl).then(function (ac) {
       if (!ac) return;
       ac.addListener('place_changed', function () {
-        var p  = ac.getPlace();
-        var nome  = String(p && p.name || '').trim();
-        var end   = String(p && p.formatted_address || '').trim();
-        var pid   = String(p && p.place_id || '').trim();
-        var lat   = p && p.geometry && p.geometry.location ? p.geometry.location.lat() : null;
-        var lng   = p && p.geometry && p.geometry.location ? p.geometry.location.lng() : null;
+        var p   = ac.getPlace();
+        var nome = String(p && p.name || '').trim();
+        var end  = String(p && p.formatted_address || '').trim();
+        var pid  = String(p && p.place_id || '').trim();
+        var lat  = p && p.geometry && p.geometry.location ? p.geometry.location.lat() : null;
+        var lng  = p && p.geometry && p.geometry.location ? p.geometry.location.lng() : null;
         if (pid) {
           _localPlace = { nome: nome, endereco: end, placeId: pid, lat: lat, lng: lng };
-          // Update the visible input to show the place name
           var inp = document.getElementById('af-local');
           if (inp && nome) inp.value = nome;
         } else {
@@ -3654,13 +3661,6 @@ var AtividadeModal = (function () {
         }
       });
     });
-    var inputEl = document.getElementById('af-local');
-    if (inputEl) {
-      inputEl.addEventListener('input', function () {
-        // If user types manually after a place was selected, clear place data
-        _localPlace = null;
-      });
-    }
   }
 
   // Usa lista centralizada _APP_CATS
@@ -3785,21 +3785,20 @@ var AtividadeModal = (function () {
         '<span class="form-error" id="ae-cat">Selecione uma categoria.</span>' +
       '</div>' +
 
-      '<div class="form-row">' +
-        // Local
-        '<div class="form-group">' +
-          '<label class="form-label" for="af-local">Local</label>' +
-          '<input id="af-local" class="form-input" type="text" maxlength="200" autocomplete="off"' +
-            ' placeholder="Busque endereço, pousada, restaurante, praça..."' +
-            ' value="' + _esc(ativ.localNome || ativ.local) + '">' +
-          '<div id="af-route-status" class="af-route-status"></div>' +
-        '</div>' +
-        // Custo
-        '<div class="form-group">' +
-          '<label class="form-label" for="af-custo">Custo previsto (R$)</label>' +
-          '<input id="af-custo" class="form-input" type="number" min="0" step="0.01" placeholder="0,00" value="' + _esc(ativ.custoEstimado > 0 ? ativ.custoEstimado : '') + '">' +
-          '<span class="form-error" id="ae-custo">Custo deve ser zero ou maior.</span>' +
-        '</div>' +
+      // Local (largura total)
+      '<div class="form-group">' +
+        '<label class="form-label" for="af-local">Local</label>' +
+        '<input id="af-local" class="form-input" type="text" maxlength="200" autocomplete="off"' +
+          ' placeholder="Busque endereço, pousada, restaurante, praça..."' +
+          ' value="' + _esc(ativ.localNome || ativ.local) + '">' +
+        '<div id="af-route-status" class="af-route-status"></div>' +
+      '</div>' +
+
+      // Custo (linha própria)
+      '<div class="form-group">' +
+        '<label class="form-label" for="af-custo">Custo previsto (R$)</label>' +
+        '<input id="af-custo" class="form-input" type="number" min="0" step="0.01" placeholder="0,00" value="' + _esc(ativ.custoEstimado > 0 ? ativ.custoEstimado : '') + '">' +
+        '<span class="form-error" id="ae-custo">Custo deve ser zero ou maior.</span>' +
       '</div>' +
 
       // Observações

@@ -15,6 +15,7 @@ var Router = (function () {
   // Rota atual
   var _rotaAtual = null;
   var _guard = null;
+  var _hashAnterior = null; // controla scroll: só rola ao topo em navegação real
 
   // ---- Registra uma rota ----
   function registrar(padrao, handler) {
@@ -123,8 +124,11 @@ var Router = (function () {
       );
     }
 
-    // Scroll ao topo ao navegar
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Scroll ao topo só quando a rota muda de verdade (não em re-renders do sync)
+    if (hash !== _hashAnterior) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    _hashAnterior = hash;
   }
 
   // ---- Inicializa roteador ----

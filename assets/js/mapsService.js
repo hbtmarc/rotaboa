@@ -44,7 +44,7 @@ var MapsService = (function () {
       script.src =
         'https://maps.googleapis.com/maps/api/js?key=' +
         encodeURIComponent(key) +
-        '&loading=async';
+        '&libraries=places&loading=async';
       script.async = true;
       script.onload = function () { resolve(true); };
       script.onerror = function () {
@@ -87,94 +87,31 @@ var MapsService = (function () {
 
   function setupAutocomplete(inputElement) {
     if (!inputElement) return Promise.resolve(null);
-
-    return _loadPlaces().then(function (placesLib) {
-      if (!placesLib || !placesLib.PlaceAutocompleteElement) {
-        _lastError = 'PlaceAutocompleteElement não disponível.';
-        return null;
-      }
-      try {
-        var pac = new placesLib.PlaceAutocompleteElement({
-          requestedLanguage: 'pt-BR',
-          requestedRegion:   'br',
-        });
-
-        // Layout: ocupa exatamente o espa\u00e7o do input substitu\u00eddo
-        pac.style.display = 'block';
-        pac.style.width   = '100%';
-
-        // Repassa placeholder do input original
-        if (inputElement.placeholder) pac.setAttribute('placeholder', inputElement.placeholder);
-
-        // Mant\u00e9m o MESMO id para que getElementById() continue funcionando
-        var _origId = inputElement.id;
-        if (_origId) pac.id = _origId;
-
-        // Substitui o input no DOM
-        if (inputElement.parentNode) {
-          inputElement.parentNode.replaceChild(pac, inputElement);
+    return _loadScript().then(function (ok) {
+      if (!ok) return null;
+      return new Promise(function (resolve) {
+        var _tries = 0;
+        function _check() {
+          if (window.google && window.google.maps && window.google.maps.places &&
+              window.google.maps.places.Autocomplete) {
+            try {
+              var ac = new window.google.maps.places.Autocomplete(inputElement, {
+                fields: ['formatted_address', 'place_id', 'name', 'geometry'],
+              });
+              resolve(ac);
+            } catch (e) {
+              _lastError = 'Erro ao criar Autocomplete: ' + (e && e.message || e);
+              resolve(null);
+            }
+          } else if (_tries++ < 40) {
+            setTimeout(_check, 150);
+          } else {
+            _lastError = 'google.maps.places.Autocomplete não disponível.';
+            resolve(null);
+          }
         }
-
-        // Adaptador que mantém a interface do Autocomplete antigo
-        var _callbacks  = {};
-        var _lastPlace  = null;
-        var _textValue  = inputElement.value || '';
-
-        // Rastreia o texto digitado via evento 'input' do componente
-        pac.addEventListener('input', function (e) {
-          _textValue  = (e && e.target && e.target.value != null) ? String(e.target.value) : _textValue;
-          _lastPlace  = null;  // usuário digitou manualmente → invalida placeId
-        });
-
-        // Expõe .value/.id como um input normal para compatibilidade retroativa
-        try {
-          Object.defineProperty(pac, 'value', {
-            get: function () { return _textValue; },
-            set: function (v) { _textValue = String(v == null ? '' : v); },
-            configurable: true,
-          });
-        } catch (_e) { /* custom elements podem restringir defineProperty — sem problema */ }
-
-        pac.addEventListener('gmp-placeselect', function (event) {
-          var place = event.place;
-          if (!place) return;
-          place.fetchFields({ fields: ['formattedAddress', 'id', 'displayName', 'location'] })
-            .then(function () {
-              var lat = place.location ? place.location.lat  : null;
-              var lng = place.location ? place.location.lng  : null;
-              // shim de geometria no formato da API antiga (lat/lng como funções)
-              var geomShim = (lat != null && lng != null) ? {
-                location: {
-                  lat: function () { return lat; },
-                  lng: function () { return lng; },
-                }
-              } : null;
-              var displayName = place.displayName || place.formattedAddress || '';
-              _textValue  = displayName;
-              _lastPlace = {
-                formatted_address: place.formattedAddress || '',
-                place_id:          place.id               || '',
-                name:              displayName,
-                geometry:          geomShim,
-              };
-              var cbs = _callbacks['place_changed'] || [];
-              for (var i = 0; i < cbs.length; i++) cbs[i]();
-            })
-            .catch(function () { _lastPlace = null; });
-        });
-
-        return {
-          addListener: function (evtName, cb) {
-            if (!_callbacks[evtName]) _callbacks[evtName] = [];
-            _callbacks[evtName].push(cb);
-          },
-          getPlace:  function () { return _lastPlace; },
-          _element:  pac,
-        };
-      } catch (e) {
-        _lastError = 'Erro ao criar PlaceAutocompleteElement: ' + (e && e.message || e);
-        return null;
-      }
+        _check();
+      });
     });
   }
 
