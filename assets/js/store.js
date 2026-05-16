@@ -14,6 +14,7 @@ var Store = (function () {
   var _LS_EXPENSES = 'rotaboa.expenses.v1';
   var _LS_ROUTES   = 'rotaboa.routes.v1';
   var _LS_BAG_TEMPLATES = 'rotaboa.bagagem.templates.v1';
+  var _LS_PLANOS_DIRETORES = 'rotaboa.planosDiretores.v1';
   var _rotasLegacySemTripIdLogado = false;
 
   // Config defaults injetados pelo app.js para cálculo de custo de rotas
@@ -1011,6 +1012,18 @@ var Store = (function () {
     try { localStorage.setItem(_LS_BAG_TEMPLATES, JSON.stringify(_bagTemplates)); } catch (e) {}
   }
 
+  // ---- Planos Diretores (por tripId) ----
+  var _planosDiretores = (function () {
+    try {
+      var raw = localStorage.getItem(_LS_PLANOS_DIRETORES);
+      return (raw ? JSON.parse(raw) : null) || {};
+    } catch (e) { return {}; }
+  }());
+
+  function _salvarPlanosDiretores() {
+    try { localStorage.setItem(_LS_PLANOS_DIRETORES, JSON.stringify(_planosDiretores)); } catch (e) {}
+  }
+
   // ---- API pública ----
   return {
 
@@ -1047,6 +1060,22 @@ var Store = (function () {
 
     // ---- Bagagem Templates ----
     getBagagemTemplates: function () { return _bagTemplates.slice(); },
+
+    // ---- Plano Diretor ----
+    getPlanoDiretor: function (tripId) {
+      if (!tripId) return null;
+      return _planosDiretores[tripId] || null;
+    },
+    salvarPlanoDiretor: function (tripId, dados) {
+      if (!tripId) return;
+      if (!dados) {
+        delete _planosDiretores[tripId];
+      } else {
+        _planosDiretores[tripId] = Object.assign({}, dados, { tripId: tripId, updatedAt: new Date().toISOString() });
+      }
+      _salvarPlanosDiretores();
+      _marcarSyncPendente();
+    },
 
     saveBagagemTemplate: function (tpl) {
       var idx = _bagTemplates.findIndex(function (t) { return t.id === tpl.id; });
@@ -1660,6 +1689,7 @@ var Store = (function () {
         itineraries: JSON.parse(JSON.stringify(_itinerarios || {})),
         expenses: JSON.parse(JSON.stringify(_despesas || {})),
         routes: JSON.parse(JSON.stringify(_rotasTrechos || {})),
+        planosDiretores: JSON.parse(JSON.stringify(_planosDiretores || {})),
         updatedAt: new Date().toISOString(),
       };
     },
@@ -1705,6 +1735,10 @@ var Store = (function () {
         _itinerarios   = itinerarios;
         _despesas      = despesas;
         _rotasTrechos  = rotas;
+        if (payload.planosDiretores && typeof payload.planosDiretores === 'object') {
+          _planosDiretores = payload.planosDiretores;
+          _salvarPlanosDiretores();
+        }
 
         // Persiste nos LS keys existentes (cache de sessão)
         _salvarViagens();

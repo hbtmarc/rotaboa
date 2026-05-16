@@ -11,6 +11,7 @@ var RB_LOCAL_KEYS = {
   itineraries: 'rotaboa.itineraries.v1',
   expenses: 'rotaboa.expenses.v1',
   routes: 'rotaboa.routes.v1',
+  planoDiretor: 'rotaboa.planosDiretores.v1',
   googleMapsApiKey: 'rotaboa.googleMapsApiKey.v1',
 };
 var RB_OFFLINE_KEY = 'rotaboa.offlineMode.v1';
@@ -150,6 +151,7 @@ var SyncService = (function () {
       itineraries:    _ler(RB_LOCAL_KEYS.itineraries) || {},
       expenses:       _ler(RB_LOCAL_KEYS.expenses)    || {},
       routes:         _ler(RB_LOCAL_KEYS.routes)      || {},
+      planosDiretores: _ler(RB_LOCAL_KEYS.planoDiretor) || {},
       preferences:    _lerPreferencias(),
       updatedAt:      new Date().toISOString(),
       appVersion:     RB_APP_VERSION,
@@ -2108,6 +2110,22 @@ function _renderDiagnosticosHtml() {
   );
 }
 
+function paginaPlanoDiretor(params, container) {
+  var viagem = Store.getViagemSelecionada();
+  if (!viagem) {
+    container.innerHTML = (
+      '<div class="page-section"><div class="fin-empty">' +
+        '<div style="font-size:2.5rem;margin-bottom:var(--space-3)">🎬</div>' +
+        '<p class="font-semibold" style="margin-bottom:var(--space-1)">Nenhuma viagem selecionada</p>' +
+        '<p class="text-sm text-secondary" style="margin-bottom:var(--space-4)">Selecione uma viagem para criar o plano diretor.</p>' +
+        '<a href="#/viagens" class="btn btn-primary btn-sm">Escolher viagem</a>' +
+      '</div></div>'
+    );
+    return;
+  }
+  PlanoDiretorPage.render(viagem, container);
+}
+
 function _atualizarDiagnosticosConfig() {
   var el = document.getElementById('cfg-diagnostico-corpo');
   if (!el) return;
@@ -2417,6 +2435,7 @@ var ConfigActions = {
           itineraries: _ler(RB_LOCAL_KEYS.itineraries) || {},
           expenses: _ler(RB_LOCAL_KEYS.expenses) || {},
           routes: _ler(RB_LOCAL_KEYS.routes) || {},
+          planosDiretores: _ler(RB_LOCAL_KEYS.planoDiretor) || {},
           preferences: _lerPreferencias(),
           appVersion: RB_APP_VERSION,
         };
@@ -6040,6 +6059,7 @@ var TrechoActions = {
   Router.registrar('/financeiro',    paginaFinanceiro);
   Router.registrar('/rotas',         paginaRotas);
   Router.registrar('/bagagem',        paginaBagagem);
+  Router.registrar('/plano-diretor',  paginaPlanoDiretor);
   Router.registrar('/login',         paginaLogin);
   Router.registrar('/config',        paginaConfiguracoes);
   Router.registrar('/configuracoes', paginaConfiguracoes);
@@ -6091,6 +6111,7 @@ var TrechoActions = {
         Router.registrar('/financeiro',    paginaFinanceiro);
         Router.registrar('/rotas',         paginaRotas);
         Router.registrar('/bagagem',       paginaBagagem);
+        Router.registrar('/plano-diretor',  paginaPlanoDiretor);
         Router.registrar('/login',         paginaLogin);
         Router.registrar('/config',        paginaConfiguracoes);
         Router.registrar('/configuracoes', paginaConfiguracoes);

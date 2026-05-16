@@ -19,6 +19,7 @@ const STATIC_ASSETS = [
   './assets/js/mockData.js',
   './assets/js/ui.js',
   './assets/js/bagagem.js',
+  './assets/js/planoDiretor.js',
   './assets/js/firebaseClient.js',
   './assets/js/mapsService.js',
   './assets/js/packingCatalog.js',
