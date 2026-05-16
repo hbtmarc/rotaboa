@@ -941,7 +941,10 @@ async function iniciarAuthStateListener() {
       SyncService.garantirIsolamentoUid(uid);
       _mostrarBootOverlay('Carregando seus dados…');
       _dbgAuth('RTDB pull started | uid:', uid);
-      var pullResult = await SyncService.pullFromRtdb(uid).catch(function () {
+      var pullResult = await Promise.race([
+        SyncService.pullFromRtdb(uid),
+        new Promise(function (res) { setTimeout(function () { res({ ok: false, reason: 'timeout' }); }, 10000); }),
+      ]).catch(function () {
         return { ok: false, reason: 'exception' };
       });
       _dbgAuth('RTDB pull done:', JSON.stringify(pullResult));
@@ -992,7 +995,10 @@ async function iniciarAuthStateListener() {
               SyncService.garantirIsolamentoUid(uid2);
               _mostrarBootOverlay('Carregando seus dados…');
               _dbgAuth('RTDB pull pós-login | uid:', uid2);
-              var pr = await SyncService.pullFromRtdb(uid2).catch(function () {
+              var pr = await Promise.race([
+                SyncService.pullFromRtdb(uid2),
+                new Promise(function (res) { setTimeout(function () { res({ ok: false, reason: 'timeout' }); }, 10000); }),
+              ]).catch(function () {
                 return { ok: false, reason: 'exception' };
               });
               _dbgAuth('RTDB pull pós-login done:', JSON.stringify(pr));
@@ -5831,7 +5837,8 @@ var TrechoActions = {
 
 // ==== INICIALIZAÇÃO ====
 (async function inicializar() {
-
+  var _routerIniciado = false;
+  try {
   // Injeta modais no DOM antes de qualquer coisa
   TripModal.init();
   ConfirmModal.init();
@@ -5868,7 +5875,7 @@ var TrechoActions = {
 
   // Inicia o roteador
   Router.init(document.getElementById('page-container'));
-
+  _routerIniciado = true;
   if (!window.location.hash) {
     window.location.hash = '#' + _rotaInicialPadrao();
   }
@@ -5897,6 +5904,28 @@ var TrechoActions = {
         console.warn('[RotaBoa] SW falhou:', err);
       });
     });
+  }
+
+  } catch (e) {
+    // Segurança: garante que o Router sempre inicializa mesmo que algo acima falhe
+    console.error('[RotaBoa] erro fatal na inicialização:', e);
+    _ocultarBootOverlay();
+    if (!_routerIniciado) {
+      try {
+        Router.setGuard(_guardAcessoRotas);
+        Router.registrar('/inicio',        paginaInicio);
+        Router.registrar('/viagens',       paginaViagens);
+        Router.registrar('/viagem/:id',    paginaViagemDetalhe);
+        Router.registrar('/roteiro',       paginaRoteiro);
+        Router.registrar('/financeiro',    paginaFinanceiro);
+        Router.registrar('/rotas',         paginaRotas);
+        Router.registrar('/bagagem',       paginaBagagem);
+        Router.registrar('/login',         paginaLogin);
+        Router.registrar('/config',        paginaConfiguracoes);
+        Router.registrar('/configuracoes', paginaConfiguracoes);
+        Router.init(document.getElementById('page-container'));
+      } catch (_) {}
+    }
   }
 
 })();

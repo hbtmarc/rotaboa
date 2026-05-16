@@ -1,7 +1,7 @@
 // RotaBoa — Service Worker (MVP)
 // Estratégia: Cache First para assets estáticos, Network First para tudo mais.
 
-const CACHE_NAME = 'rotaboa-v1';
+const CACHE_NAME = 'rotaboa-v2';
 
 const STATIC_ASSETS = [
   './',
@@ -12,11 +12,16 @@ const STATIC_ASSETS = [
   './assets/css/layout.css',
   './assets/css/components.css',
   './assets/css/responsive.css',
+  './assets/js/icons.js',
   './assets/js/app.js',
   './assets/js/router.js',
   './assets/js/store.js',
   './assets/js/mockData.js',
   './assets/js/ui.js',
+  './assets/js/bagagem.js',
+  './assets/js/firebaseClient.js',
+  './assets/js/mapsService.js',
+  './assets/js/packingCatalog.js',
   './assets/img/logo-placeholder.svg',
 ];
 
