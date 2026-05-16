@@ -325,7 +325,7 @@ var SyncService = (function () {
 
       // Re-renderiza a página atual — mas só se não houver modal aberto
       // (modal aberto = usuário está interagindo; re-render quebraria o formulário)
-      var _modalAberto = !!document.querySelector('.modal-overlay');
+      var _modalAberto = !!document.querySelector('.modal-overlay.aberto');
       if (!_modalAberto) {
         if (typeof _renderPaginaAtual === 'function') {
           try { _renderPaginaAtual(); } catch (_e) {}
@@ -3951,14 +3951,15 @@ var AtividadeModal = (function () {
 
     // Criar: tripId obrigatório, dataISO pode ser null (usuário escolhe no select)
     abrir: function (tripId, dataISO) {
-      _tripId      = tripId;
-      _atividadeId = null;
-      _dataPresel  = dataISO || null;
+      _tripId        = tripId;
+      _atividadeId   = null;
+      _dataPresel    = dataISO || null;
+      _calculandoRota = false; // garante reset mesmo sem fechar() anterior
 
       var itin = Store.getItinerario(tripId);
       document.getElementById('ativ-modal-title').textContent = 'Nova atividade';
       document.getElementById('ativ-modal-save').textContent  = 'Salvar atividade';
-      document.getElementById('ativ-modal-body').innerHTML    = _renderForm(itin, {});
+      document.getElementById('ativ-modal-body').innerHTML    = _renderForm(itin, { categoria: 'outro' });
       this._onCatChange();
 
       _overlay.classList.add('aberto');
@@ -4104,7 +4105,7 @@ var AtividadeModal = (function () {
       // --- Rota vinculada: calcular antes de persistir ---
       if (_localPlace && _localPlace.placeId) {
         var origemRota = _encontrarOrigemAtividade(_tripId, Object.assign({ id: _atividadeId }, dados));
-        if (origemRota) {
+        if (origemRota && window.MapsService && typeof MapsService.computeRoute === 'function') {
           _calculandoRota = true;
           var saveBtn  = document.getElementById('ativ-modal-save');
           var statusEl = document.getElementById('af-route-status');
@@ -4118,39 +4119,49 @@ var AtividadeModal = (function () {
             dest:   { label: _localPlace.endereco || _localPlace.nome || dados.local, placeId: _localPlace.placeId },
           };
 
-          MapsService.computeRoute({
-            origin:             _snap.origem.label,
-            originPlaceId:      _snap.origem.placeId || '',
-            destination:        _snap.dest.label,
-            destinationPlaceId: _snap.dest.placeId,
-            travelMode:         'DRIVING',
-          }).then(function (res) {
-            _calculandoRota = false;
-            var chegMin  = _horaToMinG(_snap.dados.hora || '08:00');
-            var durMin   = _parseDurMinG(res.durationText);
-            var partHora = _minToHHMMG(Math.max(0, chegMin - durMin));
-            var trechoData = {
-              source:             'roteiro',
-              tipo:               'carro',
-              origem:             _snap.origem.label,
-              destino:            _snap.dest.label,
+          try {
+            MapsService.computeRoute({
+              origin:             _snap.origem.label,
               originPlaceId:      _snap.origem.placeId || '',
+              destination:        _snap.dest.label,
               destinationPlaceId: _snap.dest.placeId,
-              data:               _snap.dados.data,
-              horario:            partHora,
-              chegadaHorario:     _snap.dados.hora,
-              distanciaKm:        res.distanceKm,
-              duracaoEstimada:    res.durationText,
-              calculoModo:        'google',
-              routeSource:        'google',
-              observacoes:        '',
-            };
-            AtividadeModal._persistirSalvar(_snap.tripId, _snap.atividadeId, _snap.dados, trechoData);
-          }).catch(function () {
+              travelMode:         'DRIVING',
+            }).then(function (res) {
+              _calculandoRota = false;
+              var chegMin  = _horaToMinG(_snap.dados.hora || '08:00');
+              var durMin   = _parseDurMinG(res.durationText);
+              var partHora = _minToHHMMG(Math.max(0, chegMin - durMin));
+              var trechoData = {
+                source:             'roteiro',
+                tipo:               'carro',
+                origem:             _snap.origem.label,
+                destino:            _snap.dest.label,
+                originPlaceId:      _snap.origem.placeId || '',
+                destinationPlaceId: _snap.dest.placeId,
+                data:               _snap.dados.data,
+                horario:            partHora,
+                chegadaHorario:     _snap.dados.hora,
+                distanciaKm:        res.distanceKm,
+                duracaoEstimada:    res.durationText,
+                calculoModo:        'google',
+                routeSource:        'google',
+                observacoes:        '',
+              };
+              AtividadeModal._persistirSalvar(_snap.tripId, _snap.atividadeId, _snap.dados, trechoData);
+            }).catch(function () {
+              _calculandoRota = false;
+              var saveBtn2 = document.getElementById('ativ-modal-save');
+              if (saveBtn2) { saveBtn2.disabled = false; saveBtn2.textContent = 'Salvar atividade'; }
+              _mostrarToast('Atividade salva. Não foi possível calcular a rota.');
+              AtividadeModal._persistirSalvar(_snap.tripId, _snap.atividadeId, _snap.dados, null);
+            });
+          } catch (_routeErr) {
+            // API de rotas indisponível (ex: localhost sem Maps API) — salva sem rota
             _calculandoRota = false;
-            _mostrarToast('Atividade salva. Não foi possível calcular a rota.');
+            var saveBtn3 = document.getElementById('ativ-modal-save');
+            if (saveBtn3) { saveBtn3.disabled = false; saveBtn3.textContent = 'Salvar atividade'; }
             AtividadeModal._persistirSalvar(_snap.tripId, _snap.atividadeId, _snap.dados, null);
-          });
+          }
           return; // espera async
         } else {
           _mostrarToast('Atividade salva. Ponto de origem não encontrado para calcular rota.');
