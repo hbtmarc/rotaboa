@@ -601,7 +601,11 @@ var UI = (function () {
     var badgeCls = badgeAtividade(ativ.status);
     var badge = '<span class="badge ' + badgeCls + '" style="font-size:10px;padding:2px 7px">' + textoStatusAtividade(ativ.status) + '</span>';
     var obs = ativ.observacoes
-      ? '<div class="itin-activity-obs">' + ativ.observacoes + '</div>'
+      ? (function () {
+          var _obsEsc = String(ativ.observacoes)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          return '<div class="itin-activity-obs">' + _obsEsc + '</div>';
+        }())
       : '';
 
     // Link externo (site, Instagram, Maps…)

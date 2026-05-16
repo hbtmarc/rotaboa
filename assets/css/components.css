@@ -2079,6 +2079,7 @@ gmp-place-autocomplete::part(input)::placeholder {
   border-top: 1px solid var(--color-border-light);
   margin-top: var(--space-1);
   padding-top: var(--space-2);
+  white-space: pre-line; /* preserva parágrafos/quebras de linha */
 }
 
 /* ---- Activity time row: duration + calculated end ---- */

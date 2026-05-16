@@ -1016,10 +1016,14 @@ async function iniciarAuthStateListener() {
                 window.dispatchEvent(new HashChangeEvent('hashchange'));
               }
             } else if (!changedUser && prevUser) {
-              // Logout: vai para /login
-              SyncService.stopAutoSync();
-              RB_DIAG_STATE.rtdbStatus = 'pending';
-              Router.navegar('#/login');
+              // Logout: aguarda brevemente para descartar transients de refresh de token
+              setTimeout(function () {
+                if (!FirebaseClient.getCurrentUser()) {
+                  SyncService.stopAutoSync();
+                  RB_DIAG_STATE.rtdbStatus = 'pending';
+                  Router.navegar('#/login');
+                }
+              }, 800);
             }
           } catch (e) {
             _dbgAuth('onAuthChange pós-boot erro:', e);
@@ -4032,6 +4036,7 @@ var AtividadeModal = (function () {
       var itin = Store.getItinerario(tripId);
       document.getElementById('ativ-modal-title').textContent = 'Nova atividade';
       document.getElementById('ativ-modal-save').textContent  = 'Salvar atividade';
+      document.getElementById('ativ-modal-save').disabled     = false; // garante botão habilitado ao abrir
       document.getElementById('ativ-modal-body').innerHTML    = _renderForm(itin, { categoria: 'outro' });
       this._onCatChange();
 
@@ -4065,6 +4070,7 @@ var AtividadeModal = (function () {
 
       document.getElementById('ativ-modal-title').textContent = 'Editar atividade';
       document.getElementById('ativ-modal-save').textContent  = 'Salvar alterações';
+      document.getElementById('ativ-modal-save').disabled     = false; // garante botão habilitado ao editar
       document.getElementById('ativ-modal-body').innerHTML    = _renderForm(itin, ativ);
       this._onCatChange();
 
@@ -4232,6 +4238,8 @@ var AtividadeModal = (function () {
                 routeSource:        'google',
                 observacoes:        '',
               };
+              var _btnRestore = document.getElementById('ativ-modal-save');
+              if (_btnRestore) { _btnRestore.disabled = false; _btnRestore.textContent = _btnLabel; }
               AtividadeModal._persistirSalvar(_snap.tripId, _snap.atividadeId, _snap.dados, trechoData);
             }).catch(function (routeErr) {
               console.warn('[AtividadeModal] Rota não calculada:', routeErr);
