@@ -42,26 +42,162 @@ var PlanoDiretorPage = (function () {
     return M[cat]||'📌';
   }
 
+  // ─── Filmabilidade ─────────────────────────────────────────────────
+  // Retorna {level:'must'|'optional'|'skip', prioridade, reason}
+  function _filmability(a) {
+    var nome = (a.nome||'').toLowerCase().trim();
+    var cat  = a.categoria||'outro';
+    var SKIP = [
+      'dormir','hora do sono','descansar','sonesta','tirar soneca',
+      'aguardar','esperar na ','espera no ','esperar no ','fazer check-out',
+      'check-out','higiene pessoal','lavar roupa','revisar document',
+      'tarefa administr','organizar mala','organizar bagagem',
+      'pagar contas','pagar conta','reunião de','arrumar mala'
+    ];
+    for (var i=0;i<SKIP.length;i++) if(nome.indexOf(SKIP[i])>=0)
+      return {level:'skip',prioridade:'Ignorar',reason:'Rotina sem valor visual. Pule ou use 1 detalhe simbólico se narrativamente necessário.'};
+
+    if (nome.indexOf('acordar')>=0||(nome.indexOf('arrumar')>=0&&cat!=='hospedagem'))
+      return {level:'optional',prioridade:'Baixa',reason:'Preparação matinal — máx. 2–3 planos de detalhe simbólico. Não force cenas staged.'};
+
+    var OPT=[
+      'check-in','fazer check-in','transfer ','embark','desembarque',
+      'deslocamento','ir ao aeroporto','chegada ao aeroporto','aguardar embarque'
+    ];
+    for (var j=0;j<OPT.length;j++) if(nome.indexOf(OPT[j])>=0)
+      return {level:'optional',prioridade:'Baixa',reason:'Logística — 1–2 planos de chegada se visualmente interessante. Não obrigatório.'};
+
+    var MUST_CATS=['natureza','trilha','praia','cultura','esporte'];
+    if (MUST_CATS.indexOf(cat)!==-1) return {level:'must',prioridade:'Alta',reason:null};
+    if (cat==='refeicao')   return {level:'must',prioridade:'Alta',reason:null};
+    if (cat==='passeio')    return {level:'must',prioridade:'Alta',reason:null};
+    if (cat==='compra')     return {level:'optional',prioridade:'Média',reason:null};
+    if (cat==='hospedagem') return {level:'optional',prioridade:'Média',reason:null};
+    if (cat==='transporte') return {level:'optional',prioridade:'Média',reason:null};
+    return {level:'optional',prioridade:'Média',reason:null};
+  }
+
+  function _prioBadge(prioridade) {
+    var M={Alta:'pd-prio--alta',Média:'pd-prio--media',Baixa:'pd-prio--baixa',Ignorar:'pd-prio--ignorar'};
+    return '<span class="pd-prio-chip '+(M[prioridade]||'pd-prio--media')+'">'+prioridade+'</span>';
+  }
+
   // ─── Captação por atividade ────────────────────────────────────────
+  // Retorna objeto com campos para o card ou null para skip
   function _captacaoDados(a) {
-    var cat = a.categoria||'outro';
-    var local = a.local||'';
+    var cat  = a.categoria||'outro';
+    var nomeL = (a.nome||'').toLowerCase();
+    var local = a.local ? ' em '+a.local : '';
     var obs   = a.observacoes||'';
-    var T = {
-      natureza:{antes:'Wide panorâmico ao chegar. Drone se disponível.',durante:'Detalhes de flora, fauna e texturas. Silhuetas na paisagem.',depois:'Golden hour — planos contemplativos no final.',enquad:'Regra dos terços com céu ou linha d\'água. Grande angular.',audio:'Som ambiente (vento, pássaros, água). Nat. sound, sem trilha adicionada.',detalhes:'Folhas com luz de fundo, reflexo n\'água, textura de pedra.',transicao:'Reveal de câmera do chão ao céu. Pan lento para próxima cena.',must:'Plano com escala humana vs. natureza.'},
-      trilha:{antes:'Wide do trail head. Close de botas e mochila — preparação.',durante:'POV câmera na mão. Slow-mo dos pés. Drone acompanhando o grupo.',depois:'Chegada ao destino. Expressão de conquista. Vista do topo.',enquad:'POV de câmera baixa seguindo o passo. Teleobjetiva do grupo de longe.',audio:'Respiração, passos, galhos quebrando. Evitar trilha em cenas de esforço.',detalhes:'Botas no lodo, cantil, mãos apoiadas na pedra, vegetação em plano.',transicao:'Timelapse da trilha percorrida. Corte no ritmo da música.',must:'Shot do grupo no ponto mais alto ou chegando ao destino.'},
-      praia:{antes:'Praia vazia ao amanhecer — drone de cima. Horário dourado.',durante:'Slow-mo de ondas. Pessoas na água. Brincadeiras e risadas.',depois:'Pôr do sol com silhuetas. Reflexo da luz na areia molhada.',enquad:'Horizonte no terço inferior. Câmera baixa no nível da areia.',audio:'Mar e ondas — gravar por 1min. Windshield no microfone.',detalhes:'Areia entre os dedos, concha, espuma da onda, óculos de sol.',transicao:'Wave wipe — onda cobrindo câmera. Dissolve para cena seguinte.',must:'Slow-mo de onda quebrando ou silhueta no pôr do sol.'},
-      refeicao:{antes:'Chegada ao restaurante — fachada e ambiente. Menu sendo aberto.',durante:'Close do prato sendo servido. Expressões de reação ao comer.',depois:'Conversa à mesa. Ambiente e movimento do local.',enquad:'Top-down para pratos. 45° para bebidas e expressões. Bokeh no fundo.',audio:'Ambiente do restaurante, murmúrios, talheres.',detalhes:'Textura do prato, vapor saindo, close de utensílios, mise en place.',transicao:'Close do copo sendo colocado — cut para próxima cena.',must:'Primeiro garfo no prato — expressão de satisfação.'},
-      cultura:{antes:'Fachada do local em wide. Placa ou indicação do lugar.',durante:'Detalhes arquitetônicos, obras de arte, interação das pessoas.',depois:'Contexto urbano ao redor — câmera revelando a cidade.',enquad:'Linhas geométricas do edifício. Teleobjetiva em detalhes arquitetônicos.',audio:'Passos em mármore, guia explicando, eco do espaço interno.',detalhes:'Detalhe de escultura, azulejo, vitral, mosaico, porta antiga.',transicao:'Pan de detalhe para wide. Corte entre elemento antigo e moderno.',must:'Plano que mostre escala do patrimônio com pessoas como referência.'},
-      passeio:{antes:'Saída do ponto de partida — grupo se reunindo.',durante:'Câmera na mão acompanhando. Momentos espontâneos e reações.',depois:'Sorriso de encerramento. Selfie do grupo.',enquad:'Câmera na mão com leve shakiness. Foco em expressões.',audio:'Conversa natural. Não cortar o áudio ambiente.',detalhes:'Mãos apontando para algo, close de olho admirando, mapa consultado.',transicao:'Jump cut de caminhada. Corte com match de movimento.',must:'Momento espontâneo de riso ou surpresa.'},
-      hospedagem:{antes:'Chegada — fachada, entrada, recepção.',durante:'Vista do quarto e varanda. Detalhes de amenidades e cama arrumada.',depois:'Golden hour pela janela. Silhueta relaxando.',enquad:'Establishing shot amplo. Slow tilt do teto para a cama.',audio:'Silêncio do quarto — room tone. Som externo pela janela aberta.',detalhes:'Chave do quarto, toalha dobrada, vista da piscina, café da manhã.',transicao:'Porta abrindo para próxima cena. Timelapse do dia pela janela.',must:'Shot da vista do quarto (se boa) e momento de check-in.'},
-      compra:{antes:'Fachada do mercado/loja. Movimento e cores dos produtos.',durante:'Reação ao escolher o produto. Textura e close do artesanato.',depois:'Produto comprado "apresentado" para câmera com sorriso.',enquad:'Câmera na altura do produto. Close das mãos segurando.',audio:'Barulho do mercado, voz do vendedor, negociação.',detalhes:'Close de artesanato, tecido, cerâmica, feirantes ao fundo.',transicao:'Sacola sendo carregada — walking shot de saída.',must:'Reação genuína ao ver preço ou qualidade do produto.'},
-      esporte:{antes:'Aquecimento e preparação. Equipamento esportivo em close.',durante:'Ação em câmera lenta. Expressões de esforço e diversão.',depois:'Comemoração, cansaço, conclusão da atividade.',enquad:'GoPro em ação. Teleobjetiva de longe para plano cinematográfico.',audio:'Respiração, impacto, aplausos ou bola no arco.',detalhes:'Close do equipamento, tênis, raquete, bola, suor na testa.',transicao:'Slow-mo freeze frame no auge da ação.',must:'Momento de maior tensão ou comemoração.'},
-      transporte:{antes:'Veículo chegando ou saída do local de origem.',durante:'POV pela janela. Timelapse de quilômetros percorridos.',depois:'Chegada ao destino — reação de quem está dentro.',enquad:'GoPro no capô ou janela. Close das mãos no volante.',audio:'Motor, estrada, rádio interno. Silêncio para contemplação.',detalhes:'GPS navegando, placa de cidade, amanhecer pela janela, café na mão.',transicao:'Timelapse acelerado. Mapa animado de rota.',must:'Shot da estrada aberta ou panorama da paisagem passando.'},
+    var film  = _filmability(a);
+    if (film.level==='skip') return null; // handled as skip-card
+
+    // ── Acordar / Preparação ──
+    if (nomeL.indexOf('acordar')>=0||(nomeL.indexOf('arrumar')>=0&&cat!=='hospedagem')) {
+      return {intencao:'Contextualizar a preparação — máx. 2–3 planos rápidos, nada encenado.',oque:'Detalhe de mala sendo fechada. Close do café da manhã. Janela com luz de manhã. Saindo pela porta.',planos:'Close e detalhe. Evitar planos abertos ou rostos sonolentos.',detalhes:'Relógio, passaporte, tênis sendo calçado, chave de hotel.',audio:'Silêncio do quarto. Barulho externo pela janela aberta.',transicao:'Porta fechando — corte direto para a primeira cena do dia.',must:'Apenas 1 plano simbólico do início do dia. Não force.'};
+    }
+
+    var MAP = {
+      natureza:{
+        intencao:'Colocar o espectador dentro da natureza — escala humana vs. grandiosidade. Planos contempletivos.'+(local?'\n'+local:'')+( obs?'\nNota do roteiro: '+obs:''),
+        oque:'Wide panorâmico ao chegar. Drone se disponível. Golden hour (6h–8h / 17h–19h). Fauna e flora em detalhe. Silhueta de pessoa contra o horizonte.',
+        planos:'Grande angular: regra dos terços com céu ou linha d\'água. Teleobjetiva p/ fauna e fauna. Câmera baixa para perspectiva de formiga.',
+        detalhes:'Folhas com luz de fundo (contraluz). Reflexo n\'água parada. Textura de pedra, casca de árvore. Inseto ou flor em macro.',
+        audio:'NAT SOUND obrigatório: vento, pássaros, água. Gravar 60s limpos. Wind-shield no microfone.',
+        transicao:'Reveal de câmera do chão ao céu. Pan lento saindo da vegetação. Dissolve para cena seguinte.',
+        must:'Plano com escala humana — pessoa pequena vs. natureza enorme.'
+      },
+      trilha:{
+        intencao:'Aventura e superação — câmera na mão, ritmo crescente, recompensa no topo.'+(local?' · '+local:'')+( obs?'\nNota: '+obs:''),
+        oque:'Câmera baixa acompanhando os passos. POV da subida. Drone tracking lateral. Chegada ao destino. Vista conquistada. Expressão de esforço e conquista.',
+        planos:'POV câmera baixa (formiga). Drone lateral do grupo. Teleobjetiva do grupo de longe. Slow-mo dos pés.',
+        detalhes:'Botas no lodo / brita. Cantil sendo aberto. Mãos apoiadas em pedra. Mochila no chão. Vaporizador de suor.',
+        audio:'Respiração, passos, galhos quebrando. Evitar trilha sonora em cenas de esforço — deixar o corpo falar.',
+        transicao:'Jump cut de ponto a ponto da trilha. Dissolve de trilha para chegada.',
+        must:'Shot do grupo no ponto mais alto / chegando ao destino — expressão de conquista.'
+      },
+      praia:{
+        intencao:'Leveza, ritmo natural do mar, cores saturadas — slow-motion como linguagem principal.'+(local?' · '+local:'')+( obs?'\nNota: '+obs:''),
+        oque:'Drone paralelo à linha de costa. Wide horizonte ao nível da areia. Slow-mo de onda quebrando. Pessoas na água. Pôr do sol com silhuetas.',
+        planos:'Câmera baixa no nível da areia — horizonte no terço inferior. Câmera lenta (120fps+). Drone alto para composição aérea.',
+        detalhes:'Areia escorrendo entre os dedos. Concha / pedra em macro. Espuma de onda. Óculos de sol no rosto.',
+        audio:'Mar e ondas — gravar +1min sem corte. Windshield obrigatório. Risadas ao fundo.',
+        transicao:'Onda cobrindo a lente — cut para próxima cena. Fade no pôr do sol.',
+        must:'Slow-mo de onda quebrando OU silhueta no pôr do sol.'
+      },
+      refeicao:{
+        intencao:'A refeição como portal cultural — sabor implícito, convívio à mesa, descoberta gastronômica.'+(local?' em '+local:'')+( obs?'\nNota: '+obs:''),
+        oque:'Fachada do restaurante ao chegar. Mesa posta. Prato chegando — câmera acompanha o garçom. Reação no primeiro garfo. Conversa animada. Pagamento ou saída.',
+        planos:'Top-down 90° para pratos. 45° para bebidas com condensação. Bokeh no fundo com ambiente.',
+        detalhes:'Vapor saindo do prato. Textura e cores da comida. Close de utensílios dobrados. Mise en place. Etiqueta ou cardápio.',
+        audio:'Ambiente do restaurante — murmúrio de fundo, talheres, música local. Não cortar o ambiente.',
+        transicao:'Close do copo sendo colocado na mesa — cut direto para próxima cena.',
+        must:'Primeiro garfo no prato + expressão genuína de satisfação.'
+      },
+      cultura:{
+        intencao:'Imersão histórica — linhas arquitetônicas, luz natural e detalhe como narrativa.'+(local?' · '+local:'')+( obs?'\nNota: '+obs:''),
+        oque:'Fachada completa em wide contrapicado. Detalhes arquitetônicos (azulejo, escultura, vitral). Pessoa pequeina vs. escala do patrimônio. Guia explicando se possível.',
+        planos:'Contrapicado da fachada. Teleobjetiva para detalhe sem entrar no espaço. Linhas geométricas do edifício.',
+        detalhes:'Detalhe de escultura, azulejo, vitral, mosaico, porta antiga, inscrição histórica com data.',
+        audio:'Passos em mármore / pedra. Eco e reverb do espaço interno. Guia explicando — áudio limpo.',
+        transicao:'Pan de detalhe para wide. Corte entre elemento histórico e mundo moderno ao redor.',
+        must:'Plano que mostre a escala do patrimônio com pessoas como referência humana.'
+      },
+      passeio:{
+        intencao:'Documentário vivo — presença, espontaneidade e descoberta. Câmera discreta.'+(local?' · '+local:'')+( obs?'\nNota: '+obs:''),
+        oque:'Grupo saindo do ponto de partida. Follow shot acompanhando. Momentos espontâneos e reações. Detalhes do ambiente. Sorriso de encerramento.',
+        planos:'Câmera na mão com shakiness natural. Foco em expressões. Contra-enquadramento para profundidade.',
+        detalhes:'Mãos apontando para algo. Close de olho admirando. Mapa consultado. Ítem característico do local.',
+        audio:'Conversa natural ao fundo — não cortar. Língua local / sotaque característico se possível.',
+        transicao:'Jump cut de caminhada à chegada. Match cut de gesto entre dois lugares.',
+        must:'Momento espontâneo não encenado — riso, surpresa, admiração.'
+      },
+      hospedagem:{
+        intencao:'Refúgio e conforto — mostrar onde o grupo descansou sem ser comercial.'+(local?' · '+local:'')+( obs?'\nNota: '+obs:''),
+        oque:'Chegada: fachada, entrada, recepção. Quarto: vista pela janela, cama arrumada, varanda. Apenas 2–3 planos se não for destino principal.',
+        planos:'Slow tilt do teto para a cama. Wide do quarto ao abrir a porta. Close da vista da janela.',
+        detalhes:'Chave / cartão. Vista da piscina ou jardim. Café da manhã. Toalha dobrada.',
+        audio:'Room tone do quarto — 10s de silêncio. Som externo pela janela aberta.',
+        transicao:'Porta do quarto fechando — fade. Vista da janela ao amanhecer.',
+        must:obs?'Nota do roteiro: '+obs:'Vista do quarto (se boa) ou momento autêntico de check-in. Só se agregar à narrativa.'
+      },
+      compra:{
+        intencao:'Experiência de compra como registro cultural — mercado, artesanato, interação com o vendedor.'+(local?' · '+local:'')+( obs?'\nNota: '+obs:''),
+        oque:'Fachada do mercado ou loja. Produto em mãos — reação ao descobrir. Interação com vendedor. Produto comprado apresentado à câmera.',
+        planos:'Câmera na altura do produto. Close das mãos segurando. Câmera passando pelas bancas.',
+        detalhes:'Textura do artesanato. Etiqueta ou embalagem local. Troco trocando de mãos.',
+        audio:'Barulho vivo do mercado / feira. Voz do vendedor e negociação.',
+        transicao:'Sacola sendo carregada — walking shot de saída.',
+        must:'Reação genuína ao produto — surpresa, satisfação ou admiração.'
+      },
+      esporte:{
+        intencao:'Energia, adrenalina e diversão física — ação como protagonista.'+(local?' · '+local:'')+( obs?'\nNota: '+obs:''),
+        oque:'Aquecimento e equipamento. Ação principal em slow-mo. Expressões de esforço, concentração e comemoração.',
+        planos:'GoPro POV em ação. Teleobjetiva de longe. Câmera circular ao redor do atleta.',
+        detalhes:'Equipamento esportivo em close. Tênis, raquete, bola. Suor na testa. Expressão de esforço.',
+        audio:'Impacto, respiração, aplausos. Torcida ou encorajamento do grupo.',
+        transicao:'Slow-mo freeze frame no auge da ação. Fade de encerramento.',
+        must:'Momento de maior tensão ou comemoração — expressão autêntica.'
+      },
+      transporte:{
+        intencao:'A jornada como narrativa — estrada como personagem, destino como recompensa.'+(local?' · '+local:'')+( obs?'\nNota: '+obs:''),
+        oque:'Timelapse pelo para-brisa. POV pela janela lateral. Placa da cidade de chegada. Reação ao chegar. Panorama da paisagem passando. Apenas planos visualmente relevantes.',
+        planos:'GoPro no capô ou janela. Close das mãos no volante. Wide da estrada aberta.',
+        detalhes:'GPS navegando. Placa de cidade ou estado. Amanhecer / lago pela janela. Café na mão.',
+        audio:'Motor e vento — janela levemente aberta. Rádio interno ou música local. Pneu em estrada de terra.',
+        transicao:'Timelapse acelerado — cut de chegada. Placa da cidade — establishing shot.',
+        must:'Apenas se a paisagem for visualmente forte. Não filme por filmar.'
+      },
     };
-    var base = T[cat]||{antes:'Wide panorâmico do local antes de entrar.',durante:'Câmera na mão acompanhando a atividade.',depois:'Plano de encerramento com o grupo.',enquad:'Variado — teste wide e close antes de cada cena.',audio:'Som ambiente natural sem trilha adicionada.',detalhes:'Texturas do local, rostos, elementos característicos.',transicao:'Pan ou tilt de saída para próxima cena.',must:'O momento único e irreproduzível desta atividade.'};
-    if (obs) base.must = base.must+(obs.length<60?' · Nota: '+obs:'');
-    if (local) base.antes = base.antes+' · Local: '+local+'.';
+    var base = MAP[cat]||{
+      intencao:'Registrar a atividade de forma autêntica e presente.'+(local?' · '+local:'')+( obs?'\nNota: '+obs:''),
+      oque:'Wide panorâmico do local. Atividade principal. Detalhes do ambiente. Reações do grupo.',
+      planos:'Variado — estabelecimento, detalhe, pessoa. Teste ângulos antes de gravar.',
+      detalhes:'Texturas do local. Elemento característico. Rostos e expressões.',
+      audio:'Som ambiente natural — gravar 30s limpos.',
+      transicao:'Pan ou tilt de saída. Corte no ritmo.',
+      must:'O momento único e irreproduzível desta atividade.'
+    };
     return base;
   }
 
@@ -243,6 +379,52 @@ var PlanoDiretorPage = (function () {
     }).join('\n');
   }
 
+  function _gerarNaoFilmar(itin) {
+    var dias=(itin&&itin.dias)?itin.dias:[];
+    var skip=[];
+    var opt=[];
+    dias.forEach(function(d){
+      (d.atividades||[]).forEach(function(a){
+        var f=_filmability(a);
+        if(f.level==='skip') skip.push(a.nome||'Atividade');
+        else if(f.level==='optional') opt.push(a.nome||'Atividade');
+      });
+    });
+    var linhas=['Economize bateria e cartão nas atividades abaixo:',''];
+    if(skip.length){
+      linhas.push('🚫 Pular (sem valor visual):');
+      skip.forEach(function(n){ linhas.push('  • '+n); });
+      linhas.push('');
+    }
+    if(opt.length){
+      linhas.push('💡 Registro opcional (só se narrativamente necessário):');
+      opt.forEach(function(n){ linhas.push('  • '+n); });
+      linhas.push('');
+    }
+    linhas.push('Regra prática: se você hesitar se deve filmar, provavelmente não deve.');
+    return linhas.join('\n');
+  }
+
+  function _gerarArcoNarrativo(viagem, itin) {
+    var dias=(itin&&itin.dias)?itin.dias:[];
+    if(!dias.length) return 'Adicione atividades para gerar o arco narrativo.';
+    var dest=viagem.destinoPrincipal||viagem.destino||'o destino';
+    var totalDias=dias.length;
+    var cats={};
+    dias.forEach(function(d){ (d.atividades||[]).forEach(function(a){ var c=a.categoria||'outro'; cats[c]=(cats[c]||0)+1; }); });
+    var topCat=Object.keys(cats).sort(function(a,b){ return cats[b]-cats[a]; })[0]||'passeio';
+    var ARCO={
+      natureza:'Abertura → chegada e primeiras impressões da natureza. Desenvolvimento → imersão progressiva, planos contemplativos crescendo em emoção. Clímax → momento mais grandioso (topo, cachoeira, pôr do sol). Desfecho → silêncio e contemplação. Encerramento → partida com saudade implícita.',
+      trilha:'Abertura → preparação e ansiedade. Desenvolvimento → esforço físico e superação gradual. Clímax → chegada ao destino conquistado. Desfecho → descanso e satisfação. Encerramento → olhar para trás, memória da conquista.',
+      praia:'Abertura → primeiro contato com o mar. Desenvolvimento → leveza, brincadeiras, ritmo do dia. Clímax → pôr do sol na praia ou momento de total imersão. Desfecho → quietude da última hora do dia. Encerramento → saída com paz.',
+      refeicao:'Abertura → fome e antecipação. Desenvolvimento → descoberta gastronômica e convívio. Clímax → prato principal — expressão e sabor. Desfecho → conversa após a refeição, sobremesa. Encerramento → saída satisfeita.',
+      cultura:'Abertura → chegada ao patrimônio, first impression. Desenvolvimento → exploração de detalhes e história. Clímax → o elemento mais impressionante do local. Desfecho → reflexão de quem acabou de aprender algo. Encerramento → perspectiva externa — cidade ao redor.',
+      passeio:'Abertura → saída animada, expectativa. Desenvolvimento → descobertas espontâneas no caminho. Clímax → momento mais marcante do passeio. Desfecho → retorno descontraído. Encerramento → grupo junto — risos e memória.',
+    };
+    var arc=ARCO[topCat]||'Abertura → chegada e expectativa. Desenvolvimento → atividades principais com progressão emocional. Clímax → momento mais impactante da viagem. Desfecho → relaxamento e reflexão. Encerramento → partida com saudade.';
+    return 'Viagem para '+dest+' · '+totalDias+' dias · Estilo dominant: '+_catLabel(topCat)+'\n\nArco narrativo:\n'+arc+'\n\nEstilo visual: planos longos nas paisagens e contemplação; cortes rítmicos nas atividades físicas; câmera na mão nos momentos espontâneos; tripé nos establishing shots.';
+  }
+
   // ─── Checklist grupos ─────────────────────────────────────────────
   function _gerarChecklistGrupos() {
     return [
@@ -403,6 +585,7 @@ var PlanoDiretorPage = (function () {
     _participantes=window.Store?Store.getParticipantesViagem(viagem.id):[];
     _planoSalvo=_carregarPlano(viagem.id);
     _activeTab=_getStoredTab(viagem.id);
+    if (window.EquipamentosModule) EquipamentosModule.init(viagem.id,viagem,_participantes);
     var html='<div class="pd-root"><div class="pd-sticky-head">'+_renderToolbar()+_renderTabNav()+'</div><div class="pd-body" id="pd-body">'+_renderActiveTab()+'</div></div>';
     container.innerHTML=html;
   }
@@ -427,7 +610,7 @@ var PlanoDiretorPage = (function () {
     return '<button id="'+id+'" class="pd-tb-btn'+(extraClass?' '+extraClass:'')+'" onclick="'+onclick+'" aria-label="'+label+'" title="'+label+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">'+svgPath+'</svg><span>'+label+'</span></button>';
   }
 
-  var _TABS=[{id:'resumo',label:'Resumo'},{id:'captacao',label:'Captação'},{id:'shotlist',label:'Shotlist'},{id:'checklist',label:'Checklist'},{id:'edicao',label:'Edição'},{id:'backup',label:'Backup'}];
+  var _TABS=[{id:'resumo',label:'Resumo'},{id:'captacao',label:'Captação'},{id:'shotlist',label:'Shotlist'},{id:'equipamentos',label:'Equipamentos'},{id:'checklist',label:'Checklist'},{id:'edicao',label:'Edição'},{id:'backup',label:'Backup'}];
 
   function _renderTabNav() {
     var html='<nav class="pd-tabs" role="tablist" aria-label="Seções do plano">';
@@ -437,18 +620,22 @@ var PlanoDiretorPage = (function () {
 
   function _renderActiveTab() {
     var d=_computeData();
-    if(_activeTab==='resumo')    return _tabResumo(d);
-    if(_activeTab==='captacao')  return _tabCaptacao(d);
-    if(_activeTab==='shotlist')  return _tabShotlist(d);
-    if(_activeTab==='checklist') return _tabChecklist(d);
-    if(_activeTab==='edicao')    return _tabEdicao(d);
-    if(_activeTab==='backup')    return _tabBackup(d);
+    if(_activeTab==='resumo')       return _tabResumo(d);
+    if(_activeTab==='captacao')     return _tabCaptacao(d);
+    if(_activeTab==='shotlist')     return _tabShotlist(d);
+    if(_activeTab==='equipamentos') return _tabEquipamentos(d);
+    if(_activeTab==='checklist')    return _tabChecklist(d);
+    if(_activeTab==='edicao')       return _tabEdicao(d);
+    if(_activeTab==='backup')       return _tabBackup(d);
     return _tabResumo(d);
   }
 
   // ══════ TAB: RESUMO ═══════════════════════════════════════════════
   function _tabResumo(d) {
     var partStr=d.partNomes.length>0?d.partNomes.join(', '):'';
+    // Compute filmability stats
+    var mustCount=0,optCount=0,skipCount=0;
+    d.dias.forEach(function(day){ (day.atividades||[]).forEach(function(a){ var lv=_filmability(a).level; if(lv==='must') mustCount++; else if(lv==='optional') optCount++; else skipCount++; }); });
     var h='<div class="pd-tab-pane pd-tab-resumo">';
     h+='<div class="pd-mini-hero">'+
          '<div class="pd-mini-hero-left">'+
@@ -463,15 +650,17 @@ var PlanoDiretorPage = (function () {
          '</div>'+
        '</div>';
     h+='<div class="pd-kpi-grid">'+
-      _kpiCard('📅',String(d.totalDias||'—'),'Dias')+
-      _kpiCard('📍',String(d.totalAtiv),'Atividades')+
-      _kpiCard('🗺️',String(_trechos.length),'Trechos')+
-      _kpiCard('🎥',String(d.locais.length),'Locais')+
+      _kpiCard('🎯',String(mustCount),'Filmar')+
+      _kpiCard('💡',String(optCount),'Opcional')+
+      _kpiCard('🚫',String(skipCount),'Ignorar')+
+      _kpiCard('📆',String(d.totalDias||'—'),'Dias')+
     '</div>';
+    h+=_dirCard('pd-dir-arco','🎞','Arco narrativo e estilo visual',_get('arco',_gerarArcoNarrativo(_viagem,_itin)));
     h+=_dirCard('pd-dir-conceito','🎨','Conceito e narrativa',_get('conceito',_gerarConceito(_viagem,_itin)));
     h+=_dirCard('pd-dir-tom','🎭','Tom emocional e ritmo',_get('tom',_gerarTomEmocional(_viagem,_itin)));
     h+=_dirCard('pd-dir-cenas','📽','Cenas-chave por dia',_get('cenasChave',_gerarCenasChave(_viagem,_itin)));
-    h+=_dirCard('pd-dir-prio','⭐','Momentos prioritários',_get('prioridades',_gerarPrioridades(_itin)));
+    h+=_dirCard('pd-dir-prio','⭐','Cenas prioritárias',_get('prioridades',_gerarPrioridades(_itin)));
+    h+=_dirCard('pd-dir-naofilmar','🚫','O que NÃO filmar',_get('naoFilmar',_gerarNaoFilmar(_itin)));
     h+=_dirCard('pd-dir-riscos','⚠️','Riscos e alertas',_get('riscos',_gerarRiscos(_viagem,_itin)));
     return h+'</div>';
   }
@@ -483,18 +672,47 @@ var PlanoDiretorPage = (function () {
     d.dias.forEach(function(day,di){
       var ativs=day.atividades||[];
       var dayId='pd-day-'+di;
+      var mustCount=ativs.filter(function(a){ return _filmability(a).level==='must'; }).length;
       h+='<div class="pd-day-card" id="'+dayId+'">'+
            '<div class="pd-day-head">'+
-             '<div class="pd-day-head-left"><span class="pd-day-dot"></span><span class="pd-day-name">'+_esc(_diaSemana(day.data))+'</span><span class="pd-day-date">'+_esc(_fmtDataCurta(day.data))+'</span></div>'+
-             '<div class="pd-day-head-right"><span class="pd-day-count">'+ativs.length+'</span></div>'+
+             '<div class="pd-day-head-left">'+
+               '<span class="pd-day-dot"></span>'+
+               '<span class="pd-day-name">'+_esc(_diaSemana(day.data))+'</span>'+
+               '<span class="pd-day-date">'+_esc(_fmtDataCurta(day.data))+'</span>'+
+             '</div>'+
+             '<div class="pd-day-head-right">'+
+               '<span class="pd-day-count">'+ativs.length+'</span>'+
+               (mustCount?'<span class="pd-day-must-badge">🎯 '+mustCount+'&nbsp;prioritária'+(mustCount>1?'s':'')+'</span>':'')+
+             '</div>'+
            '</div>'+
            '<div class="pd-day-body">';
       if (!ativs.length) {
         h+='<p class="pd-day-free">Dia livre — captação documental espontânea.</p>';
       } else {
         ativs.forEach(function(a){
+          var film=_filmability(a);
           var info=_captacaoDados(a);
-          h+='<div class="pd-ativ-card">'+
+          // ── SKIP card ──
+          if (film.level==='skip') {
+            h+='<div class="pd-ativ-card pd-ativ-skip">'+
+                 '<div class="pd-ativ-card-head">'+
+                   '<span class="pd-ativ-card-emoji">'+_catEmoji(a.categoria)+'</span>'+
+                   '<div class="pd-ativ-card-meta">'+
+                     '<div class="pd-ativ-card-name">'+_esc(a.nome||'Atividade')+'</div>'+
+                     '<div class="pd-ativ-card-chips">'+
+                       '<span class="pd-chip pd-chip--cat">'+_esc(_catLabel(a.categoria))+'</span>'+
+                       (a.hora?'<span class="pd-chip pd-chip--time">⏱ '+_esc(a.hora)+'</span>':'')+
+                       _prioBadge('Ignorar')+
+                     '</div>'+
+                   '</div>'+
+                 '</div>'+
+                 '<div class="pd-skip-reason">🚫&nbsp;<strong>Não precisa filmar.</strong> '+_esc(film.reason)+'</div>'+
+               '</div>';
+            return;
+          }
+          // ── OPTIONAL or MUST card ──
+          var isOpt=(film.level==='optional');
+          h+='<div class="pd-ativ-card'+(isOpt?' pd-ativ-optional':'')+'">'+
                '<div class="pd-ativ-card-head">'+
                  '<span class="pd-ativ-card-emoji">'+_catEmoji(a.categoria)+'</span>'+
                  '<div class="pd-ativ-card-meta">'+
@@ -504,19 +722,21 @@ var PlanoDiretorPage = (function () {
                      (a.hora?'<span class="pd-chip pd-chip--time">⏱ '+_esc(a.hora)+'</span>':'')+
                      (a.duracaoMin?'<span class="pd-chip pd-chip--time">'+_esc(_duracaoStr(a.duracaoMin))+'</span>':'')+
                      (a.local?'<span class="pd-chip pd-chip--local">📍 '+_esc(a.local)+'</span>':'')+
+                     _prioBadge(film.prioridade)+
                    '</div>'+
                  '</div>'+
                '</div>'+
+               (isOpt&&film.reason?'<div class="pd-opt-reason">💡&nbsp;'+_esc(film.reason)+'</div>':'')+
                '<div class="pd-ativ-card-fields">'+
-                 _captField('⏮','Antes',info.antes)+
-                 _captField('⏺','Durante',info.durante)+
-                 _captField('⏭','Depois',info.depois)+
-                 _captField('🖼','Enquadramento',info.enquad)+
-                 _captField('🎙','Áudio / Som',info.audio)+
-                 _captField('🔍','Detalhes',info.detalhes)+
-                 _captField('✂','Transição sugerida',info.transicao)+
+                 _captField('🎯','Intenção da cena',info.intencao)+
+                 _captField('🎥','O que gravar',info.oque)+
+                 (!isOpt?_captField('📐','Planos sugeridos',info.planos):'')+
+                 (!isOpt?_captField('🔍','Detalhes úteis',info.detalhes):'')+
+                 _captField('🎙','Áudio / som',info.audio)+
+                 _captField('✂️','Transição sugerida',info.transicao)+
                '</div>'+
-               '<div class="pd-ativ-must"><span class="pd-must-label">🎯 Must capture:</span><span class="pd-must-text">'+_esc(info.must)+'</span></div>'+
+               _captEquipSuggest(a.categoria, film)+
+               (!isOpt&&info.must?'<div class="pd-ativ-must"><span class="pd-must-label">🎯 Must capture:</span><span class="pd-must-text">'+_esc(info.must)+'</span></div>':'')+
                (a.observacoes?'<div class="pd-ativ-obs">📝 '+_esc(a.observacoes.substring(0,200))+(a.observacoes.length>200?'…':'')+'</div>':'')+
              '</div>';
         });
@@ -527,7 +747,25 @@ var PlanoDiretorPage = (function () {
   }
 
   function _captField(icon,label,text) {
+    if (!text) return '';
     return '<div class="pd-cpt-field"><span class="pd-cpt-icon">'+icon+'</span><div class="pd-cpt-text"><span class="pd-cpt-label">'+_esc(label)+'</span><span class="pd-cpt-val">'+_esc(text)+'</span></div></div>';
+  }
+
+  function _captEquipSuggest(cat, film) {
+    if (!window.EquipamentosModule) return '';
+    var itens = EquipamentosModule.getSugeridosParaAtiv(cat);
+    if (!itens || !itens.length) return '';
+    // Suppress gimbal/drone if not in inventory
+    itens = itens.filter(function(it) {
+      if ((it.tipo==='estab'||it.tipo==='gimbal') && !EquipamentosModule.hasGimbal()) return false;
+      if (it.tipo==='drone' && !EquipamentosModule.hasDrone()) return false;
+      return true;
+    });
+    if (!itens.length) return '';
+    var chips = itens.map(function(it){
+      return '<span class="pd-eq-chip">'+(it.emoji?it.emoji:'📦')+' '+_esc(it.nome)+(it.dono?' <span class="pd-eq-chip-dono">'+_esc(it.dono)+'</span>':'')+'</span>';
+    }).join('');
+    return '<div class="pd-eq-suggest"><span class="pd-eq-suggest-label">📷 Equip. sugerido</span><div class="pd-eq-chips">'+chips+'</div></div>';
   }
 
   // ══════ TAB: SHOTLIST ════════════════════════════════════════════
@@ -536,12 +774,17 @@ var PlanoDiretorPage = (function () {
     var allAtivs=[];
     d.dias.forEach(function(day,di){ (day.atividades||[]).forEach(function(a){ allAtivs.push({a:a,dayIdx:di,dayData:day.data}); }); });
     if (!allAtivs.length) return h+_emptyState('📭','Adicione atividades para gerar a shotlist.')+'</div>';
-    allAtivs.forEach(function(item,idx){
+    var filmable=allAtivs.filter(function(item){ return _filmability(item.a).level!=='skip'; });
+    var skipped=allAtivs.filter(function(item){ return _filmability(item.a).level==='skip'; });
+    if (!filmable.length) return h+_emptyState('🚫','Nenhuma atividade filmável no roteiro.')+'</div>';
+    filmable.forEach(function(item,idx){
       var a=item.a;
+      var film=_filmability(a);
+      var isOpt=(film.level==='optional');
       var nome=a.nome||_catLabel(a.categoria);
       var shots=_shotlistAtiv(a);
       var shotId='pd-shot-'+idx;
-      h+='<div class="pd-shot-card" id="'+shotId+'">'+
+      h+='<div class="pd-shot-card'+(isOpt?' pd-shot-card--optional':'')+'" id="'+shotId+'">'+
            '<div class="pd-shot-card-head" onclick="PlanoDiretorPage.toggleShot(\''+shotId+'\')">'+
              '<div class="pd-shot-head-left">'+
                '<span class="pd-shot-emoji">'+_catEmoji(a.categoria)+'</span>'+
@@ -551,26 +794,47 @@ var PlanoDiretorPage = (function () {
                    '<span class="pd-chip pd-chip--cat pd-chip--xs">'+_esc(_catLabel(a.categoria))+'</span>'+
                    (item.dayData?'<span class="pd-chip pd-chip--xs">'+_esc(_fmtDataCurta(item.dayData))+'</span>':'')+
                    (a.local?'<span class="pd-chip pd-chip--xs">📍 '+_esc(a.local)+'</span>':'')+
+                   _prioBadge(film.prioridade)+
                  '</div>'+
                '</div>'+
              '</div>'+
              '<svg class="pd-shot-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>'+
            '</div>'+
            '<div class="pd-shot-body">'+
-             _shotGroup('🌅','Wide / Estabelecimento',shots.wide)+
-             _shotGroup('🔍','Detalhe / Textura',shots.detalhe)+
+             (isOpt&&film.reason?'<div class="pd-shot-opt-note">💡 '+_esc(film.reason)+'</div>':'')+
+             _shotGroup('🌅','Abertura / Estabelecimento',shots.wide)+
+             _shotGroup('🔍','Contexto / Detalhes',shots.detalhe)+
              _shotGroup('👤','Pessoas / Reação',shots.pessoas)+
              _shotGroup('🎬','Movimento / Ação',shots.movimento)+
              _shotGroup('🔊','Ambiente / Som',shots.ambiente)+
-             _shotGroup('✂️','Transição',shots.transicao)+
+             _shotGroup('✂️','Encerramento / Transição',shots.transicao)+
            '</div>'+
          '</div>';
     });
+    if (skipped.length) {
+      h+='<div class="pd-shot-skipped-group">'+
+           '<div class="pd-shot-skipped-head">🚫 Não filmar ('+skipped.length+' atividade'+(skipped.length>1?'s':'')+' ignorada'+(skipped.length>1?'s':'')+')</div>'+
+           '<ul class="pd-shot-skipped-list">'+
+             skipped.map(function(item){ return '<li>'+_catEmoji(item.a.categoria)+' '+_esc(item.a.nome||'Atividade')+'</li>'; }).join('')+
+           '</ul>'+
+         '</div>';
+    }
     return h+'</div>';
   }
 
   function _shotGroup(icon,label,items) {
+    if(!items||!items.length) return '';
     return '<div class="pd-shot-group"><div class="pd-shot-group-head"><span>'+icon+'</span><span>'+_esc(label)+'</span></div><ul class="pd-shot-ul">'+items.map(function(s){ return '<li>'+_esc(s)+'</li>'; }).join('')+'</ul></div>';
+  }
+
+  // ══════ TAB: EQUIPAMENTOS ════════════════════════════════════════
+  function _tabEquipamentos(d) {
+    var h='<div class="pd-tab-pane pd-tab-equipamentos">';
+    if (!window.EquipamentosModule) {
+      return h+'<div class="pd-empty">⚙️<p>Módulo de equipamentos não carregado.</p></div></div>';
+    }
+    h += EquipamentosModule.renderTab(_viagem, _participantes);
+    return h+'</div>';
   }
 
   // ══════ TAB: CHECKLIST ══════════════════════════════════════════
@@ -597,6 +861,21 @@ var PlanoDiretorPage = (function () {
            '</div>'+
          '</div>'+
        '</div>';
+    // Equipment mini-checklist section
+    if (window.EquipamentosModule) {
+      var eqItens = EquipamentosModule.getSugeridosParaAtiv ? null : null; // noop
+      var allEq = (typeof EquipamentosModule.init === 'function') ? Store.getEquipamentos(_viagem && _viagem.id) : [];
+      var levarEq = allEq.filter(function(it){ return it.status !== 'nao_levar'; });
+      if (levarEq.length) {
+        h += '<div class="pd-cl-eq-section"><div class="pd-cl-eq-head">🎒 Equipamentos para levar</div><ul class="pd-cl-eq-list">';
+        levarEq.forEach(function(it){
+          var badge = it.status==='opcional' ? ' <span class="pd-cl-eq-opt">opcional</span>' : '';
+          var dono = it.dono ? ' · '+_esc(it.dono) : '';
+          h += '<li class="pd-cl-eq-item"><span class="pd-cl-eq-dot '+(it.status==='levar'?'pd-cl-eq-dot--ok':'pd-cl-eq-dot--opt')+'"></span>'+_esc(it.nome)+'<span class="pd-cl-eq-meta">'+dono+badge+'</span></li>';
+        });
+        h += '</ul></div>';
+      }
+    }
     grupos.forEach(function(grupo){
       var gDone=grupo.items.filter(function(it){ return it.checked; }).length;
       var gTotal=grupo.items.length;
@@ -654,12 +933,17 @@ var PlanoDiretorPage = (function () {
     var broll=['Planos de estabelecimento de cada cidade / local','Timelapse de transições de dia (céu, luz mudando)','Detalhes do destino: comida local, comércio, sinalização','Momentos de deslocamento: aeroporto, estrada, embarcações','Cotidiano dos moradores locais (com discrição e respeito)'];
     var specs=[{label:'Plataforma',value:'YouTube / Instagram Reels'},{label:'Resolução',value:'4K 2160p ou 1080p 60fps'},{label:'Codec',value:'H.264 / H.265'},{label:'Bitrate',value:'≥ 50 Mbps (4K) · 20 Mbps (1080p)'},{label:'Áudio',value:'AAC 320kbps ou PCM estéreo'},{label:'Aspecto',value:'16:9 YouTube · 9:16 Reels'},{label:'Color grade',value:data.colorPrincipal}];
     var h='<div class="pd-tab-pane pd-tab-edicao">';
+    var gbEst = (window.EquipamentosModule && EquipamentosModule.estimarGB) ? EquipamentosModule.estimarGB(d.totalAtiv) : d.dias.length*30;
+    var fontes = (window.EquipamentosModule && EquipamentosModule.getFontes) ? EquipamentosModule.getFontes() : ['Câmera','Celular'];
     h+='<div class="pd-kpi-grid">'+
       _kpiCard('⏱',durMin+'–'+(durMin+3)+' min','Duração est.')+
       _kpiCard('🎞',String(d.totalAtiv),'Atividades')+
-      _kpiCard('📆',String(d.dias.length),'Dias footage')+
+      _kpiCard('💾','~'+gbEst+' GB','Bruto est.')+
       _kpiCard('🎬',String(d.totalAtiv*3),'Takes est.')+
     '</div>';
+    if (fontes.length) {
+      h+='<div class="pd-note-card"><div class="pd-note-head">📷 Fontes de Footage</div><div class="pd-fonte-list">'+fontes.map(function(f){ return '<span class="pd-fonte-chip">'+_esc(f)+'</span>'; }).join('')+'</div></div>';
+    }
     h+='<div class="pd-note-card"><div class="pd-note-head">🎞 Estrutura Narrativa</div><div class="pd-seg-list">';
     segs.forEach(function(s,i){
       h+='<div class="pd-seg"><div class="pd-seg-time">'+s.t+'</div><div class="pd-seg-connector"><div class="pd-seg-dot"></div>'+(i<segs.length-1?'<div class="pd-seg-line"></div>':'')+'</div><div class="pd-seg-body"><div class="pd-seg-name">'+_esc(s.label)+'</div><div class="pd-seg-desc">'+_esc(s.desc)+'</div></div></div>';
@@ -674,13 +958,17 @@ var PlanoDiretorPage = (function () {
 
   // ══════ TAB: BACKUP ══════════════════════════════════════════════
   function _tabBackup(d) {
-    var gbEst=d.dias.length*30;
+    var gbEst=(window.EquipamentosModule && EquipamentosModule.estimarGB) ? EquipamentosModule.estimarGB(d.totalAtiv) : d.dias.length*30;
     var gbHD=Math.ceil(gbEst*2.2);
+    var hasHD = !window.EquipamentosModule || (EquipamentosModule.hasHD && EquipamentosModule.hasHD());
     var pastas=_gerarEstruturaPastas(_itin);
     var riscos=[{sev:'alto',ico:'🔴',txt:'Cartão corrompido: NUNCA formate sem confirmar 2 cópias válidas.'},{sev:'alto',ico:'🔴',txt:'HD único: sempre manter cópia em 2 locais físicos diferentes.'},{sev:'medio',ico:'🟡',txt:'Superaquecimento: evitar HD sem ventilação em climas quentes.'},{sev:'medio',ico:'🟡',txt:'Nomenclatura incorreta: arquivos sem data/dia geram confusão na edição.'},{sev:'baixo',ico:'🟢',txt:'Falta de espaço: reservar 20% do HD como buffer sempre.'}];
     var rotina=['Ao fim do dia: transferir cartão SD para o HD externo principal.','Criar pasta /Dia-XX — NUNCA misturar dias.','Verificar integridade: reproduzir ao menos 3 arquivos por pasta.','Anotar no diário: o que foi filmado, condições e observações.','Segunda cópia em nuvem (Drive/iCloud) se internet disponível.','Somente após confirmar 2 cópias: formatar o cartão SD.','Carregar baterias da câmera e drone para o dia seguinte.'];
     var verificacao=['Reproduzir 3 arquivos aleatórios — confirmar áudio e imagem OK.','Confirmar tamanho total da pasta conforme estimado.','Verificar se a segunda cópia foi concluída com sucesso.','Formatar cartão SD somente após confirmação dupla.','Carregar todas as baterias para o dia seguinte.','Anotar no diário: número de clips, condições, destaques do dia.'];
     var h='<div class="pd-tab-pane pd-tab-backup">';
+    if (!hasHD) {
+      h+='<div class="pd-warn-banner">⚠️ Nenhum HD/SSD externo no inventário. Adicione em <strong>Equipamentos</strong> para garantir backup seguro em campo.</div>';
+    }
     h+='<div class="pd-kpi-grid">'+
       _kpiCard('💾','~'+gbEst+' GB','Bruto est.')+
       _kpiCard('📦',String(d.dias.length),'Dias footage')+
@@ -720,11 +1008,13 @@ var PlanoDiretorPage = (function () {
   // ─── Coleta estado ────────────────────────────────────────────────
   function _coletarEstadoAtual(){
     var dados={updatedAt:new Date().toISOString()};
+    dados.arco        =_get('arco',        _gerarArcoNarrativo(_viagem,_itin));
     dados.conceito    =_get('conceito',    _gerarConceito(_viagem,_itin));
     dados.tom         =_get('tom',         _gerarTomEmocional(_viagem,_itin));
     dados.cenasChave  =_get('cenasChave',  _gerarCenasChave(_viagem,_itin));
     dados.riscos      =_get('riscos',      _gerarRiscos(_viagem,_itin));
     dados.prioridades =_get('prioridades', _gerarPrioridades(_itin));
+    dados.naoFilmar   =_get('naoFilmar',   _gerarNaoFilmar(_itin));
     var checklistGrupos=_getChecklistGrupos();
     document.querySelectorAll('.pd-body .pd-check-input').forEach(function(el){
       var gId=el.dataset.grupo, iId=el.dataset.id;
@@ -774,21 +1064,25 @@ var PlanoDiretorPage = (function () {
     if(d.loc) linhas.push('**Destino:** '+d.loc);
     if(d.datas) linhas.push('**Datas:** '+d.datas);
     linhas.push('');
+    linhas.push('## � Arco Narrativo'); linhas.push(_get('arco',_gerarArcoNarrativo(_viagem,_itin))); linhas.push('');
     linhas.push('## 🎨 Conceito e Narrativa'); linhas.push(_get('conceito',_gerarConceito(_viagem,_itin))); linhas.push('');
     linhas.push('## 🎭 Tom Emocional'); linhas.push(_get('tom',_gerarTomEmocional(_viagem,_itin))); linhas.push('');
+    linhas.push('## 🚫 O que Não Filmar'); linhas.push(_get('naoFilmar',_gerarNaoFilmar(_itin))); linhas.push('');
     if(d.dias.length){
       linhas.push('## 📅 Captação por Atividade');
       d.dias.forEach(function(day){
         linhas.push('### '+_diaSemana(day.data)+' — '+_fmtDataCurta(day.data));
         (day.atividades||[]).forEach(function(a){
-          linhas.push('#### '+_catEmoji(a.categoria)+' '+(a.nome||_catLabel(a.categoria)));
+          var film=_filmability(a);
           var info=_captacaoDados(a);
-          linhas.push('- **Antes:** '+info.antes);
-          linhas.push('- **Durante:** '+info.durante);
-          linhas.push('- **Depois:** '+info.depois);
-          linhas.push('- **Enquadramento:** '+info.enquad);
-          linhas.push('- **Áudio:** '+info.audio);
-          linhas.push('- **Must capture:** '+info.must);
+          linhas.push('#### '+_catEmoji(a.categoria)+' '+(a.nome||_catLabel(a.categoria))+' ['+film.prioridade+']');
+          if(film.level==='skip'){ linhas.push('> 🚫 Não filmar: '+film.reason); linhas.push(''); return; }
+          if(film.level==='optional'&&film.reason) linhas.push('> 💡 '+film.reason);
+          if(info.intencao) linhas.push('- **Intenção:** '+info.intencao);
+          if(info.oque)     linhas.push('- **O que gravar:** '+info.oque);
+          if(info.planos)   linhas.push('- **Planos:** '+info.planos);
+          if(info.audio)    linhas.push('- **Áudio:** '+info.audio);
+          if(info.must)     linhas.push('- **Must capture:** '+info.must);
           linhas.push('');
         });
       });

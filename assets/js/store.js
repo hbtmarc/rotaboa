@@ -15,6 +15,7 @@ var Store = (function () {
   var _LS_ROUTES   = 'rotaboa.routes.v1';
   var _LS_BAG_TEMPLATES = 'rotaboa.bagagem.templates.v1';
   var _LS_PLANOS_DIRETORES = 'rotaboa.planosDiretores.v1';
+  var _LS_EQUIPAMENTOS = 'rotaboa.equipamentos.v1';
   var _rotasLegacySemTripIdLogado = false;
 
   // Config defaults injetados pelo app.js para cálculo de custo de rotas
@@ -1024,6 +1025,18 @@ var Store = (function () {
     try { localStorage.setItem(_LS_PLANOS_DIRETORES, JSON.stringify(_planosDiretores)); } catch (e) {}
   }
 
+  // ---- Equipamentos (por tripId) ----
+  var _equipamentos = (function () {
+    try {
+      var raw = localStorage.getItem(_LS_EQUIPAMENTOS);
+      return (raw ? JSON.parse(raw) : null) || {};
+    } catch (e) { return {}; }
+  }());
+
+  function _salvarEquipamentos() {
+    try { localStorage.setItem(_LS_EQUIPAMENTOS, JSON.stringify(_equipamentos)); } catch (e) {}
+  }
+
   // ---- API pública ----
   return {
 
@@ -1074,6 +1087,22 @@ var Store = (function () {
         _planosDiretores[tripId] = Object.assign({}, dados, { tripId: tripId, updatedAt: new Date().toISOString() });
       }
       _salvarPlanosDiretores();
+      _marcarSyncPendente();
+    },
+
+    // ---- Equipamentos de filmagem ----
+    getEquipamentos: function (tripId) {
+      if (!tripId) return [];
+      return (_equipamentos[tripId] && _equipamentos[tripId].itens) || [];
+    },
+    salvarEquipamentos: function (tripId, itens) {
+      if (!tripId) return;
+      if (!itens) {
+        delete _equipamentos[tripId];
+      } else {
+        _equipamentos[tripId] = { itens: itens, updatedAt: new Date().toISOString() };
+      }
+      _salvarEquipamentos();
       _marcarSyncPendente();
     },
 
@@ -1690,6 +1719,7 @@ var Store = (function () {
         expenses: JSON.parse(JSON.stringify(_despesas || {})),
         routes: JSON.parse(JSON.stringify(_rotasTrechos || {})),
         planosDiretores: JSON.parse(JSON.stringify(_planosDiretores || {})),
+        equipamentos: JSON.parse(JSON.stringify(_equipamentos || {})),
         updatedAt: new Date().toISOString(),
       };
     },
@@ -1738,6 +1768,10 @@ var Store = (function () {
         if (payload.planosDiretores && typeof payload.planosDiretores === 'object') {
           _planosDiretores = payload.planosDiretores;
           _salvarPlanosDiretores();
+        }
+        if (payload.equipamentos && typeof payload.equipamentos === 'object') {
+          _equipamentos = payload.equipamentos;
+          _salvarEquipamentos();
         }
 
         // Persiste nos LS keys existentes (cache de sessão)
