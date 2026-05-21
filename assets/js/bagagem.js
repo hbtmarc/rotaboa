@@ -480,6 +480,7 @@ var BagagemPage = (function () {
           '<button class="icon-btn icon-btn--ghost bag-hero-act-btn" aria-label="Adicionar item" title="Adicionar item" onclick="BagagemPage.abrirItemModal(null,null)">' + rbIcon('plus') + '<span class="icon-btn-label">Adicionar</span></button>' +
           '<button class="icon-btn icon-btn--ghost bag-hero-act-btn" aria-label="Templates de bagagem" title="Templates de bagagem" onclick="BagagemPage.abrirTemplateModal()">' + rbIcon('layers') + '<span class="icon-btn-label">Templates</span></button>' +
           '<button class="icon-btn icon-btn--ghost bag-hero-act-btn" aria-label="Sugestões de itens" title="Sugestões de itens" onclick="BagagemPage.abrirSugModal()">' + rbIcon('lightbulb') + '<span class="icon-btn-label">Sugestões</span></button>' +
+          '<button class="icon-btn icon-btn--ghost bag-hero-act-btn" aria-label="Exportar checklist" title="Exportar checklist" onclick="BagagemPage.abrirExportarModal()">📤<span class="icon-btn-label">Exportar</span></button>' +
         '</div>' +
       '</div>' +
       // Toolbar
@@ -1920,6 +1921,324 @@ var BagagemPage = (function () {
     container.innerHTML = _buildPage(bag);
   }
 
+  // ══════════════════════════════════════════════════
+  // EXPORT: checklist generation + share/download
+  // ══════════════════════════════════════════════════
+
+  function _fmtDataExport(iso) {
+    if (!iso) return '';
+    var p = iso.split('-');
+    return p.length === 3 ? p[2]+'/'+p[1]+'/'+p[0] : iso;
+  }
+
+  function gerarChecklistExportavel() {
+    var bag = _getBag();
+    var v   = _viagem || {};
+    var now = new Date();
+    var nowStr = now.toLocaleDateString('pt-BR') + ' ' + now.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+    var all = _cntAll(bag);
+    var pct = all.total ? Math.round(all.done / all.total * 100) : 0;
+    var nomes = _bagNomesAtivos(v);
+    var loc   = v.localizacaoCurta || v.destinoPrincipal || v.destino || '';
+    var datas = (v.dataInicio && v.dataFim) ? (_fmtDataExport(v.dataInicio) + ' – ' + _fmtDataExport(v.dataFim)) : '';
+    var lines = [];
+    lines.push('╔══════════════════════════════════════════╗');
+    lines.push('  CHECKLIST DE BAGAGEM');
+    if (v.nome)   lines.push('  ' + v.nome);
+    if (loc)      lines.push('  📍 ' + loc);
+    if (datas)    lines.push('  📅 ' + datas);
+    if (nomes.length) lines.push('  👥 ' + nomes.join(', '));
+    lines.push('╚══════════════════════════════════════════╝');
+    lines.push('');
+    lines.push('Progresso: ' + all.done + ' / ' + all.total + ' itens (' + pct + '%)');
+    lines.push('Gerado em: ' + nowStr);
+    lines.push('');
+    (bag.containers || []).forEach(function (c) {
+      var cCnt = _cntContainer(c);
+      if (!cCnt.total) return;
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      lines.push((c.emoji || '📦') + ' ' + (c.nome || 'Container').toUpperCase() +
+        '  (' + cCnt.done + '/' + cCnt.total + ')');
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      (c.grupos || []).forEach(function (g) {
+        var gItens = (g.itens || []);
+        if (!gItens.length) return;
+        lines.push('');
+        lines.push('  ▸ ' + (g.nome || ''));
+        gItens.forEach(function (it) {
+          var check = it.checked ? '[x]' : '[ ]';
+          var qty   = (it.qtd && it.qtd > 1) ? ' x' + it.qtd : '';
+          var obr   = it.obrigatorio ? '  ★ Obrigatório' : '';
+          var obs   = it.observacao ? '  — ' + it.observacao : '';
+          lines.push('    ' + check + ' ' + (it.nome || '') + qty + obr + obs);
+        });
+      });
+      lines.push('');
+    });
+    lines.push('──────────────────────────────────────────');
+    lines.push('Gerado pelo Rota Boa · rotaboa.app');
+    return lines.join('\n');
+  }
+
+  function _gerarHtmlImprimivel() {
+    var bag = _getBag();
+    var v   = _viagem || {};
+    var now = new Date();
+    var nowStr = now.toLocaleDateString('pt-BR') + ' às ' + now.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+    var all = _cntAll(bag);
+    var pct = all.total ? Math.round(all.done / all.total * 100) : 0;
+    var nomes = _bagNomesAtivos(v);
+    var loc   = v.localizacaoCurta || v.destinoPrincipal || v.destino || '';
+    var datas = (v.dataInicio && v.dataFim) ? (_fmtDataExport(v.dataInicio) + ' – ' + _fmtDataExport(v.dataFim)) : '';
+
+    function esc2(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    var containersHtml = '';
+    (bag.containers || []).forEach(function (c) {
+      var cCnt = _cntContainer(c);
+      if (!cCnt.total) return;
+      var cPct = Math.round(cCnt.done / cCnt.total * 100);
+      var gruposHtml = '';
+      (c.grupos || []).forEach(function (g) {
+        var gItens = (g.itens || []);
+        if (!gItens.length) return;
+        var itensHtml = gItens.map(function (it) {
+          var qty = (it.qtd && it.qtd > 1) ? '<span class="qty">x'+esc2(it.qtd)+'</span>' : '';
+          var obr = it.obrigatorio ? '<span class="obr">Obrigatório</span>' : '';
+          var obs = it.observacao  ? '<span class="obs">'+esc2(it.observacao)+'</span>' : '';
+          var box = it.checked ? '&#9745;' : '&#9744;';
+          var cls = it.checked ? ' done' : '';
+          return '<li class="item'+cls+'"><span class="chk">'+box+'</span><span class="iname">'+esc2(it.nome)+'</span>'+qty+obr+obs+'</li>';
+        }).join('');
+        gruposHtml += '<div class="grupo"><div class="grupo-nome">'+esc2(g.nome||'')+'</div><ul class="itens">'+itensHtml+'</ul></div>';
+      });
+      if (!gruposHtml) return;
+      containersHtml +=
+        '<div class="container-block">'+
+          '<div class="container-head">'+
+            '<span class="c-emoji">'+(c.emoji||'📦')+'</span>'+
+            '<span class="c-nome">'+esc2(c.nome||'')+'</span>'+
+            '<span class="c-cnt">'+cCnt.done+'/'+cCnt.total+'</span>'+
+            '<div class="c-bar"><div class="c-fill" style="width:'+cPct+'%"></div></div>'+
+          '</div>'+
+          gruposHtml+
+        '</div>';
+    });
+
+    return '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">'+
+      '<meta name="viewport" content="width=device-width,initial-scale=1">'+
+      '<title>Checklist — '+esc2(v.nome||'Bagagem')+'</title>'+
+      '<style>'+
+        '*{box-sizing:border-box;margin:0;padding:0}'+
+        'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;color:#1a1a1a;background:#fff;padding:20px 24px}'+
+        'h1{font-size:20px;font-weight:700;margin-bottom:6px}'+
+        '.meta{font-size:12px;color:#555;display:flex;flex-wrap:wrap;gap:6px 16px;margin-bottom:6px}'+
+        '.progress-summary{font-size:13px;font-weight:600;color:#2563eb;margin-bottom:6px}'+
+        '.prog-bar{height:6px;background:#e5e7eb;border-radius:3px;margin-bottom:18px;overflow:hidden}'+
+        '.prog-fill{height:100%;background:#2563eb;border-radius:3px;transition:width .3s}'+
+        '.container-block{break-inside:avoid;margin-bottom:18px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden}'+
+        '.container-head{background:#f8fafc;padding:9px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #e5e7eb}'+
+        '.c-emoji{font-size:16px}'+
+        '.c-nome{font-weight:700;font-size:14px;flex:1}'+
+        '.c-cnt{font-size:12px;color:#6b7280;margin-right:8px}'+
+        '.c-bar{width:70px;height:5px;background:#e5e7eb;border-radius:3px;overflow:hidden}'+
+        '.c-fill{height:100%;background:#2563eb;border-radius:3px}'+
+        '.grupo{padding:8px 14px 4px;border-bottom:1px solid #f3f4f6}'+
+        '.grupo:last-child{border-bottom:none}'+
+        '.grupo-nome{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;margin-bottom:6px}'+
+        '.itens{list-style:none;display:flex;flex-direction:column;gap:3px;padding:0 0 6px}'+
+        '.item{display:flex;align-items:baseline;gap:6px;font-size:13px}'+
+        '.item.done{color:#9ca3af}'+
+        '.item.done .iname{text-decoration:line-through}'+
+        '.chk{font-size:15px;flex-shrink:0;color:#2563eb}'+
+        '.item.done .chk{color:#9ca3af}'+
+        '.iname{flex:1}'+
+        '.qty{font-size:11px;color:#6b7280;background:#f3f4f6;border-radius:4px;padding:1px 5px}'+
+        '.obr{font-size:10px;font-weight:700;background:#fef3c7;color:#d97706;border-radius:4px;padding:1px 6px}'+
+        '.obs{font-size:11px;color:#6b7280;font-style:italic}'+
+        '.footer{margin-top:20px;font-size:10px;color:#9ca3af;text-align:right;border-top:1px solid #e5e7eb;padding-top:8px}'+
+        '@media print{'+
+          'body{padding:8px 14px}'+
+          '.container-block{break-inside:avoid;page-break-inside:avoid}'+
+          '@page{margin:12mm 14mm}'+
+        '}'+
+      '</style></head><body>'+
+      '<h1>🧳 '+esc2(v.nome||'Checklist de Bagagem')+'</h1>'+
+      '<div class="meta">'+
+        (loc   ? '<span>📍 '+esc2(loc)+'</span>' : '')+
+        (datas ? '<span>📅 '+esc2(datas)+'</span>' : '')+
+        (nomes.length ? '<span>👥 '+esc2(nomes.join(', '))+'</span>' : '')+
+      '</div>'+
+      '<p class="progress-summary">Progresso: '+all.done+' / '+all.total+' itens ('+pct+'%)</p>'+
+      '<div class="prog-bar"><div class="prog-fill" style="width:'+pct+'%"></div></div>'+
+      containersHtml+
+      '<div class="footer">Gerado em '+esc2(nowStr)+' · Rota Boa</div>'+
+      '</body></html>';
+  }
+
+  function copiarChecklist() {
+    var bag = _getBag();
+    if (!_cntAll(bag).total) { _exportToast('Lista vazia — nada para copiar.', 'warn'); return; }
+    var txt = gerarChecklistExportavel();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt)
+        .then(function () { _exportToast('✅ Checklist copiado!'); })
+        .catch(function () { _exportFallbackCopy(txt); });
+    } else {
+      _exportFallbackCopy(txt);
+    }
+  }
+
+  function compartilharChecklist() {
+    var bag = _getBag();
+    if (!_cntAll(bag).total) { _exportToast('Lista vazia — nada para compartilhar.', 'warn'); return; }
+    var txt = gerarChecklistExportavel();
+    var v = _viagem || {};
+    var title = 'Checklist — ' + (v.nome || 'Bagagem');
+    if (navigator.share) {
+      navigator.share({ title: title, text: txt })
+        .catch(function (e) { if (e.name !== 'AbortError') copiarChecklist(); });
+    } else {
+      copiarChecklist();
+    }
+  }
+
+  function imprimirChecklist() {
+    var bag = _getBag();
+    if (!_cntAll(bag).total) { _exportToast('Lista vazia — nada para imprimir.', 'warn'); return; }
+    var html = _gerarHtmlImprimivel();
+    var w = window.open('', '_blank', 'width=800,height=900');
+    if (!w) { _exportToast('Pop-up bloqueado. Permita pop-ups e tente novamente.', 'warn'); return; }
+    w.document.write(html);
+    w.document.close();
+    setTimeout(function () { w.focus(); w.print(); }, 400);
+  }
+
+  function baixarChecklistTxt() {
+    var bag = _getBag();
+    if (!_cntAll(bag).total) { _exportToast('Lista vazia — nada para baixar.', 'warn'); return; }
+    var txt  = gerarChecklistExportavel();
+    var blob = new Blob([txt], { type: 'text/plain;charset=utf-8' });
+    var url  = URL.createObjectURL(blob);
+    var a    = document.createElement('a');
+    a.href = url; a.download = 'checklist-bagagem.txt';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+    _exportToast('✅ Arquivo .txt baixado!');
+  }
+
+  function baixarChecklistHtml() {
+    var bag = _getBag();
+    if (!_cntAll(bag).total) { _exportToast('Lista vazia — nada para baixar.', 'warn'); return; }
+    var html = _gerarHtmlImprimivel();
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url  = URL.createObjectURL(blob);
+    var a    = document.createElement('a');
+    a.href = url; a.download = 'checklist-bagagem.html';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+    _exportToast('✅ Arquivo .html baixado!');
+  }
+
+  // ── Export modal ────────────────────────────────────
+  function abrirExportarModal() {
+    fecharExportarModal();
+    var bag = _getBag();
+    var all = _cntAll(bag);
+    var pct = all.total ? Math.round(all.done / all.total * 100) : 0;
+    var v   = _viagem || {};
+    var loc   = v.localizacaoCurta || v.destinoPrincipal || v.destino || '';
+    var datas = (v.dataInicio && v.dataFim) ? (_fmtDataExport(v.dataInicio) + ' – ' + _fmtDataExport(v.dataFim)) : '';
+    var nomes = _bagNomesAtivos(v);
+    var meta  = [loc, datas, nomes.join(', ')].filter(Boolean).join(' · ');
+
+    var overlay = document.createElement('div');
+    overlay.id = 'bag-export-overlay';
+    overlay.className = 'bag-export-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Exportar checklist');
+    overlay.onclick = function (e) { if (e.target === overlay) fecharExportarModal(); };
+
+    overlay.innerHTML =
+      '<div class="bag-export-box">' +
+        '<div class="bag-export-head">' +
+          '<span class="bag-export-title">📤 Exportar checklist</span>' +
+          '<button class="bag-export-close" aria-label="Fechar" onclick="BagagemPage.fecharExportarModal()">✕</button>' +
+        '</div>' +
+        '<div class="bag-export-summary">' +
+          '<p class="bag-export-trip-nome">' + _esc(v.nome || 'Viagem') + '</p>' +
+          (meta ? '<p class="bag-export-trip-info">' + _esc(meta) + '</p>' : '') +
+          '<div class="bag-export-prog">' +
+            '<span class="bag-export-prog-txt">' + all.done + '/' + all.total + ' itens — ' + pct + '%</span>' +
+            '<div class="bag-export-bar"><div class="bag-export-fill" style="width:' + pct + '%"></div></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="bag-export-actions">' +
+          '<button class="bag-export-btn bag-export-btn--primary" onclick="BagagemPage.compartilharChecklist()">' +
+            '<span class="beb-ico">📲</span>' +
+            '<span class="beb-texts"><b class="beb-label">Compartilhar</b><span class="beb-desc">WhatsApp, SMS, e-mail…</span></span>' +
+          '</button>' +
+          '<button class="bag-export-btn" onclick="BagagemPage.copiarChecklist()">' +
+            '<span class="beb-ico">📋</span>' +
+            '<span class="beb-texts"><b class="beb-label">Copiar texto</b><span class="beb-desc">Área de transferência</span></span>' +
+          '</button>' +
+          '<button class="bag-export-btn" onclick="BagagemPage.imprimirChecklist()">' +
+            '<span class="beb-ico">🖨️</span>' +
+            '<span class="beb-texts"><b class="beb-label">Imprimir / PDF</b><span class="beb-desc">Abre visualização de impressão</span></span>' +
+          '</button>' +
+          '<button class="bag-export-btn" onclick="BagagemPage.baixarChecklistTxt()">' +
+            '<span class="beb-ico">📄</span>' +
+            '<span class="beb-texts"><b class="beb-label">Baixar .txt</b><span class="beb-desc">Arquivo de texto simples</span></span>' +
+          '</button>' +
+          '<button class="bag-export-btn" onclick="BagagemPage.baixarChecklistHtml()">' +
+            '<span class="beb-ico">🌐</span>' +
+            '<span class="beb-texts"><b class="beb-label">Baixar .html</b><span class="beb-desc">Arquivo imprimível pronto</span></span>' +
+          '</button>' +
+        '</div>' +
+      '</div>';
+
+    document.body.appendChild(overlay);
+    requestAnimationFrame(function () { overlay.classList.add('bag-export-overlay--in'); });
+    document.addEventListener('keydown', _exportKeyDown);
+  }
+
+  function fecharExportarModal() {
+    var el = document.getElementById('bag-export-overlay');
+    if (el) el.remove();
+    document.removeEventListener('keydown', _exportKeyDown);
+  }
+
+  function _exportKeyDown(e) {
+    if (e.key === 'Escape') fecharExportarModal();
+  }
+
+  function _exportToast(msg, type) {
+    var old = document.getElementById('bag-ex-toast');
+    if (old) old.remove();
+    var t = document.createElement('div');
+    t.id = 'bag-ex-toast';
+    t.className = 'bag-export-toast' + (type === 'warn' ? ' bag-export-toast--warn' : '');
+    t.textContent = msg;
+    document.body.appendChild(t);
+    requestAnimationFrame(function () { t.classList.add('bag-export-toast--in'); });
+    setTimeout(function () {
+      t.classList.remove('bag-export-toast--in');
+      setTimeout(function () { if (t.parentNode) t.remove(); }, 300);
+    }, 3000);
+  }
+
+  function _exportFallbackCopy(txt) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = txt; ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      _exportToast('✅ Checklist copiado!');
+    } catch (e) { _exportToast('Não foi possível copiar. Use outro método.', 'warn'); }
+  }
+
   return {
     render:              render,
     toggleItem:          toggleItem,
@@ -1970,8 +2289,17 @@ var BagagemPage = (function () {
     _pickerSalvarCustom:  _pickerSalvarCustom,
     _pickerHideItem:      _pickerHideItem,
     _pickerRestoreItem:   _pickerRestoreItem,
-    // backwards compat
+    // ── backwards compat
     resetar:             resetarLista,
+    // Export
+    abrirExportarModal:  abrirExportarModal,
+    fecharExportarModal: fecharExportarModal,
+    gerarChecklistExportavel: gerarChecklistExportavel,
+    copiarChecklist:     copiarChecklist,
+    compartilharChecklist: compartilharChecklist,
+    imprimirChecklist:   imprimirChecklist,
+    baixarChecklistTxt:  baixarChecklistTxt,
+    baixarChecklistHtml: baixarChecklistHtml,
   };
 }());
 
