@@ -5263,3 +5263,126 @@ body.tpled-open { overflow: hidden; }
 
   .bag-item-check { display: none !important; }
 }
+
+/* ============================================================
+   WEATHER SERVICE — wb-* components
+   ============================================================ */
+
+/* ── Loading skeleton (pulse) ─────────────────────────────── */
+@keyframes wb-pulse {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 1;   }
+}
+.wb-loading {
+  animation: wb-pulse 1.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ── Hero pill (dashboard banner) ────────────────────────── */
+.wb-hero-placeholder {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 80px;
+  min-height: 28px;
+  border-radius: var(--radius-full, 999px);
+  background: rgba(255,255,255,0.15);
+  margin-bottom: var(--space-3, 12px);
+}
+
+.wb-hero-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: var(--radius-full, 999px);
+  padding: 4px 12px;
+  margin-bottom: var(--space-3, 12px);
+  backdrop-filter: blur(6px);
+  font-size: var(--text-sm, 0.875rem);
+  color: #fff;
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.wb-hero-icon  { font-size: 1.1rem; line-height: 1; }
+.wb-hero-temp  { font-weight: 700; }
+.wb-hero-range {
+  opacity: 0.85;
+  font-size: var(--text-xs, 0.75rem);
+}
+.wb-hero-label {
+  opacity: 0.9;
+  font-size: var(--text-xs, 0.75rem);
+}
+
+/* ── Card strip (viagens cards) ──────────────────────────── */
+.wb-card-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: var(--space-2, 8px);
+  min-height: 26px;
+}
+.wb-card-strip.wb-loading {
+  background: var(--color-border, #e5e7eb);
+  border-radius: var(--radius-md, 6px);
+  min-width: 140px;
+}
+
+.wb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--color-bg-alt, #f3f4f6);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: var(--radius-full, 999px);
+  padding: 2px 8px;
+  font-size: var(--text-xs, 0.72rem);
+  white-space: nowrap;
+}
+.wb-chip-icon   { font-size: 0.85rem; line-height: 1; }
+.wb-chip-date   { color: var(--color-text-secondary, #6b7280); }
+.wb-chip-range  { font-weight: 600; color: var(--color-text, #111); }
+
+/* ── Day badge (roteiro day header) ──────────────────────── */
+.wb-day-badge-ph {
+  display: inline-flex;
+  min-width: 60px;
+  min-height: 20px;
+  border-radius: var(--radius-full, 999px);
+  vertical-align: middle;
+  margin-left: var(--space-2, 8px);
+}
+.wb-day-badge-ph.wb-loading {
+  background: var(--color-border, #e5e7eb);
+}
+
+.wb-day-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--color-bg-alt, #f3f4f6);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: var(--radius-full, 999px);
+  padding: 2px 10px;
+  font-size: var(--text-xs, 0.72rem);
+  white-space: nowrap;
+  vertical-align: middle;
+  margin-left: var(--space-2, 8px);
+}
+.wb-badge-icon  { font-size: 0.85rem; line-height: 1; }
+.wb-badge-range { font-weight: 600; }
+.wb-badge-rain  { color: var(--color-info, #3b82f6); }
+
+/* ── Dark mode adjustments ───────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  .wb-chip,
+  .wb-day-badge {
+    background: var(--color-bg-alt, #1f2937);
+    border-color: var(--color-border, #374151);
+  }
+  .wb-chip-range,
+  .wb-badge-range { color: var(--color-text, #f9fafb); }
+}

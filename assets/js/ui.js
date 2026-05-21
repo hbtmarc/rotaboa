@@ -107,6 +107,7 @@ var UI = (function () {
             (loc  ? '<span class="trip-card-meta-item">📍 ' + loc  + '</span>' : '') +
             (datas ? '<span class="trip-card-meta-item">📅 ' + datas + '</span>' : '') +
           '</div>' +
+          '<div data-wb-card="' + viagem.id + '" class="wb-card-strip wb-loading"></div>' +
           '<div class="trip-card-meta-line" style="margin-top:var(--space-1)">' +
             '<span class="trip-card-meta-item">👥 ' + totalParticipantes + ' pessoa' + (totalParticipantes !== 1 ? 's' : '') +
               (nomesPreview ? ' (' + nomesPreview + ')' : '') +
@@ -980,6 +981,7 @@ var UI = (function () {
             '<div class="itin-day-date">' + _formatarDataRoteiro(dia.data) + '</div>' +
             (dia.titulo ? '<div class="itin-day-titulo">' + dia.titulo + '</div>' : '') +
           '</div>' +
+          (dia.data && tripId ? '<span data-wb-day="' + tripId + '-' + dia.data + '" class="wb-day-badge-ph"></span>' : '') +
         '</div>' +
         (timelineHtml
           ? '<div class="itin-timeline">' + timelineHtml + '</div>'

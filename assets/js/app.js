@@ -1198,6 +1198,7 @@ function paginaInicio(params, container) {
       '<div class="hero-eyebrow">Painel</div>' +
       '<h1 class="hero-title">Olá, ' + _getDisplayUserName() + ' 👋</h1>' +
       '<p class="hero-subtitle">Viagem selecionada: <strong>' + viagem.nome + '</strong></p>' +
+      '<div id="wb-hero-' + viagem.id + '" class="wb-hero-placeholder wb-loading"></div>' +
       '<div class="hero-actions">' +
         '<button class="btn btn-white" onclick="TripSwitcher.abrir()">Trocar viagem</button>' +
         '<a href="#/viagens" class="btn btn-outline-white">Ver viagens</a>' +
@@ -1287,6 +1288,7 @@ function paginaInicio(params, container) {
   );
 
   container.innerHTML = html;
+  WeatherService.precarregar(viagem).then(function () { WeatherService.atualizar(viagem.id); });
 }
 
 // ==== PÁGINA: Lista de Viagens ====
@@ -1362,6 +1364,10 @@ function paginaViagens(params, container) {
 
   container.innerHTML = html;
   _bindTripCards(container);
+  // Precarrega previsão para cada viagem exibida
+  viaigensFiltradas.forEach(function (v) {
+    WeatherService.precarregar(v).then(function () { WeatherService.atualizar(v.id); });
+  });
 }
 
 // ==== PÁGINA: Detalhe da Viagem ====
@@ -1550,6 +1556,7 @@ function paginaRoteiro(params, container) {
   );
 
   container.innerHTML = html;
+  WeatherService.precarregar(viagem).then(function () { WeatherService.atualizar(viagem.id); });
 }
 
 
