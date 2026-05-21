@@ -5,8 +5,8 @@
 var WeatherService = (function () {
 
   // ── Constantes ────────────────────────────────────────────────────────────
-  var _LS_PREFIX  = 'rotaboa.weather.v1.';
-  var _CACHE_TTL  = 30 * 60 * 1000;          // 30 minutos
+  var _LS_PREFIX  = 'rotaboa.weather.v2.';  // v2: inclui _loc + TTL 5min
+  var _CACHE_TTL  = 5 * 60 * 1000;           // 5 minutos (dados de temperatura atuais)
   var _GEO_URL    = 'https://geocoding-api.open-meteo.com/v1/search';
   var _FC_URL     = 'https://api.open-meteo.com/v1/forecast';
 
@@ -141,9 +141,12 @@ var WeatherService = (function () {
       coordP = _geocode(loc);
     }
 
+    var _loc = viagem.localizacaoCurta || viagem.destinoPrincipal || viagem.destino || '';
+
     return coordP
       .then(function (coords) { return _fetchForecast(coords.lat, coords.lon); })
       .then(function (data) {
+        if (_loc) data._loc = _loc;  // persiste cidade para links e validação
         _setCache(viagem.id, data);
         return data;
       })
@@ -172,22 +175,32 @@ var WeatherService = (function () {
 
   // ── Renderizadores HTML ───────────────────────────────────────────────────
 
-  // Pill compacto para o hero do dashboard: mostra clima atual + temperatura
+  // Pill compacto para o hero do dashboard: mostra clima atual + temperatura + link de previsão
   function renderHeroPill(data) {
     if (!data || !data.current) return '';
-    var info = _wmoInfo(data.current.code);
-    // também mostra hoje como referência
-    var today = _getDayData(data, _todayStr());
-    var tempRange = today
-      ? '<span class="wb-hero-range">' + today.min + '° – ' + today.max + '°</span>'
+    var info    = _wmoInfo(data.current.code);
+    var today   = _getDayData(data, _todayStr());
+    var loc     = data._loc || '';
+    // Use current temp; fallback to today's daily average if unavailable
+    var temp    = (data.current.temp !== null && data.current.temp !== undefined)
+      ? data.current.temp
+      : (today ? Math.round((today.max + today.min) / 2) : '–');
+    var range   = today
+      ? '<span class="wb-hero-sep">·</span>' +
+        '<span class="wb-hero-range">' + today.min + '° – ' + today.max + '°</span>'
       : '';
+    var searchUrl = loc
+      ? 'https://www.google.com/search?q=' + encodeURIComponent('previsão do tempo ' + loc) + '&hl=pt-BR'
+      : 'https://www.google.com/search?q=previs%C3%A3o+do+tempo&hl=pt-BR';
     return (
-      '<div class="wb-hero-pill">' +
+      '<a class="wb-hero-pill" href="' + searchUrl + '" target="_blank" rel="noopener" title="Ver previsão completa para ' + (loc || 'destino') + '">' +
         '<span class="wb-hero-icon">' + info.icon + '</span>' +
-        '<span class="wb-hero-temp">' + data.current.temp + '°C</span>' +
-        tempRange +
+        '<span class="wb-hero-temp">' + temp + '°C</span>' +
+        range +
+        '<span class="wb-hero-sep">·</span>' +
         '<span class="wb-hero-label">' + info.label + '</span>' +
-      '</div>'
+        '<span class="wb-hero-ext">↗</span>' +
+      '</a>'
     );
   }
 
